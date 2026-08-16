@@ -1,6 +1,4 @@
-console.log("🔍 Checking .env variables:");
-console.log("URL:", import.meta.env.VITE_SUPABASE_URL);
-console.log("KEY:", import.meta.env.VITE_SUPABASE_ANON_KEY);
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 

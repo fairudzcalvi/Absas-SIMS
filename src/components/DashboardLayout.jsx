@@ -5,7 +5,8 @@ import Sidebar from './Sidebar';
 export default function DashboardLayout() {
   const { session, role } = useAuth();
 
-  if (session === undefined || (session && role === null)) {
+  // Still resolving session or role
+  if (session === undefined || role === null) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#666' }}>
         Loading...
@@ -13,10 +14,15 @@ export default function DashboardLayout() {
     );
   }
 
-  if (!session) return <Navigate to="/login" replace />;
+  // Not authenticated
+  if (!session) {
+    return <Navigate to="/login" replace />;
+  }
 
-  // Teachers go to their own portal
-  if (role === 'teacher') return <Navigate to="/teacher" replace />;
+  // Authenticated but not an admin → send to their portal (or login if unrecognized)
+  if (role !== 'admin') {
+    return <Navigate to={role === 'teacher' ? '/teacher' : '/login'} replace />;
+  }
 
   return (
     <div className="dashboard-page">
