@@ -5,16 +5,13 @@ import TeacherSidebar from './TeacherSidebar';
 export default function TeacherLayout() {
   const { session, role } = useAuth();
 
-  // Still resolving
   if (session === undefined || role === null) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#666' }}>
-        Loading...
-      </div>
-    );
+    return <div style={styles.loading}>Loading...</div>;
   }
 
   if (!session) return <Navigate to="/login" replace />;
+  if (role === 'admin')   return <Navigate to="/dashboard" replace />;
+  if (role === 'student') return <Navigate to="/student" replace />;
 
   return (
     <div className="dashboard-page">
@@ -27,3 +24,7 @@ export default function TeacherLayout() {
     </div>
   );
 }
+
+const styles = {
+  loading: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#666' },
+};

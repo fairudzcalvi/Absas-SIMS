@@ -1,22 +1,22 @@
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import Sidebar from './Sidebar';
+import StudentSidebar from './StudentSidebar';
 
-export default function DashboardLayout() {
+export default function StudentLayout() {
   const { session, role } = useAuth();
 
-  if (session === undefined || (session && role === null)) {
+  if (session === undefined || role === null) {
     return <div style={styles.loading}>Loading...</div>;
   }
 
   if (!session) return <Navigate to="/login" replace />;
+  if (role === 'admin')   return <Navigate to="/dashboard" replace />;
   if (role === 'teacher') return <Navigate to="/teacher" replace />;
-  if (role === 'student') return <Navigate to="/student" replace />;
 
   return (
     <div className="dashboard-page">
       <div className="dashboard-container">
-        <Sidebar />
+        <StudentSidebar />
         <main className="main-content">
           <Outlet />
         </main>

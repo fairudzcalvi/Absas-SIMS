@@ -5,8 +5,14 @@ import schoolLogo from '../assets/logo.png';
 
 const CRIMSON = '#8B0000';
 
+const ROLE_HOME = {
+  admin:   '/dashboard',
+  teacher: '/teacher',
+  student: '/student',
+};
+
 export default function LoginPage() {
-  const { session, supabase, role } = useAuth();
+  const { session, supabase, role, logout } = useAuth();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
@@ -18,8 +24,29 @@ export default function LoginPage() {
   }
 
   // Logged in + role known → go to correct portal
-  if (session && role) {
-    return <Navigate to={role === 'teacher' ? '/teacher' : '/dashboard'} replace />;
+  if (session && role && ROLE_HOME[role]) {
+    return <Navigate to={ROLE_HOME[role]} replace />;
+  }
+
+  // Logged in but the account isn't recognized in admins/faculty/students
+  if (session && role === 'unknown') {
+    return (
+      <div style={styles.loadScreen}>
+        <div style={{ textAlign: 'center' }}>
+          <p>This account isn't linked to any admin, faculty, or student record.</p>
+          <p style={{ fontSize: '13px', opacity: 0.85, marginTop: '8px' }}>
+            Contact your administrator, or make sure your login email matches the email on file.
+          </p>
+          <button
+            type="button"
+            onClick={logout}
+            style={{ marginTop: '16px', padding: '10px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#fff', color: CRIMSON, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Logged in but role still resolving
@@ -109,7 +136,7 @@ export default function LoginPage() {
 const styles = {
   loadScreen: {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    height: '100vh', backgroundColor: CRIMSON, color: '#fff', fontSize: '16px',
+    height: '100vh', backgroundColor: CRIMSON, color: '#fff', fontSize: '16px', padding: '24px', textAlign: 'center',
   },
   wrapper: {
     minHeight: '100vh',

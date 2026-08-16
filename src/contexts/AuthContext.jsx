@@ -10,8 +10,8 @@ export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined); // undefined = loading
-  const [role, setRole]       = useState(null);       // null = not resolved yet, 'admin' | 'teacher'
-  const [profile, setProfile] = useState(null);        // the matching admins/faculty row
+  const [role, setRole]       = useState(null);       // null = not resolved yet, 'admin' | 'teacher' | 'student' | 'unknown'
+  const [profile, setProfile] = useState(null);        // the matching admins/faculty/students row
 
   async function resolveRole(currentSession) {
     if (!currentSession) {
@@ -48,7 +48,20 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // Logged in but not found in either table
+    // Then check students
+    const { data: student } = await supabase
+      .from('students')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (student) {
+      setRole('student');
+      setProfile(student);
+      return;
+    }
+
+    // Logged in but not found in any table
     setRole('unknown');
     setProfile(null);
   }
