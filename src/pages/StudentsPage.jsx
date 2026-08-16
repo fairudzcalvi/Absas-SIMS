@@ -81,14 +81,35 @@ function IcoClose() {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const GRADES = ['Nursery', 'Kinder', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
+const GRADE_OPTIONS = [
+  { value: 1,  label: 'Grade 1'  },
+  { value: 2,  label: 'Grade 2'  },
+  { value: 3,  label: 'Grade 3'  },
+  { value: 4,  label: 'Grade 4'  },
+  { value: 5,  label: 'Grade 5'  },
+  { value: 6,  label: 'Grade 6'  },
+  { value: 7,  label: 'Grade 7'  },
+  { value: 8,  label: 'Grade 8'  },
+  { value: 9,  label: 'Grade 9'  },
+  { value: 10, label: 'Grade 10' },
+];
 
 const EMPTY_FORM = {
-  first_name: '', last_name: '', middle_name: '',
-  lrn: '', grade_level: '', section_name: '',
-  gender: '', birthdate: '', age: '',
-  guardian_name: '', guardian_contact: '',
-  enrollment_status: 'Enrolled',
+  student_id:       '',
+  first_name:       '',
+  last_name:        '',
+  middle_name:      '',
+  lrn_id:           '',
+  grade_level:      '',
+  section_name:     '',
+  gender:           '',
+  birthdate:        '',
+  age:              '',
+  email:            '',
+  contact_number:   '',
+  guardian_name:    '',
+  guardian_contact: '',
+  status:           'Active',
 };
 
 /* ── Page ──────────────────────────────────────────────── */
@@ -113,9 +134,9 @@ export default function StudentsPage() {
   const fetchStudents = useCallback(async () => {
     setLoading(true);
     let query = supabase.from('students').select('*').order('created_at', { ascending: false });
-    if (gradeFilter) query = query.eq('grade_level', gradeFilter);
+    if (gradeFilter) query = query.eq('grade_level', Number(gradeFilter));
     if (genderFilter) query = query.eq('gender', genderFilter);
-    if (search) query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn.ilike.%${search}%,student_record_id.ilike.%${search}%`);
+    if (search) query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn_id.ilike.%${search}%,student_id.ilike.%${search}%`);
     const { data } = await query;
     setStudents(data ?? []);
     setLoading(false);
@@ -124,8 +145,8 @@ export default function StudentsPage() {
   useEffect(() => { fetchStudents(); }, [fetchStudents]);
 
   /* derived stats */
-  const total  = students.length;
-  const males  = students.filter(s => (s.gender ?? '').toLowerCase() === 'male').length;
+  const total   = students.length;
+  const males   = students.filter(s => (s.gender ?? '').toLowerCase() === 'male').length;
   const females = students.filter(s => (s.gender ?? '').toLowerCase() === 'female').length;
 
   /* open add modal */
@@ -140,18 +161,21 @@ export default function StudentsPage() {
   function openEdit(student) {
     setEditStudent(student);
     setForm({
+      student_id:       student.student_id       ?? '',
       first_name:       student.first_name       ?? '',
-      last_name:        student.last_name         ?? '',
-      middle_name:      student.middle_name       ?? '',
-      lrn:              student.lrn               ?? '',
-      grade_level:      student.grade_level       ?? '',
-      section_name:     student.section_name      ?? '',
-      gender:           student.gender            ?? '',
-      birthdate:        student.birthdate         ?? '',
-      age:              student.age               ?? '',
-      guardian_name:    student.guardian_name     ?? '',
-      guardian_contact: student.guardian_contact  ?? '',
-      enrollment_status: student.enrollment_status ?? 'Enrolled',
+      last_name:        student.last_name        ?? '',
+      middle_name:      student.middle_name      ?? '',
+      lrn_id:           student.lrn_id           ?? '',
+      grade_level:      student.grade_level      ?? '',
+      section_name:     student.section_name     ?? '',
+      gender:           student.gender           ?? '',
+      birthdate:        student.birthdate        ?? '',
+      age:              student.age              ?? '',
+      email:            student.email            ?? '',
+      contact_number:   student.contact_number   ?? '',
+      guardian_name:    student.guardian_name    ?? '',
+      guardian_contact: student.guardian_contact ?? '',
+      status:           student.status           ?? 'Active',
     });
     setFormError('');
     setModalOpen(true);
@@ -167,7 +191,23 @@ export default function StudentsPage() {
     setSaving(true);
     setFormError('');
 
-    const payload = { ...form };
+    const payload = {
+      student_id:       form.student_id       || undefined,
+      first_name:       form.first_name,
+      last_name:        form.last_name,
+      middle_name:      form.middle_name      || null,
+      lrn_id:           form.lrn_id           || null,
+      grade_level:      Number(form.grade_level),
+      section_name:     form.section_name     || null,
+      gender:           form.gender,
+      birthdate:        form.birthdate        || null,
+      age:              form.age              ? Number(form.age) : null,
+      email:            form.email            || null,
+      contact_number:   form.contact_number   || null,
+      guardian_name:    form.guardian_name    || null,
+      guardian_contact: form.guardian_contact || null,
+      status:           form.status,
+    };
 
     if (editStudent) {
       const { error } = await supabase
@@ -176,6 +216,7 @@ export default function StudentsPage() {
         .eq('student_record_id', editStudent.student_record_id);
       if (error) { setFormError(error.message); setSaving(false); return; }
     } else {
+      // Do not include student_record_id — it's SERIAL auto-generated
       const { error } = await supabase.from('students').insert([payload]);
       if (error) { setFormError(error.message); setSaving(false); return; }
     }
@@ -195,12 +236,13 @@ export default function StudentsPage() {
 
   /* export CSV */
   function exportCSV() {
-    const headers = ['ID', 'LRN', 'Name', 'Grade', 'Section', 'Gender', 'Age', 'Guardian', 'Contact', 'Status'];
+    const headers = ['Student ID', 'LRN', 'Name', 'Grade', 'Section', 'Gender', 'Age', 'Contact', 'Guardian', 'Status'];
     const rows = students.map(s => [
-      s.student_record_id, s.lrn,
+      s.student_id ?? s.student_record_id,
+      s.lrn_id,
       `${s.first_name} ${s.last_name}`,
       s.grade_level, s.section_name,
-      s.gender, s.age, s.guardian_name, s.guardian_contact, s.enrollment_status,
+      s.gender, s.age, s.contact_number, s.guardian_name, s.status,
     ]);
     const csv = [headers, ...rows].map(r => r.map(v => `"${v ?? ''}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -257,7 +299,7 @@ export default function StudentsPage() {
               <label>Grade Level</label>
               <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}>
                 <option value="">All Grades</option>
-                {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
@@ -273,7 +315,7 @@ export default function StudentsPage() {
               <input
                 className="search-input"
                 style={{ width: '100%' }}
-                placeholder="Name, LRN, or ID..."
+                placeholder="Name, LRN, or Student ID..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -299,8 +341,8 @@ export default function StudentsPage() {
                   <th>Grade &amp; Section</th>
                   <th>Gender</th>
                   <th>Age</th>
-                  <th>Guardian</th>
                   <th>Contact</th>
+                  <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -312,14 +354,14 @@ export default function StudentsPage() {
                 ) : (
                   students.map(s => (
                     <tr key={s.student_record_id}>
-                      <td>{s.student_record_id}</td>
-                      <td>{s.lrn ?? '—'}</td>
+                      <td>{s.student_id ?? '—'}</td>
+                      <td>{s.lrn_id ?? '—'}</td>
                       <td>{s.first_name} {s.middle_name ? s.middle_name[0] + '. ' : ''}{s.last_name}</td>
-                      <td>{s.grade_level} {s.section_name}</td>
+                      <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'} {s.section_name}</td>
                       <td>{s.gender}</td>
                       <td>{s.age ?? '—'}</td>
-                      <td>{s.guardian_name ?? '—'}</td>
-                      <td>{s.guardian_contact ?? '—'}</td>
+                      <td>{s.contact_number ?? '—'}</td>
+                      <td><StatusBadge status={s.status} /></td>
                       <td>
                         <div style={{ display: 'flex', gap: '6px' }}>
                           <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit">
@@ -357,6 +399,14 @@ export default function StudentsPage() {
                 )}
                 <div className="form-grid">
                   <div className="form-group">
+                    <label>Student ID</label>
+                    <input value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} placeholder="e.g. STU-001" />
+                  </div>
+                  <div className="form-group">
+                    <label>LRN</label>
+                    <input value={form.lrn_id} onChange={e => setForm(f => ({ ...f, lrn_id: e.target.value }))} placeholder="Learner Reference Number" />
+                  </div>
+                  <div className="form-group">
                     <label>First Name *</label>
                     <input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First name" />
                   </div>
@@ -369,14 +419,10 @@ export default function StudentsPage() {
                     <input value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Last name" />
                   </div>
                   <div className="form-group">
-                    <label>LRN</label>
-                    <input value={form.lrn} onChange={e => setForm(f => ({ ...f, lrn: e.target.value }))} placeholder="Learner Reference Number" />
-                  </div>
-                  <div className="form-group">
                     <label>Grade Level *</label>
                     <select value={form.grade_level} onChange={e => setForm(f => ({ ...f, grade_level: e.target.value }))}>
                       <option value="">Select grade</option>
-                      {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                      {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
@@ -400,19 +446,28 @@ export default function StudentsPage() {
                     <input type="number" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value }))} placeholder="Age" min="3" max="25" />
                   </div>
                   <div className="form-group">
+                    <label>Email</label>
+                    <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
+                  </div>
+                  <div className="form-group">
+                    <label>Contact Number</label>
+                    <input value={form.contact_number} onChange={e => setForm(f => ({ ...f, contact_number: e.target.value }))} placeholder="Contact number" />
+                  </div>
+                  <div className="form-group">
                     <label>Guardian Name</label>
                     <input value={form.guardian_name} onChange={e => setForm(f => ({ ...f, guardian_name: e.target.value }))} placeholder="Guardian full name" />
                   </div>
                   <div className="form-group">
                     <label>Guardian Contact</label>
-                    <input value={form.guardian_contact} onChange={e => setForm(f => ({ ...f, guardian_contact: e.target.value }))} placeholder="Contact number" />
+                    <input value={form.guardian_contact} onChange={e => setForm(f => ({ ...f, guardian_contact: e.target.value }))} placeholder="Guardian contact number" />
                   </div>
                   <div className="form-group">
-                    <label>Enrollment Status</label>
-                    <select value={form.enrollment_status} onChange={e => setForm(f => ({ ...f, enrollment_status: e.target.value }))}>
-                      <option value="Enrolled">Enrolled</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Withdrawn">Withdrawn</option>
+                    <label>Status</label>
+                    <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                      <option value="Graduated">Graduated</option>
+                      <option value="Transferred">Transferred</option>
                     </select>
                   </div>
                 </div>
@@ -450,4 +505,16 @@ export default function StudentsPage() {
       )}
     </>
   );
+}
+
+/* ── Sub-components ── */
+function StatusBadge({ status }) {
+  const s = (status ?? 'active').toLowerCase();
+  const cls =
+    s === 'active'      ? 'badge badge-success' :
+    s === 'inactive'    ? 'badge badge-warning' :
+    s === 'graduated'   ? 'badge badge-info'    :
+    s === 'transferred' ? 'badge badge-info'    :
+                          'badge badge-info';
+  return <span className={cls}>{status ?? 'Active'}</span>;
 }

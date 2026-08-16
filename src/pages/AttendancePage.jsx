@@ -66,10 +66,17 @@ function IcoExport() {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const GRADES = [
-  'Nursery', 'Kinder',
-  'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-  'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10',
+const GRADE_OPTIONS = [
+  { value: 1,  label: 'Grade 1'  },
+  { value: 2,  label: 'Grade 2'  },
+  { value: 3,  label: 'Grade 3'  },
+  { value: 4,  label: 'Grade 4'  },
+  { value: 5,  label: 'Grade 5'  },
+  { value: 6,  label: 'Grade 6'  },
+  { value: 7,  label: 'Grade 7'  },
+  { value: 8,  label: 'Grade 8'  },
+  { value: 9,  label: 'Grade 9'  },
+  { value: 10, label: 'Grade 10' },
 ];
 
 function todayISO() {
@@ -90,28 +97,27 @@ export default function AttendancePage() {
     e.preventDefault();
     setLoading(true);
 
+    // Query attendance joining students via FK on student_record_id
     let q = supabase
       .from('attendance')
       .select(`
-        id, date, status, remarks,
+        attendance_id, date, status, remarks,
         students ( student_record_id, first_name, last_name, grade_level, section_name )
       `)
       .eq('date', date)
       .order('date', { ascending: false });
 
+    const { data } = await q;
+    let rows = (data ?? []).filter(r => r.students); // guard nulls
+
+    // Client-side grade filter — grade_level is SMALLINT (number)
     if (gradeFilter) {
-      q = q.eq('students.grade_level', gradeFilter);
+      rows = rows.filter(r => r.students?.grade_level === Number(gradeFilter));
     }
 
-    const { data, error } = await q;
-    const rows = (data ?? []).filter(r => r.students); // guard nulls if grade filter applied client-side
-    const filtered = gradeFilter
-      ? rows.filter(r => r.students?.grade_level === gradeFilter)
-      : rows;
+    setRecords(rows);
 
-    setRecords(filtered);
-
-    // build monthly summary — attendance for the whole month
+    // Build monthly summary — attendance for the whole month
     const monthStart = date.slice(0, 7) + '-01';
     const monthEnd   = date.slice(0, 7) + '-31';
     let mq = supabase
@@ -119,19 +125,18 @@ export default function AttendancePage() {
       .select('date, status, students ( grade_level )')
       .gte('date', monthStart)
       .lte('date', monthEnd);
-    if (gradeFilter) mq = mq.eq('students.grade_level', gradeFilter);
 
     const { data: mData } = await mq;
-    const mRows = (mData ?? []).filter(r => r.students);
-    const mFiltered = gradeFilter
-      ? mRows.filter(r => r.students?.grade_level === gradeFilter)
-      : mRows;
+    let mRows = (mData ?? []).filter(r => r.students);
+    if (gradeFilter) {
+      mRows = mRows.filter(r => r.students?.grade_level === Number(gradeFilter));
+    }
 
-    const present  = mFiltered.filter(r => (r.status ?? '').toLowerCase() === 'present').length;
-    const absent   = mFiltered.filter(r => (r.status ?? '').toLowerCase() === 'absent').length;
-    const late     = mFiltered.filter(r => (r.status ?? '').toLowerCase() === 'late').length;
-    const excused  = mFiltered.filter(r => (r.status ?? '').toLowerCase() === 'excused').length;
-    setSummary({ present, absent, late, excused, total: mFiltered.length });
+    const present  = mRows.filter(r => (r.status ?? '').toLowerCase() === 'present').length;
+    const absent   = mRows.filter(r => (r.status ?? '').toLowerCase() === 'absent').length;
+    const late     = mRows.filter(r => (r.status ?? '').toLowerCase() === 'late').length;
+    const excused  = mRows.filter(r => (r.status ?? '').toLowerCase() === 'excused').length;
+    setSummary({ present, absent, late, excused, total: mRows.length });
 
     setLoading(false);
   }
@@ -163,6 +168,8 @@ export default function AttendancePage() {
   const presentCount = records?.filter(r => (r.status ?? '').toLowerCase() === 'present').length ?? 0;
   const absentCount  = records?.filter(r => (r.status ?? '').toLowerCase() === 'absent').length ?? 0;
   const lateCount    = records?.filter(r => (r.status ?? '').toLowerCase() === 'late').length ?? 0;
+
+  const selectedGradeLabel = GRADE_OPTIONS.find(g => g.value === Number(gradeFilter))?.label ?? '';
 
   return (
     <>
@@ -207,7 +214,7 @@ export default function AttendancePage() {
                   onChange={e => setGrade(e.target.value)}
                 >
                   <option value="">All Grades</option>
-                  {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                  {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                 </select>
               </div>
               <div style={{ alignSelf: 'flex-end', flexShrink: 0 }}>
@@ -225,7 +232,7 @@ export default function AttendancePage() {
             <div className="card-header">
               <h2 className="card-title">
                 <IcoAttendance />
-                {gradeFilter ? `${gradeFilter} — ` : 'All Grades — '}
+                {selectedGradeLabel ? `${selectedGradeLabel} — ` : 'All Grades — '}
                 {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
               </h2>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -256,13 +263,13 @@ export default function AttendancePage() {
                 </thead>
                 <tbody>
                   {records.length === 0 ? (
-                    <tr><td colSpan={6} className="empty-message">No attendance records for this date{gradeFilter ? ` in ${gradeFilter}` : ''}.</td></tr>
+                    <tr><td colSpan={6} className="empty-message">No attendance records for this date{selectedGradeLabel ? ` in ${selectedGradeLabel}` : ''}.</td></tr>
                   ) : (
                     records.map(r => (
-                      <tr key={r.id}>
+                      <tr key={r.attendance_id}>
                         <td>{r.students?.student_record_id ?? '—'}</td>
                         <td>{r.students?.first_name} {r.students?.last_name}</td>
-                        <td>{r.students?.grade_level ?? '—'}</td>
+                        <td>{r.students?.grade_level ? `Grade ${r.students.grade_level}` : '—'}</td>
                         <td>{r.students?.section_name ?? '—'}</td>
                         <td><StatusBadge status={r.status} /></td>
                         <td>{r.remarks ?? '—'}</td>
@@ -282,7 +289,7 @@ export default function AttendancePage() {
             {summary && (
               <span style={{ fontSize: '13px', color: '#666' }}>
                 {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                {gradeFilter ? ` — ${gradeFilter}` : ''}
+                {selectedGradeLabel ? ` — ${selectedGradeLabel}` : ''}
               </span>
             )}
           </div>
@@ -296,11 +303,11 @@ export default function AttendancePage() {
             </div>
           ) : (
             <div style={styles.summaryGrid}>
-              <SummaryTile label="Present"  value={summary.present}  color="#28a745" />
-              <SummaryTile label="Absent"   value={summary.absent}   color="#dc3545" />
-              <SummaryTile label="Late"     value={summary.late}     color="#ffc107" textColor="#000" />
-              <SummaryTile label="Excused"  value={summary.excused}  color="#17a2b8" />
-              <SummaryTile label="Total Records" value={summary.total} color="#8B0000" />
+              <SummaryTile label="Present"      value={summary.present}  color="#28a745" />
+              <SummaryTile label="Absent"       value={summary.absent}   color="#dc3545" />
+              <SummaryTile label="Late"         value={summary.late}     color="#ffc107" textColor="#000" />
+              <SummaryTile label="Excused"      value={summary.excused}  color="#17a2b8" />
+              <SummaryTile label="Total Records" value={summary.total}   color="#8B0000" />
             </div>
           )}
         </div>

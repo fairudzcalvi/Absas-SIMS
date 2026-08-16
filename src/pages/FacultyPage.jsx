@@ -83,19 +83,27 @@ function IcoClose() {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const DEPARTMENTS = [
-  'Grade School', 'Junior High School', 'Senior High School',
-  'Administration', 'Guidance', 'PE & Sports', 'Arts & Music',
-];
+const DEPARTMENTS = ['Elementary', 'Junior High', 'Administration'];
 
-const ROLES = ['Class Adviser', 'Subject Teacher', 'Department Head', 'Administrator', 'Guidance Counselor'];
+const ROLES = ['Teacher', 'Adviser', 'Both'];
 
 const EMPTY_FORM = {
-  first_name: '', last_name: '', middle_name: '',
-  email: '', contact: '',
-  department: '', role: '',
-  subjects: '',
+  faculty_id:        '',
+  employee_number:   '',
+  first_name:        '',
+  last_name:         '',
+  middle_name:       '',
+  email:             '',
+  contact_number:    '',
+  birthdate:         '',
+  address:           '',
+  department:        '',
+  position:          '',
+  role:              '',
+  adviser_grade_level: '',
+  subjects_taught:   '',
   employment_status: 'Active',
+  hire_date:         '',
 };
 
 /* ── Page ──────────────────────────────────────────────── */
@@ -119,10 +127,10 @@ export default function FacultyPage() {
   /* fetch */
   const fetchFaculty = useCallback(async () => {
     setLoading(true);
-    let q = supabase.from('faculty').select('*').order('created_at', { ascending: false });
+    let q = supabase.from('faculty').select('*').order('last_name', { ascending: true });
     if (deptFilter) q = q.eq('department', deptFilter);
     if (roleFilter) q = q.eq('role', roleFilter);
-    if (search)     q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,faculty_id.ilike.%${search}%`);
+    if (search)     q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,contact_number.ilike.%${search}%,faculty_id.ilike.%${search}%`);
     const { data } = await q;
     setFaculty(data ?? []);
     setLoading(false);
@@ -132,8 +140,16 @@ export default function FacultyPage() {
 
   /* derived stats */
   const total    = faculty.length;
-  const advisers = faculty.filter(f => (f.role ?? '').toLowerCase().includes('adviser')).length;
-  const teachers = faculty.filter(f => (f.role ?? '').toLowerCase().includes('teacher')).length;
+  // Adviser = role is 'Adviser' or 'Both'
+  const advisers = faculty.filter(f => {
+    const r = (f.role ?? '').toLowerCase();
+    return r === 'adviser' || r === 'both';
+  }).length;
+  // Teacher = role is 'Teacher' or 'Both'
+  const teachers = faculty.filter(f => {
+    const r = (f.role ?? '').toLowerCase();
+    return r === 'teacher' || r === 'both';
+  }).length;
 
   /* open modals */
   function openAdd() {
@@ -145,15 +161,22 @@ export default function FacultyPage() {
   function openEdit(item) {
     setEditItem(item);
     setForm({
-      first_name:        item.first_name        ?? '',
-      last_name:         item.last_name         ?? '',
-      middle_name:       item.middle_name       ?? '',
-      email:             item.email             ?? '',
-      contact:           item.contact           ?? '',
-      department:        item.department        ?? '',
-      role:              item.role              ?? '',
-      subjects:          item.subjects          ?? '',
-      employment_status: item.employment_status ?? 'Active',
+      faculty_id:          item.faculty_id          ?? '',
+      employee_number:     item.employee_number     ?? '',
+      first_name:          item.first_name          ?? '',
+      last_name:           item.last_name           ?? '',
+      middle_name:         item.middle_name         ?? '',
+      email:               item.email               ?? '',
+      contact_number:      item.contact_number      ?? '',
+      birthdate:           item.birthdate           ?? '',
+      address:             item.address             ?? '',
+      department:          item.department          ?? '',
+      position:            item.position            ?? '',
+      role:                item.role                ?? '',
+      adviser_grade_level: item.adviser_grade_level ?? '',
+      subjects_taught:     item.subjects_taught     ?? '',
+      employment_status:   item.employment_status   ?? 'Active',
+      hire_date:           item.hire_date           ?? '',
     });
     setFormError('');
     setModalOpen(true);
@@ -169,11 +192,30 @@ export default function FacultyPage() {
     setSaving(true);
     setFormError('');
 
+    const payload = {
+      faculty_id:          form.faculty_id          || undefined,
+      employee_number:     form.employee_number     || null,
+      first_name:          form.first_name,
+      last_name:           form.last_name,
+      middle_name:         form.middle_name         || null,
+      email:               form.email               || null,
+      contact_number:      form.contact_number      || null,
+      birthdate:           form.birthdate           || null,
+      address:             form.address             || null,
+      department:          form.department          || null,
+      position:            form.position            || null,
+      role:                form.role,
+      adviser_grade_level: form.adviser_grade_level ? Number(form.adviser_grade_level) : null,
+      subjects_taught:     form.subjects_taught     || null,
+      employment_status:   form.employment_status,
+      hire_date:           form.hire_date           || null,
+    };
+
     if (editItem) {
-      const { error } = await supabase.from('faculty').update({ ...form }).eq('faculty_id', editItem.faculty_id);
+      const { error } = await supabase.from('faculty').update(payload).eq('faculty_record_id', editItem.faculty_record_id);
       if (error) { setFormError(error.message); setSaving(false); return; }
     } else {
-      const { error } = await supabase.from('faculty').insert([{ ...form }]);
+      const { error } = await supabase.from('faculty').insert([payload]);
       if (error) { setFormError(error.message); setSaving(false); return; }
     }
 
@@ -185,19 +227,21 @@ export default function FacultyPage() {
   /* delete */
   async function handleDelete() {
     if (!deleteTarget) return;
-    await supabase.from('faculty').delete().eq('faculty_id', deleteTarget.faculty_id);
+    await supabase.from('faculty').delete().eq('faculty_record_id', deleteTarget.faculty_record_id);
     setDeleteTarget(null);
     fetchFaculty();
   }
 
   /* export CSV */
   function exportCSV() {
-    const headers = ['Faculty ID', 'Name', 'Department', 'Role', 'Subjects', 'Email', 'Contact', 'Status'];
+    const headers = ['Faculty ID', 'Employee No.', 'Name', 'Department', 'Position', 'Role', 'Subjects', 'Email', 'Contact', 'Status'];
     const rows = faculty.map(f => [
       f.faculty_id,
+      f.employee_number,
       `${f.first_name} ${f.last_name}`,
-      f.department, f.role, f.subjects,
-      f.email, f.contact, f.employment_status,
+      f.department, f.position, f.role,
+      f.subjects_taught,
+      f.email, f.contact_number, f.employment_status,
     ]);
     const csv = [headers, ...rows].map(r => r.map(v => `"${v ?? ''}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -297,6 +341,7 @@ export default function FacultyPage() {
                   <th>Faculty ID</th>
                   <th>Name</th>
                   <th>Department</th>
+                  <th>Position</th>
                   <th>Role</th>
                   <th>Subjects</th>
                   <th>Contact</th>
@@ -306,18 +351,19 @@ export default function FacultyPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} className="empty-message">Loading...</td></tr>
+                  <tr><td colSpan={9} className="empty-message">Loading...</td></tr>
                 ) : faculty.length === 0 ? (
-                  <tr><td colSpan={8} className="empty-message">No faculty records found</td></tr>
+                  <tr><td colSpan={9} className="empty-message">No faculty records found</td></tr>
                 ) : (
                   faculty.map(f => (
-                    <tr key={f.faculty_id}>
-                      <td>{f.faculty_id}</td>
+                    <tr key={f.faculty_record_id}>
+                      <td>{f.faculty_id ?? '—'}</td>
                       <td>{f.first_name} {f.middle_name ? f.middle_name[0] + '. ' : ''}{f.last_name}</td>
                       <td>{f.department ?? '—'}</td>
+                      <td>{f.position ?? '—'}</td>
                       <td>{f.role ?? '—'}</td>
-                      <td>{f.subjects ?? '—'}</td>
-                      <td>{f.contact ?? f.email ?? '—'}</td>
+                      <td>{f.subjects_taught ?? '—'}</td>
+                      <td>{f.contact_number ?? f.email ?? '—'}</td>
                       <td><StatusBadge status={f.employment_status} /></td>
                       <td>
                         <div style={{ display: 'flex', gap: '6px' }}>
@@ -348,6 +394,14 @@ export default function FacultyPage() {
                 {formError && <p style={{ color: '#dc3545', marginBottom: '12px', fontSize: '14px' }}>{formError}</p>}
                 <div className="form-grid">
                   <div className="form-group">
+                    <label>Faculty ID</label>
+                    <input value={form.faculty_id} onChange={e => setForm(f => ({ ...f, faculty_id: e.target.value }))} placeholder="e.g. FAC-001" />
+                  </div>
+                  <div className="form-group">
+                    <label>Employee Number</label>
+                    <input value={form.employee_number} onChange={e => setForm(f => ({ ...f, employee_number: e.target.value }))} placeholder="Employee number" />
+                  </div>
+                  <div className="form-group">
                     <label>First Name *</label>
                     <input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First name" />
                   </div>
@@ -365,7 +419,15 @@ export default function FacultyPage() {
                   </div>
                   <div className="form-group">
                     <label>Contact Number</label>
-                    <input value={form.contact} onChange={e => setForm(f => ({ ...f, contact: e.target.value }))} placeholder="Contact number" />
+                    <input value={form.contact_number} onChange={e => setForm(f => ({ ...f, contact_number: e.target.value }))} placeholder="Contact number" />
+                  </div>
+                  <div className="form-group">
+                    <label>Birthdate</label>
+                    <input type="date" value={form.birthdate} onChange={e => setForm(f => ({ ...f, birthdate: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label>Address</label>
+                    <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address" />
                   </div>
                   <div className="form-group">
                     <label>Department</label>
@@ -375,6 +437,10 @@ export default function FacultyPage() {
                     </select>
                   </div>
                   <div className="form-group">
+                    <label>Position</label>
+                    <input value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. Head Teacher" />
+                  </div>
+                  <div className="form-group">
                     <label>Role *</label>
                     <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
                       <option value="">Select role</option>
@@ -382,15 +448,23 @@ export default function FacultyPage() {
                     </select>
                   </div>
                   <div className="form-group">
-                    <label>Subjects Handled</label>
-                    <input value={form.subjects} onChange={e => setForm(f => ({ ...f, subjects: e.target.value }))} placeholder="e.g. Math, Science" />
+                    <label>Adviser Grade Level</label>
+                    <input type="number" min="1" max="10" value={form.adviser_grade_level} onChange={e => setForm(f => ({ ...f, adviser_grade_level: e.target.value }))} placeholder="Grade level advised (1-10)" />
+                  </div>
+                  <div className="form-group">
+                    <label>Subjects Taught</label>
+                    <input value={form.subjects_taught} onChange={e => setForm(f => ({ ...f, subjects_taught: e.target.value }))} placeholder="e.g. Math, Science" />
+                  </div>
+                  <div className="form-group">
+                    <label>Hire Date</label>
+                    <input type="date" value={form.hire_date} onChange={e => setForm(f => ({ ...f, hire_date: e.target.value }))} />
                   </div>
                   <div className="form-group">
                     <label>Employment Status</label>
                     <select value={form.employment_status} onChange={e => setForm(f => ({ ...f, employment_status: e.target.value }))}>
                       <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
                       <option value="On Leave">On Leave</option>
+                      <option value="Inactive">Inactive</option>
                     </select>
                   </div>
                 </div>

@@ -66,27 +66,37 @@ function IcoClose() {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const GRADES = [
-  'Nursery', 'Kinder',
-  'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-  'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10',
+const GRADE_OPTIONS = [
+  { value: 1,  label: 'Grade 1'  },
+  { value: 2,  label: 'Grade 2'  },
+  { value: 3,  label: 'Grade 3'  },
+  { value: 4,  label: 'Grade 4'  },
+  { value: 5,  label: 'Grade 5'  },
+  { value: 6,  label: 'Grade 6'  },
+  { value: 7,  label: 'Grade 7'  },
+  { value: 8,  label: 'Grade 8'  },
+  { value: 9,  label: 'Grade 9'  },
+  { value: 10, label: 'Grade 10' },
 ];
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 const EMPTY_FORM = {
-  subject: '',
-  teacher: '',
-  day: 'Monday',
-  time_start: '',
-  time_end: '',
-  room: '',
+  subject:      '',
+  teacher:      '',
+  day_of_week:  'Monday',
+  section_name: '',
+  time_start:   '',
+  time_end:     '',
+  room:         '',
+  school_year:  '2025-2026',
 };
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function SchedulesPage() {
   const { supabase } = useAuth();
 
+  // gradeLevel stored as number (or '' for none)
   const [gradeLevel, setGradeLevel] = useState('');
   const [schedules, setSchedules]   = useState([]);
   const [loading, setLoading]       = useState(false);
@@ -101,36 +111,38 @@ export default function SchedulesPage() {
   /* fetch schedules when grade changes */
   useEffect(() => {
     if (!gradeLevel) { setSchedules([]); return; }
-    async function fetch() {
+    async function fetchSchedules() {
       setLoading(true);
       const { data } = await supabase
-        .from('class_schedules')
+        .from('schedules')
         .select('*')
-        .eq('grade_level', gradeLevel)
-        .order('day')
+        .eq('grade_level', Number(gradeLevel))
+        .order('day_of_week')
         .order('time_start');
       setSchedules(data ?? []);
       setLoading(false);
     }
-    fetch();
+    fetchSchedules();
   }, [supabase, gradeLevel]);
 
   /* open modals */
   function openAdd() {
     setEditItem(null);
-    setForm({ ...EMPTY_FORM, grade_level: gradeLevel });
+    setForm({ ...EMPTY_FORM, grade_level: Number(gradeLevel) });
     setFormError('');
     setModalOpen(true);
   }
   function openEdit(item) {
     setEditItem(item);
     setForm({
-      subject:    item.subject    ?? '',
-      teacher:    item.teacher    ?? '',
-      day:        item.day        ?? 'Monday',
-      time_start: item.time_start ?? '',
-      time_end:   item.time_end   ?? '',
-      room:       item.room       ?? '',
+      subject:      item.subject      ?? '',
+      teacher:      item.teacher      ?? '',
+      day_of_week:  item.day_of_week  ?? 'Monday',
+      section_name: item.section_name ?? '',
+      time_start:   item.time_start   ?? '',
+      time_end:     item.time_end     ?? '',
+      room:         item.room         ?? '',
+      school_year:  item.school_year  ?? '2025-2026',
     });
     setFormError('');
     setModalOpen(true);
@@ -139,19 +151,22 @@ export default function SchedulesPage() {
   /* save */
   async function handleSave(e) {
     e.preventDefault();
-    if (!form.subject || !form.day || !form.time_start || !form.time_end) {
+    if (!form.subject || !form.day_of_week || !form.time_start || !form.time_end) {
       setFormError('Subject, day, start time, and end time are required.');
       return;
     }
     setSaving(true);
     setFormError('');
-    const payload = { ...form, grade_level: gradeLevel };
+    const payload = {
+      ...form,
+      grade_level: Number(gradeLevel),
+    };
 
     if (editItem) {
-      const { error } = await supabase.from('class_schedules').update(payload).eq('id', editItem.id);
+      const { error } = await supabase.from('schedules').update(payload).eq('schedule_id', editItem.schedule_id);
       if (error) { setFormError(error.message); setSaving(false); return; }
     } else {
-      const { error } = await supabase.from('class_schedules').insert([payload]);
+      const { error } = await supabase.from('schedules').insert([payload]);
       if (error) { setFormError(error.message); setSaving(false); return; }
     }
 
@@ -159,27 +174,29 @@ export default function SchedulesPage() {
     setModalOpen(false);
     // re-fetch
     const { data } = await supabase
-      .from('class_schedules').select('*')
-      .eq('grade_level', gradeLevel).order('day').order('time_start');
+      .from('schedules').select('*')
+      .eq('grade_level', Number(gradeLevel)).order('day_of_week').order('time_start');
     setSchedules(data ?? []);
   }
 
   /* delete */
   async function handleDelete() {
     if (!deleteTarget) return;
-    await supabase.from('class_schedules').delete().eq('id', deleteTarget.id);
+    await supabase.from('schedules').delete().eq('schedule_id', deleteTarget.schedule_id);
     setDeleteTarget(null);
     const { data } = await supabase
-      .from('class_schedules').select('*')
-      .eq('grade_level', gradeLevel).order('day').order('time_start');
+      .from('schedules').select('*')
+      .eq('grade_level', Number(gradeLevel)).order('day_of_week').order('time_start');
     setSchedules(data ?? []);
   }
 
-  /* group schedules by day for the timetable view */
+  /* group schedules by day_of_week for timetable view */
   const byDay = DAYS.reduce((acc, d) => {
-    acc[d] = schedules.filter(s => s.day === d);
+    acc[d] = schedules.filter(s => s.day_of_week === d);
     return acc;
   }, {});
+
+  const selectedGradeLabel = GRADE_OPTIONS.find(g => g.value === Number(gradeLevel))?.label ?? gradeLevel;
 
   const dateStr = new Date().toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
@@ -214,7 +231,7 @@ export default function SchedulesPage() {
               style={{ width: '100%' }}
             >
               <option value="">Select Grade Level</option>
-              {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+              {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
             </select>
           </div>
         </div>
@@ -236,13 +253,13 @@ export default function SchedulesPage() {
             <div style={styles.emptyState}>
               <IcoCalendarX />
               <h3 style={styles.emptyTitle}>No Schedules Found</h3>
-              <p style={styles.emptySub}>No schedules added for {gradeLevel} yet. Click "Add Schedule" to get started.</p>
+              <p style={styles.emptySub}>No schedules added for {selectedGradeLabel} yet. Click "Add Schedule" to get started.</p>
             </div>
           ) : (
             /* Timetable by day */
             <div>
               <div className="card-header" style={{ marginBottom: '16px' }}>
-                <h2 className="card-title"><IcoCalendar size={18} /> {gradeLevel} — Weekly Schedule</h2>
+                <h2 className="card-title"><IcoCalendar size={18} /> {selectedGradeLabel} — Weekly Schedule</h2>
               </div>
               <div className="table-container">
                 <table className="data-table">
@@ -250,6 +267,7 @@ export default function SchedulesPage() {
                     <tr>
                       <th>Day</th>
                       <th>Subject</th>
+                      <th>Section</th>
                       <th>Teacher</th>
                       <th>Time</th>
                       <th>Room</th>
@@ -260,13 +278,14 @@ export default function SchedulesPage() {
                     {DAYS.map(day =>
                       byDay[day].length === 0 ? null : (
                         byDay[day].map((s, i) => (
-                          <tr key={s.id}>
+                          <tr key={s.schedule_id}>
                             {i === 0 && (
                               <td rowSpan={byDay[day].length} style={styles.dayCell}>
                                 {day}
                               </td>
                             )}
                             <td>{s.subject}</td>
+                            <td>{s.section_name ?? '—'}</td>
                             <td>{s.teacher ?? '—'}</td>
                             <td style={{ whiteSpace: 'nowrap' }}>
                               {formatTime(s.time_start)} – {formatTime(s.time_end)}
@@ -297,7 +316,7 @@ export default function SchedulesPage() {
           <div className="modal-content" style={{ maxWidth: '560px' }}>
             <div className="modal-header">
               <h3 className="modal-title">
-                <IcoCalendar size={18} /> {editItem ? 'Edit Schedule' : `Add Schedule — ${gradeLevel}`}
+                <IcoCalendar size={18} /> {editItem ? 'Edit Schedule' : `Add Schedule — ${selectedGradeLabel}`}
               </h3>
               <button className="modal-close" onClick={() => setModalOpen(false)}><IcoClose /></button>
             </div>
@@ -310,12 +329,16 @@ export default function SchedulesPage() {
                     <input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="e.g. Mathematics" />
                   </div>
                   <div className="form-group">
+                    <label>Section</label>
+                    <input value={form.section_name} onChange={e => setForm(f => ({ ...f, section_name: e.target.value }))} placeholder="e.g. Section A" />
+                  </div>
+                  <div className="form-group">
                     <label>Teacher</label>
                     <input value={form.teacher} onChange={e => setForm(f => ({ ...f, teacher: e.target.value }))} placeholder="Teacher name" />
                   </div>
                   <div className="form-group">
                     <label>Day *</label>
-                    <select value={form.day} onChange={e => setForm(f => ({ ...f, day: e.target.value }))}>
+                    <select value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: e.target.value }))}>
                       {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
@@ -330,6 +353,10 @@ export default function SchedulesPage() {
                   <div className="form-group">
                     <label>End Time *</label>
                     <input type="time" value={form.time_end} onChange={e => setForm(f => ({ ...f, time_end: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label>School Year</label>
+                    <input value={form.school_year} onChange={e => setForm(f => ({ ...f, school_year: e.target.value }))} placeholder="e.g. 2025-2026" />
                   </div>
                 </div>
               </div>
@@ -354,7 +381,7 @@ export default function SchedulesPage() {
             </div>
             <div className="modal-body">
               <p style={{ fontSize: '15px', color: '#444' }}>
-                Are you sure you want to delete the <strong>{deleteTarget.subject}</strong> schedule on <strong>{deleteTarget.day}</strong>? This cannot be undone.
+                Are you sure you want to delete the <strong>{deleteTarget.subject}</strong> schedule on <strong>{deleteTarget.day_of_week}</strong>? This cannot be undone.
               </p>
             </div>
             <div className="modal-footer">

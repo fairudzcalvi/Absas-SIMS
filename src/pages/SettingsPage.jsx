@@ -473,11 +473,11 @@ function DataManagementTab({ supabase }) {
   }
 
   const EXPORT_ITEMS = [
-    { label: 'Export Students',   table: 'students',  file: 'students_export'  },
-    { label: 'Export Faculty',    table: 'faculty',   file: 'faculty_export'   },
-    { label: 'Export Attendance', table: 'attendance',file: 'attendance_export' },
-    { label: 'Export Finance',    table: 'finance',   file: 'finance_export'   },
-    { label: 'Export Grades',     table: 'grades',    file: 'grades_export'    },
+    { label: 'Export Students',   table: 'students',          file: 'students_export'  },
+    { label: 'Export Faculty',    table: 'faculty',           file: 'faculty_export'   },
+    { label: 'Export Attendance', table: 'attendance',        file: 'attendance_export' },
+    { label: 'Export Finance',    table: 'student_finances',  file: 'finance_export'   },
+    { label: 'Export Grades',     table: 'grades',            file: 'grades_export'    },
   ];
 
   return (

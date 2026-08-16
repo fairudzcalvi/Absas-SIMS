@@ -170,7 +170,7 @@ export default function DashboardPage() {
         supabase.from('faculty').select('*', { count: 'exact', head: true }),
         supabase
           .from('students')
-          .select('student_record_id, first_name, last_name, grade_level, section_name, created_at, enrollment_status')
+          .select('student_record_id, student_id, first_name, last_name, grade_level, section_name, created_at, status')
           .order('created_at', { ascending: false })
           .limit(10),
       ]);
@@ -225,12 +225,12 @@ export default function DashboardPage() {
                 ) : (
                   enrollments.map((s) => (
                     <tr key={s.student_record_id}>
-                      <td>{s.student_record_id}</td>
+                      <td>{s.student_id ?? s.student_record_id}</td>
                       <td>{s.first_name} {s.last_name}</td>
                       <td>{s.grade_level}</td>
                       <td>{s.section_name}</td>
                       <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}</td>
-                      <td><StatusBadge status={s.enrollment_status} /></td>
+                      <td><StatusBadge status={s.status} /></td>
                     </tr>
                   ))
                 )}
@@ -273,10 +273,12 @@ function StatCard({ Icon, value, label, variant }) {
 }
 
 function StatusBadge({ status }) {
-  const s = (status ?? 'enrolled').toLowerCase();
+  const s = (status ?? 'active').toLowerCase();
   const cls =
-    s === 'enrolled' ? 'badge badge-success' :
-    s === 'pending'  ? 'badge badge-warning' :
-                       'badge badge-info';
-  return <span className={cls}>{status ?? 'Enrolled'}</span>;
+    s === 'active'     ? 'badge badge-success' :
+    s === 'inactive'   ? 'badge badge-warning' :
+    s === 'graduated'  ? 'badge badge-info'    :
+    s === 'transferred'? 'badge badge-info'    :
+                         'badge badge-info';
+  return <span className={cls}>{status ?? 'Active'}</span>;
 }

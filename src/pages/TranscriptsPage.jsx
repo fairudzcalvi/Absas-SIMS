@@ -112,10 +112,17 @@ function IcoClose() {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const GRADES = [
-  'Nursery', 'Kinder',
-  'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-  'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10',
+const GRADE_OPTIONS = [
+  { value: 1,  label: 'Grade 1'  },
+  { value: 2,  label: 'Grade 2'  },
+  { value: 3,  label: 'Grade 3'  },
+  { value: 4,  label: 'Grade 4'  },
+  { value: 5,  label: 'Grade 5'  },
+  { value: 6,  label: 'Grade 6'  },
+  { value: 7,  label: 'Grade 7'  },
+  { value: 8,  label: 'Grade 8'  },
+  { value: 9,  label: 'Grade 9'  },
+  { value: 10, label: 'Grade 10' },
 ];
 
 /* ── Page ──────────────────────────────────────────────── */
@@ -123,6 +130,7 @@ export default function TranscriptsPage() {
   const { supabase } = useAuth();
 
   const [students, setStudents]     = useState([]);
+  const [transcriptMap, setTranscriptMap] = useState({}); // keyed by student_record_id
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState('');
   const [gradeFilter, setGrade]     = useState('');
@@ -133,30 +141,50 @@ export default function TranscriptsPage() {
   const [grades, setGrades]         = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  /* fetch students with transcript info */
+  /* fetch students + transcripts separately, then merge */
   const fetchStudents = useCallback(async () => {
     setLoading(true);
+
+    // 1. Fetch students
     let q = supabase
       .from('students')
-      .select('student_record_id, first_name, last_name, lrn, grade_level, section_name, transcript_status, general_average, transcript_generated_at')
+      .select('student_record_id, student_id, first_name, last_name, lrn_id, grade_level, section_name')
       .order('last_name');
 
-    if (gradeFilter) q = q.eq('grade_level', gradeFilter);
-    if (search)      q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn.ilike.%${search}%,student_record_id.ilike.%${search}%`);
-    if (statusFilter === 'complete')   q = q.eq('transcript_status', 'Complete');
-    if (statusFilter === 'incomplete') q = q.eq('transcript_status', 'Incomplete');
+    if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
+    if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn_id.ilike.%${search}%,student_id.ilike.%${search}%`);
 
-    const { data } = await q;
-    const rows = data ?? [];
+    const { data: studentData } = await q;
+    const studentRows = studentData ?? [];
+
+    // 2. Fetch transcripts
+    const { data: transcriptData } = await supabase
+      .from('transcripts')
+      .select('student_record_id, general_average, generated_date, school_year');
+
+    const tMap = {};
+    (transcriptData ?? []).forEach(t => {
+      tMap[t.student_record_id] = t;
+    });
+    setTranscriptMap(tMap);
+
+    // 3. Apply status filter client-side
+    let rows = studentRows;
+    if (statusFilter === 'complete')   rows = rows.filter(s => !!tMap[s.student_record_id]);
+    if (statusFilter === 'incomplete') rows = rows.filter(s => !tMap[s.student_record_id]);
+
     setStudents(rows);
 
-    // stats
+    // 4. Stats
     const today = new Date().toISOString().split('T')[0];
+    const todayCount = (transcriptData ?? []).filter(t => (t.generated_date ?? '').startsWith(today)).length;
+    const completeIds = new Set((transcriptData ?? []).map(t => t.student_record_id));
+
     setStats({
-      total:      rows.length,
-      today:      rows.filter(s => s.transcript_generated_at?.startsWith(today)).length,
-      complete:   rows.filter(s => (s.transcript_status ?? '').toLowerCase() === 'complete').length,
-      incomplete: rows.filter(s => (s.transcript_status ?? '').toLowerCase() !== 'complete').length,
+      total:      (transcriptData ?? []).length,
+      today:      todayCount,
+      complete:   completeIds.size,
+      incomplete: studentRows.length - completeIds.size,
     });
 
     setLoading(false);
@@ -164,25 +192,31 @@ export default function TranscriptsPage() {
 
   useEffect(() => { fetchStudents(); }, [fetchStudents]);
 
-  /* preview / generate */
+  /* preview grades */
   async function openPreview(student) {
     setPreview(student);
     setPreviewLoading(true);
     const { data } = await supabase
       .from('grades')
       .select('*')
-      .eq('student_id', student.student_record_id)
-      .order('quarter');
+      .eq('student_record_id', student.student_record_id)
+      .order('subject');
     setGrades(data ?? []);
     setPreviewLoading(false);
   }
 
+  /* mark as generated — INSERT into transcripts table */
   async function markGenerated(studentId) {
-    const now = new Date().toISOString();
-    await supabase.from('students').update({
-      transcript_status: 'Complete',
-      transcript_generated_at: now,
-    }).eq('student_record_id', studentId);
+    const today = new Date().toISOString().split('T')[0];
+    await supabase.from('transcripts').upsert(
+      {
+        student_record_id: studentId,
+        general_average:   null,
+        generated_date:    today,
+        school_year:       '2025-2026',
+      },
+      { onConflict: 'student_record_id' }
+    );
     setPreview(null);
     fetchStudents();
   }
@@ -246,7 +280,7 @@ export default function TranscriptsPage() {
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Search Student</label>
               <input
-                placeholder="Search by name, ID, or LRN..."
+                placeholder="Search by name, Student ID, or LRN..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -255,7 +289,7 @@ export default function TranscriptsPage() {
               <label>Grade Level</label>
               <select value={gradeFilter} onChange={e => setGrade(e.target.value)}>
                 <option value="">All Grades</option>
-                {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
@@ -294,31 +328,34 @@ export default function TranscriptsPage() {
                 ) : students.length === 0 ? (
                   <tr><td colSpan={8} className="empty-message">No students found</td></tr>
                 ) : (
-                  students.map(s => (
-                    <tr key={s.student_record_id}>
-                      <td>{s.student_record_id}</td>
-                      <td>{s.lrn ?? '—'}</td>
-                      <td>{s.first_name} {s.last_name}</td>
-                      <td>{s.grade_level} {s.section_name ? `— ${s.section_name}` : ''}</td>
-                      <td><TranscriptBadge status={s.transcript_status} /></td>
-                      <td>{s.general_average ? Number(s.general_average).toFixed(2) : '—'}</td>
-                      <td>
-                        {s.transcript_generated_at
-                          ? new Date(s.transcript_generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                          : '—'}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button className="btn btn-secondary btn-sm" onClick={() => openPreview(s)} title="View / Generate">
-                            <IcoView /> View
-                          </button>
-                          <button className="btn btn-primary btn-sm" onClick={() => markGenerated(s.student_record_id)} title="Generate">
-                            <IcoGenerate /> Generate
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                  students.map(s => {
+                    const t = transcriptMap[s.student_record_id];
+                    return (
+                      <tr key={s.student_record_id}>
+                        <td>{s.student_id ?? '—'}</td>
+                        <td>{s.lrn_id ?? '—'}</td>
+                        <td>{s.first_name} {s.last_name}</td>
+                        <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'} {s.section_name ? `— ${s.section_name}` : ''}</td>
+                        <td><TranscriptBadge hasTranscript={!!t} /></td>
+                        <td>{t?.general_average ? Number(t.general_average).toFixed(2) : '—'}</td>
+                        <td>
+                          {t?.generated_date
+                            ? new Date(t.generated_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : '—'}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openPreview(s)} title="View / Generate">
+                              <IcoView /> View
+                            </button>
+                            <button className="btn btn-primary btn-sm" onClick={() => markGenerated(s.student_record_id)} title="Generate">
+                              <IcoGenerate /> Generate
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -366,9 +403,10 @@ export default function TranscriptsPage() {
               {/* Student Info */}
               <div style={styles.previewMeta}>
                 <div><strong>Name:</strong> {previewStudent.first_name} {previewStudent.last_name}</div>
-                <div><strong>LRN:</strong> {previewStudent.lrn ?? '—'}</div>
-                <div><strong>Grade:</strong> {previewStudent.grade_level} {previewStudent.section_name}</div>
-                <div><strong>General Average:</strong> {previewStudent.general_average ? Number(previewStudent.general_average).toFixed(2) : '—'}</div>
+                <div><strong>Student ID:</strong> {previewStudent.student_id ?? '—'}</div>
+                <div><strong>LRN:</strong> {previewStudent.lrn_id ?? '—'}</div>
+                <div><strong>Grade:</strong> {previewStudent.grade_level ? `Grade ${previewStudent.grade_level}` : '—'} {previewStudent.section_name}</div>
+                <div><strong>General Average:</strong> {transcriptMap[previewStudent.student_record_id]?.general_average ? Number(transcriptMap[previewStudent.student_record_id].general_average).toFixed(2) : '—'}</div>
               </div>
 
               {/* Grades Table */}
@@ -420,19 +458,30 @@ export default function TranscriptsPage() {
 function groupBySubject(grades) {
   const map = {};
   grades.forEach(g => {
-    if (!map[g.subject]) map[g.subject] = { subject: g.subject, q1: null, q2: null, q3: null, q4: null, final: null };
-    const q = `q${g.quarter}`;
-    if (q in map[g.subject]) map[g.subject][q] = g.grade;
-    if (g.final_grade != null) map[g.subject].final = g.final_grade;
+    if (!map[g.subject]) {
+      map[g.subject] = { subject: g.subject, q1: null, q2: null, q3: null, q4: null, final: null };
+    }
+    // quarter values are '1Q','2Q','3Q','4Q'
+    // Map '1Q' -> q1, '2Q' -> q2, etc.
+    const qKey = `q${g.quarter[0]}`;
+    if (qKey in map[g.subject]) {
+      map[g.subject][qKey] = g.quarter_grade;
+    }
+    // Compute final as average of present quarters
+    const vals = ['q1','q2','q3','q4']
+      .map(k => map[g.subject][k])
+      .filter(v => v != null && !isNaN(Number(v)));
+    if (vals.length > 0) {
+      map[g.subject].final = (vals.reduce((a, b) => a + Number(b), 0) / vals.length).toFixed(2);
+    }
   });
   return Object.values(map);
 }
 
 /* ── Sub-components ── */
-function TranscriptBadge({ status }) {
-  const s = (status ?? '').toLowerCase();
-  const cls = s === 'complete' ? 'badge badge-success' : 'badge badge-warning';
-  return <span className={cls}>{status || 'Incomplete'}</span>;
+function TranscriptBadge({ hasTranscript }) {
+  const cls = hasTranscript ? 'badge badge-success' : 'badge badge-warning';
+  return <span className={cls}>{hasTranscript ? 'Complete' : 'Incomplete'}</span>;
 }
 
 function InfoBlock({ icon, title, text, bg, border, color }) {

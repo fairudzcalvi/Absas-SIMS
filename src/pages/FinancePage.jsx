@@ -122,14 +122,6 @@ function IcoJuniorHigh() {
     </svg>
   );
 }
-function IcoEdit() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  );
-}
 function IcoClose() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -139,10 +131,17 @@ function IcoClose() {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const GRADES = [
-  'Nursery', 'Kinder',
-  'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-  'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10',
+const GRADE_OPTIONS = [
+  { value: 1,  label: 'Grade 1'  },
+  { value: 2,  label: 'Grade 2'  },
+  { value: 3,  label: 'Grade 3'  },
+  { value: 4,  label: 'Grade 4'  },
+  { value: 5,  label: 'Grade 5'  },
+  { value: 6,  label: 'Grade 6'  },
+  { value: 7,  label: 'Grade 7'  },
+  { value: 8,  label: 'Grade 8'  },
+  { value: 9,  label: 'Grade 9'  },
+  { value: 10, label: 'Grade 10' },
 ];
 
 const QUICK_ACTIONS = [
@@ -153,12 +152,13 @@ const QUICK_ACTIONS = [
 ];
 
 const EMPTY_PAYMENT_FORM = {
-  student_id: '',
-  amount: '',
-  payment_date: new Date().toISOString().split('T')[0],
-  payment_method: 'Cash',
-  reference_no: '',
-  notes: '',
+  student_record_id: '',
+  amount:            '',
+  payment_date:      new Date().toISOString().split('T')[0],
+  payment_method:    'Cash',
+  payment_for:       'Tuition Fee',
+  reference_number:  '',
+  remarks:           '',
 };
 
 function peso(n) {
@@ -188,32 +188,31 @@ export default function FinancePage() {
   /* fetch */
   const fetchRecords = useCallback(async () => {
     setLoading(true);
-    let q = supabase
-      .from('finance')
+    const { data } = await supabase
+      .from('student_finances')
       .select(`
-        id, total_fees, amount_paid, balance, payment_status, updated_at,
-        students ( student_record_id, first_name, last_name, grade_level, lrn )
+        finance_id, tuition_fee, miscellaneous_fee, total_fees, amount_paid, balance, status, school_year, updated_at,
+        students ( student_record_id, first_name, last_name, grade_level, lrn_id )
       `)
       .order('updated_at', { ascending: false });
 
-    const { data } = await q;
     let rows = (data ?? []).filter(r => r.students);
 
-    if (gradeFilter) rows = rows.filter(r => r.students?.grade_level === gradeFilter);
-    if (search)      rows = rows.filter(r => {
+    if (gradeFilter) rows = rows.filter(r => r.students?.grade_level === Number(gradeFilter));
+    if (search) rows = rows.filter(r => {
       const q = search.toLowerCase();
       const s = r.students;
       return (s?.first_name + ' ' + s?.last_name).toLowerCase().includes(q)
-          || (s?.student_record_id ?? '').toLowerCase().includes(q);
+          || String(s?.student_record_id ?? '').includes(q);
     });
-    if (statusFilter) rows = rows.filter(r => (r.payment_status ?? '').toLowerCase() === statusFilter.toLowerCase());
+    if (statusFilter) rows = rows.filter(r => (r.status ?? '').toLowerCase() === statusFilter.toLowerCase());
 
     setRecords(rows);
 
-    const totalRevenue  = rows.reduce((a, r) => a + Number(r.total_fees ?? 0), 0);
-    const totalPaid     = rows.reduce((a, r) => a + Number(r.amount_paid ?? 0), 0);
-    const totalBalance  = rows.reduce((a, r) => a + Number(r.balance ?? 0), 0);
-    const fullPaid      = rows.filter(r => (r.payment_status ?? '').toLowerCase() === 'paid').length;
+    const totalRevenue = rows.reduce((a, r) => a + Number(r.total_fees ?? 0), 0);
+    const totalPaid    = rows.reduce((a, r) => a + Number(r.amount_paid ?? 0), 0);
+    const totalBalance = rows.reduce((a, r) => a + Number(r.balance ?? 0), 0);
+    const fullPaid     = rows.filter(r => (r.status ?? '').toLowerCase() === 'paid').length;
     setStats({ revenue: totalRevenue, collected: totalPaid, balance: totalBalance, fullPaid });
 
     setLoading(false);
@@ -224,51 +223,54 @@ export default function FinancePage() {
   /* record payment */
   async function handleSavePayment(e) {
     e.preventDefault();
-    if (!payForm.student_id || !payForm.amount) {
-      setFormError('Student ID and amount are required.');
+    if (!payForm.student_record_id || !payForm.amount) {
+      setFormError('Student record ID and amount are required.');
       return;
     }
     setSaving(true);
     setFormError('');
 
+    const studentRecordId = parseInt(payForm.student_record_id, 10);
     const amount = parseFloat(payForm.amount);
 
-    // fetch existing finance record
+    // Fetch existing finance record for this student
     const { data: existing } = await supabase
-      .from('finance')
+      .from('student_finances')
       .select('*')
-      .eq('student_id', payForm.student_id)
+      .eq('student_record_id', studentRecordId)
       .single();
 
     if (existing) {
-      const newPaid    = Number(existing.amount_paid ?? 0) + amount;
-      const newBalance = Number(existing.total_fees ?? 0) - newPaid;
-      const newStatus  = newBalance <= 0 ? 'Paid' : newPaid > 0 ? 'Partial' : 'Unpaid';
-      await supabase.from('finance').update({
-        amount_paid:    newPaid,
-        balance:        Math.max(0, newBalance),
-        payment_status: newStatus,
-        updated_at:     new Date().toISOString(),
-      }).eq('id', existing.id);
+      const newPaid   = Number(existing.amount_paid ?? 0) + amount;
+      const totalFees = Number(existing.total_fees ?? 0);
+      // Determine new status (lowercase to match CHECK constraint)
+      const newStatus = newPaid >= totalFees ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
+      // Only update amount_paid and status — balance and total_fees are GENERATED columns
+      await supabase.from('student_finances').update({
+        amount_paid: newPaid,
+        status:      newStatus,
+      }).eq('finance_id', existing.finance_id);
     } else {
-      await supabase.from('finance').insert([{
-        student_id:     payForm.student_id,
-        total_fees:     0,
-        amount_paid:    amount,
-        balance:        0,
-        payment_status: 'Partial',
-        updated_at:     new Date().toISOString(),
+      // No finance record yet — insert new one (omit total_fees/balance — generated)
+      await supabase.from('student_finances').insert([{
+        student_record_id: studentRecordId,
+        tuition_fee:       0,
+        miscellaneous_fee: 0,
+        amount_paid:       amount,
+        status:            'partial',
+        school_year:       '2025-2026',
       }]);
     }
 
-    // insert into payments log
+    // Insert into payments log
     await supabase.from('payments').insert([{
-      student_id:     payForm.student_id,
-      amount:         amount,
-      payment_date:   payForm.payment_date,
-      payment_method: payForm.payment_method,
-      reference_no:   payForm.reference_no,
-      notes:          payForm.notes,
+      student_record_id: studentRecordId,
+      amount:            amount,
+      payment_date:      payForm.payment_date,
+      payment_method:    payForm.payment_method,
+      payment_for:       payForm.payment_for,
+      reference_number:  payForm.reference_number || null,
+      remarks:           payForm.remarks           || null,
     }]);
 
     setSaving(false);
@@ -284,7 +286,7 @@ export default function FinancePage() {
     const { data } = await supabase
       .from('payments')
       .select('*')
-      .eq('student_id', record.students?.student_record_id)
+      .eq('student_record_id', record.students?.student_record_id)
       .order('payment_date', { ascending: false });
     setHistoryRecords(data ?? []);
     setHistoryLoading(false);
@@ -297,7 +299,7 @@ export default function FinancePage() {
       r.students?.student_record_id,
       `${r.students?.first_name} ${r.students?.last_name}`,
       r.students?.grade_level,
-      r.total_fees, r.amount_paid, r.balance, r.payment_status,
+      r.total_fees, r.amount_paid, r.balance, r.status,
     ]);
     const csv = [headers, ...rows].map(row => row.map(v => `"${v ?? ''}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -385,16 +387,16 @@ export default function FinancePage() {
               <label>Grade Level</label>
               <select value={gradeFilter} onChange={e => setGrade(e.target.value)}>
                 <option value="">All Grades</option>
-                {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Payment Status</label>
               <select value={statusFilter} onChange={e => setStatus(e.target.value)}>
                 <option value="">All Status</option>
-                <option value="Paid">Paid</option>
-                <option value="Partial">Partial</option>
-                <option value="Unpaid">Unpaid</option>
+                <option value="paid">Paid</option>
+                <option value="partial">Partial</option>
+                <option value="unpaid">Unpaid</option>
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
@@ -440,17 +442,25 @@ export default function FinancePage() {
                   </tr>
                 ) : (
                   records.map(r => (
-                    <tr key={r.id}>
+                    <tr key={r.finance_id}>
                       <td>{r.students?.student_record_id}</td>
                       <td>{r.students?.first_name} {r.students?.last_name}</td>
-                      <td>{r.students?.grade_level}</td>
+                      <td>{r.students?.grade_level ? `Grade ${r.students.grade_level}` : '—'}</td>
                       <td>{peso(r.total_fees)}</td>
                       <td>{peso(r.amount_paid)}</td>
                       <td>{peso(r.balance)}</td>
-                      <td><PaymentBadge status={r.payment_status} /></td>
+                      <td><PaymentBadge status={r.status} /></td>
                       <td>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <button className="btn btn-primary btn-sm" onClick={() => { setPayForm({ ...EMPTY_PAYMENT_FORM, student_id: r.students?.student_record_id }); setFormError(''); setModalOpen(true); }} title="Record Payment">
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => {
+                              setPayForm({ ...EMPTY_PAYMENT_FORM, student_record_id: String(r.students?.student_record_id ?? '') });
+                              setFormError('');
+                              setModalOpen(true);
+                            }}
+                            title="Record Payment"
+                          >
                             <IcoRecordPayment />
                           </button>
                           <button className="btn btn-secondary btn-sm" onClick={() => openHistory(r)} title="History">
@@ -469,7 +479,7 @@ export default function FinancePage() {
         {/* Fee Structure */}
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title"><IcoFeeStructure /> Fee Structure (SY 2024-2025)</h2>
+            <h2 className="card-title"><IcoFeeStructure /> Fee Structure (SY 2025-2026)</h2>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <FeeCard
@@ -511,8 +521,13 @@ export default function FinancePage() {
                 {formError && <p style={{ color: '#dc3545', marginBottom: '12px', fontSize: '14px' }}>{formError}</p>}
                 <div className="form-grid">
                   <div className="form-group">
-                    <label>Student ID *</label>
-                    <input value={payForm.student_id} onChange={e => setPayForm(f => ({ ...f, student_id: e.target.value }))} placeholder="Student record ID" />
+                    <label>Student Record ID *</label>
+                    <input
+                      type="number"
+                      value={payForm.student_record_id}
+                      onChange={e => setPayForm(f => ({ ...f, student_record_id: e.target.value }))}
+                      placeholder="Numeric student record ID"
+                    />
                   </div>
                   <div className="form-group">
                     <label>Amount (₱) *</label>
@@ -527,17 +542,28 @@ export default function FinancePage() {
                     <select value={payForm.payment_method} onChange={e => setPayForm(f => ({ ...f, payment_method: e.target.value }))}>
                       <option value="Cash">Cash</option>
                       <option value="GCash">GCash</option>
+                      <option value="PayMaya">PayMaya</option>
                       <option value="Bank Transfer">Bank Transfer</option>
                       <option value="Check">Check</option>
                     </select>
                   </div>
                   <div className="form-group">
-                    <label>Reference No.</label>
-                    <input value={payForm.reference_no} onChange={e => setPayForm(f => ({ ...f, reference_no: e.target.value }))} placeholder="Optional" />
+                    <label>Payment For</label>
+                    <select value={payForm.payment_for} onChange={e => setPayForm(f => ({ ...f, payment_for: e.target.value }))}>
+                      <option value="Tuition Fee">Tuition Fee</option>
+                      <option value="Miscellaneous Fee">Miscellaneous Fee</option>
+                      <option value="Books">Books</option>
+                      <option value="Uniform">Uniform</option>
+                      <option value="Other">Other</option>
+                    </select>
                   </div>
                   <div className="form-group">
-                    <label>Notes</label>
-                    <input value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional notes" />
+                    <label>Reference Number</label>
+                    <input value={payForm.reference_number} onChange={e => setPayForm(f => ({ ...f, reference_number: e.target.value }))} placeholder="Optional" />
+                  </div>
+                  <div className="form-group">
+                    <label>Remarks</label>
+                    <input value={payForm.remarks} onChange={e => setPayForm(f => ({ ...f, remarks: e.target.value }))} placeholder="Optional remarks" />
                   </div>
                 </div>
               </div>
@@ -555,7 +581,7 @@ export default function FinancePage() {
       {/* ── Payment History Modal ── */}
       {historyStudent && (
         <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setHistoryStudent(null); }}>
-          <div className="modal-content" style={{ maxWidth: '600px' }}>
+          <div className="modal-content" style={{ maxWidth: '640px' }}>
             <div className="modal-header">
               <h3 className="modal-title">
                 <IcoHistory /> Payment History — {historyStudent.students?.first_name} {historyStudent.students?.last_name}
@@ -574,18 +600,20 @@ export default function FinancePage() {
                       <th>Date</th>
                       <th>Amount</th>
                       <th>Method</th>
+                      <th>Payment For</th>
                       <th>Reference</th>
-                      <th>Notes</th>
+                      <th>Remarks</th>
                     </tr>
                   </thead>
                   <tbody>
                     {historyRecords.map(p => (
-                      <tr key={p.id}>
+                      <tr key={p.payment_id}>
                         <td>{p.payment_date ? new Date(p.payment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
                         <td>{peso(p.amount)}</td>
                         <td>{p.payment_method ?? '—'}</td>
-                        <td>{p.reference_no ?? '—'}</td>
-                        <td>{p.notes ?? '—'}</td>
+                        <td>{p.payment_for ?? '—'}</td>
+                        <td>{p.reference_number ?? '—'}</td>
+                        <td>{p.remarks ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -609,7 +637,8 @@ function PaymentBadge({ status }) {
     s === 'paid'    ? 'badge badge-success' :
     s === 'partial' ? 'badge badge-warning' :
                       'badge badge-danger';
-  return <span className={cls}>{status || 'Unpaid'}</span>;
+  const label = s === 'paid' ? 'Paid' : s === 'partial' ? 'Partial' : 'Unpaid';
+  return <span className={cls}>{label}</span>;
 }
 
 function FeeCard({ icon, title, rows, total }) {
