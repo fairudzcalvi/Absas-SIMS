@@ -1,11 +1,12 @@
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import Sidebar from './Sidebar';
+import TeacherSidebar from './TeacherSidebar';
 
-export default function DashboardLayout() {
+export default function TeacherLayout() {
   const { session, role } = useAuth();
 
-  if (session === undefined || (session && role === null)) {
+  // Still resolving
+  if (session === undefined || role === null) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#666' }}>
         Loading...
@@ -15,13 +16,10 @@ export default function DashboardLayout() {
 
   if (!session) return <Navigate to="/login" replace />;
 
-  // Teachers go to their own portal
-  if (role === 'teacher') return <Navigate to="/teacher" replace />;
-
   return (
     <div className="dashboard-page">
       <div className="dashboard-container">
-        <Sidebar />
+        <TeacherSidebar />
         <main className="main-content">
           <Outlet />
         </main>

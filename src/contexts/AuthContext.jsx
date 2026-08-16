@@ -6,10 +6,12 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-const AuthContext = createContext(null);
+// ✅ Must be exported
+export const AuthContext = createContext(null);
 
+// ✅ Must be exported
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(undefined); // undefined = loading
+  const [session, setSession] = useState(undefined);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -34,6 +36,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// ✅ MUST HAVE THIS EXPORT
 export function useAuth() {
   return useContext(AuthContext);
 }

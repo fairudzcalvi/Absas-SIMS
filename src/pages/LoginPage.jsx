@@ -1,49 +1,54 @@
 import { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import schoolLogo from '../assets/logo.png';
 
-export default function LoginPage() {
-  const { session, supabase } = useAuth();
-  const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+const CRIMSON = '#8B0000';
 
-  // Already logged in — go straight to dashboard
-  if (session) {
-    return <Navigate to="/dashboard" replace />;
+export default function LoginPage() {
+  const { session, supabase, role } = useAuth();
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+
+  // Still resolving session on page load
+  if (session === undefined) {
+    return <div style={styles.loadScreen}>Loading...</div>;
+  }
+
+  // Logged in + role known → go to correct portal
+  if (session && role) {
+    return <Navigate to={role === 'teacher' ? '/teacher' : '/dashboard'} replace />;
+  }
+
+  // Logged in but role still resolving
+  if (session && !role) {
+    return <div style={styles.loadScreen}>Redirecting...</div>;
   }
 
   async function handleLogin(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
-
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: username,
-      password,
-    });
-
-    if (signInError) {
-      setError(signInError.message);
-    } else {
-      navigate('/dashboard', { replace: true });
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    if (err) {
+      setError(err.message);
+      setLoading(false);
     }
-
-    setLoading(false);
+    // On success: onAuthStateChange fires → resolveRole runs → role is set → Navigate above triggers
   }
 
   return (
     <div style={styles.wrapper}>
       <div style={styles.card}>
+
         {/* Logo */}
         <div style={styles.logoWrap}>
-          <img src={schoolLogo} alt="School Logo" style={styles.logo} />
+          <img src={schoolLogo} alt="ABSAS Logo" style={styles.logo} />
         </div>
 
-        {/* School name */}
+        {/* Title */}
         <h1 style={styles.title}>A.B. Simpson Alliance School</h1>
         <p style={styles.subtitle}>Student Information and Management System</p>
 
@@ -52,10 +57,10 @@ export default function LoginPage() {
           <div style={styles.fieldGroup}>
             <label style={styles.label}>Username / Email</label>
             <input
-              type="text"
+              type="email"
               placeholder="Enter your username or email"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={email}
+              onChange={e => setEmail(e.target.value)}
               style={styles.input}
               required
               autoComplete="username"
@@ -68,7 +73,7 @@ export default function LoginPage() {
               type="password"
               placeholder="Enter your password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={e => setPassword(e.target.value)}
               style={styles.input}
               required
               autoComplete="current-password"
@@ -91,22 +96,21 @@ export default function LoginPage() {
         </button>
       </div>
 
-      {/* Default login hint */}
+      {/* Hint */}
       <div style={styles.hint}>
-        <strong>Default Login:</strong>
-        <br />
-        Username: admin
-        <br />
+        <strong>Default Login:</strong><br />
+        Username: admin<br />
         Password: admin123
       </div>
     </div>
   );
 }
 
-const CRIMSON = '#8B0000';
-const CRIMSON_DARK = '#6a0000';
-
 const styles = {
+  loadScreen: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    height: '100vh', backgroundColor: CRIMSON, color: '#fff', fontSize: '16px',
+  },
   wrapper: {
     minHeight: '100vh',
     backgroundColor: CRIMSON,
@@ -117,7 +121,7 @@ const styles = {
     position: 'relative',
   },
   card: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
     borderRadius: '12px',
     padding: '40px 48px',
     width: '100%',
@@ -182,7 +186,6 @@ const styles = {
     fontSize: '14px',
     color: '#333',
     outline: 'none',
-    transition: 'border-color 0.2s',
     boxSizing: 'border-box',
   },
   error: {
@@ -202,7 +205,6 @@ const styles = {
     fontWeight: '600',
     cursor: 'pointer',
     marginTop: '4px',
-    transition: 'background-color 0.2s',
   },
   forgotBtn: {
     marginTop: '16px',
@@ -211,7 +213,6 @@ const styles = {
     color: CRIMSON,
     fontSize: '13px',
     cursor: 'pointer',
-    textDecoration: 'none',
   },
   hint: {
     position: 'fixed',

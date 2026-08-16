@@ -116,6 +116,11 @@ const EMPTY_FORM = {
 export default function StudentsPage() {
   const { supabase } = useAuth();
 
+
+// 🔍 DEBUG: Check if supabase exists
+console.log("🔍 DEBUG - supabase object:", supabase);
+console.log("🔍 DEBUG - supabase.from exists?", typeof supabase?.from === 'function');
+
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [gradeFilter, setGradeFilter] = useState('');
@@ -132,17 +137,25 @@ export default function StudentsPage() {
 
   /* fetch */
   const fetchStudents = useCallback(async () => {
-    setLoading(true);
-    let query = supabase.from('students').select('*').order('created_at', { ascending: false });
-    if (gradeFilter) query = query.eq('grade_level', Number(gradeFilter));
-    if (genderFilter) query = query.eq('gender', genderFilter);
-    if (search) query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn_id.ilike.%${search}%,student_id.ilike.%${search}%`);
-    const { data } = await query;
-    setStudents(data ?? []);
-    setLoading(false);
-  }, [supabase, gradeFilter, genderFilter, search]);
-
-  useEffect(() => { fetchStudents(); }, [fetchStudents]);
+  setLoading(true);
+  
+  console.log("🔍 TEST 2 - Starting Supabase client test...");
+  
+  const { data, error } = await supabase
+    .from('students')
+    .select('*')
+    .order('created_at', { ascending: false });
+  
+  if (error) {
+    console.error("🔍 TEST 2 - Error:", error);
+    setStudents([]);
+  } else {
+    console.log("🔍 TEST 2 - Data:", data);
+    setStudents(data);
+  }
+  
+  setLoading(false);
+}, [supabase]);
 
   /* derived stats */
   const total   = students.length;
