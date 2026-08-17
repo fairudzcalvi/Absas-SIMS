@@ -58,7 +58,51 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+
+    const input = email.trim();
+    let loginEmail = input;
+
+    // If the input doesn't look like an email, treat it as a username
+    if (!input.includes('@')) {
+      // Look up in admins table by username
+      const { data: adminRow } = await supabase
+        .from('admins')
+        .select('email')
+        .eq('username', input)
+        .maybeSingle();
+
+      if (adminRow) {
+        loginEmail = adminRow.email;
+      } else {
+        // Look up in faculty table by username
+        const { data: facultyRow } = await supabase
+          .from('faculty')
+          .select('email')
+          .eq('username', input)
+          .maybeSingle();
+
+        if (facultyRow) {
+          loginEmail = facultyRow.email;
+        } else {
+          // Look up in students table by username
+          const { data: studentRow } = await supabase
+            .from('students')
+            .select('email')
+            .eq('username', input)
+            .maybeSingle();
+
+          if (studentRow) {
+            loginEmail = studentRow.email;
+          } else {
+            setError('No account found with that username.');
+            setLoading(false);
+            return;
+          }
+        }
+      }
+    }
+
+    const { error: err } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
     if (err) {
       setError(err.message);
       setLoading(false);
@@ -84,7 +128,7 @@ export default function LoginPage() {
           <div style={styles.fieldGroup}>
             <label style={styles.label}>Username / Email</label>
             <input
-              type="email"
+              type="text"
               placeholder="Enter your username or email"
               value={email}
               onChange={e => setEmail(e.target.value)}
