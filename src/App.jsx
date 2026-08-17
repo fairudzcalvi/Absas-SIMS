@@ -8,7 +8,6 @@ import DashboardPage     from './pages/DashboardPage';
 import StudentsPage      from './pages/StudentsPage';
 import FacultyPage       from './pages/FacultyPage';
 import SchedulesPage     from './pages/SchedulesPage';
-import AttendancePage    from './pages/AttendancePage';
 import TranscriptsPage   from './pages/TranscriptsPage';
 import FinancePage       from './pages/FinancePage';
 import SettingsPage      from './pages/SettingsPage';
@@ -42,7 +41,6 @@ function App() {
             <Route path="students/new" element={<StudentsPage />} />
             <Route path="faculty"      element={<FacultyPage />} />
             <Route path="schedules"    element={<SchedulesPage />} />
-            <Route path="attendance"   element={<AttendancePage />} />
             <Route path="transcripts"  element={<TranscriptsPage />} />
             <Route path="finance"      element={<FinancePage />} />
             <Route path="settings"     element={<SettingsPage />} />

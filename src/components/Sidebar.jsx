@@ -41,15 +41,6 @@ function IconSchedules() {
   );
 }
 
-function IconAttendance() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 11l3 3L22 4" />
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-    </svg>
-  );
-}
-
 function IconTranscripts() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -95,8 +86,7 @@ const NAV_ITEMS = [
   { label: 'Overview',         path: '/dashboard',             Icon: IconOverview    },
   { label: 'Student Records',  path: '/dashboard/students',    Icon: IconStudents    },
   { label: 'Faculty Records',  path: '/dashboard/faculty',     Icon: IconFaculty     },
-  { label: 'Class Schedules',  path: '/dashboard/schedules',   Icon: IconSchedules   },
-  { label: 'Attendance',       path: '/dashboard/attendance',  Icon: IconAttendance  },
+  { label: 'Teacher Schedules', path: '/dashboard/schedules',   Icon: IconSchedules   },
   { label: 'Transcripts',      path: '/dashboard/transcripts', Icon: IconTranscripts },
   { label: 'Finance',          path: '/dashboard/finance',     Icon: IconFinance     },
   { label: 'Settings',         path: '/dashboard/settings',    Icon: IconSettings    },

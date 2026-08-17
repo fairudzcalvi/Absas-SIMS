@@ -207,7 +207,7 @@ export default function SchedulesPage() {
     <>
       {/* Header */}
       <div className="top-header">
-        <h1><IcoCalendar /> Class Schedules</h1>
+        <h1><IcoCalendar /> Teacher Schedules</h1>
         <span className="date-time">{dateStr}</span>
       </div>
 
@@ -216,7 +216,7 @@ export default function SchedulesPage() {
         {/* Grade Selector Card */}
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title"><IcoFilter /> Select Class Schedule</h2>
+            <h2 className="card-title"><IcoFilter /> Select Teacher Schedule</h2>
             {gradeLevel && (
               <button className="btn btn-primary" onClick={openAdd}>
                 <IcoAdd /> Add Schedule
@@ -259,7 +259,7 @@ export default function SchedulesPage() {
             /* Timetable by day */
             <div>
               <div className="card-header" style={{ marginBottom: '16px' }}>
-                <h2 className="card-title"><IcoCalendar size={18} /> {selectedGradeLabel} — Weekly Schedule</h2>
+                <h2 className="card-title"><IcoCalendar size={18} /> {selectedGradeLabel} — Teacher Schedule</h2>
               </div>
               <div className="table-container">
                 <table className="data-table">

@@ -123,12 +123,6 @@ export default function LoginPage() {
         </button>
       </div>
 
-      {/* Hint */}
-      <div style={styles.hint}>
-        <strong>Default Login:</strong><br />
-        Username: admin<br />
-        Password: admin123
-      </div>
     </div>
   );
 }
