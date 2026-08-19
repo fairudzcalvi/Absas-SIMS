@@ -5,7 +5,9 @@ import TeacherSidebar from './TeacherSidebar';
 export default function TeacherLayout() {
   const { session, role } = useAuth();
 
-  if (session === undefined || role === null) {
+  // Show loading only while session is being resolved (undefined)
+  // or while session exists but role hasn't been determined yet
+  if (session === undefined || (session && role === null)) {
     return <div style={styles.loading}>Loading...</div>;
   }
 
