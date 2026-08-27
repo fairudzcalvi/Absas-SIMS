@@ -89,7 +89,6 @@ const ROLES = ['Teacher', 'Adviser', 'Both'];
 
 const EMPTY_FORM = {
   faculty_id:        '',
-  employee_number:   '',
   first_name:        '',
   last_name:         '',
   middle_name:       '',
@@ -162,7 +161,6 @@ export default function FacultyPage() {
     setEditItem(item);
     setForm({
       faculty_id:          item.faculty_id          ?? '',
-      employee_number:     item.employee_number     ?? '',
       first_name:          item.first_name          ?? '',
       last_name:           item.last_name           ?? '',
       middle_name:         item.middle_name         ?? '',
@@ -194,7 +192,6 @@ export default function FacultyPage() {
 
     const payload = {
       faculty_id:          form.faculty_id          || undefined,
-      employee_number:     form.employee_number     || null,
       first_name:          form.first_name,
       last_name:           form.last_name,
       middle_name:         form.middle_name         || null,
@@ -234,10 +231,9 @@ export default function FacultyPage() {
 
   /* export CSV */
   function exportCSV() {
-    const headers = ['Faculty ID', 'Employee No.', 'Name', 'Department', 'Position', 'Role', 'Subjects', 'Email', 'Contact', 'Status'];
+    const headers = ['Faculty ID', 'Name', 'Department', 'Position', 'Role', 'Subjects', 'Email', 'Contact', 'Status'];
     const rows = faculty.map(f => [
       f.faculty_id,
-      f.employee_number,
       `${f.first_name} ${f.last_name}`,
       f.department, f.position, f.role,
       f.subjects_taught,
@@ -392,80 +388,119 @@ export default function FacultyPage() {
             <form onSubmit={handleSave}>
               <div className="modal-body">
                 {formError && <p style={{ color: '#dc3545', marginBottom: '12px', fontSize: '14px' }}>{formError}</p>}
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label>Faculty ID</label>
-                    <input value={form.faculty_id} onChange={e => setForm(f => ({ ...f, faculty_id: e.target.value }))} placeholder="e.g. FAC-001" />
+                
+                {/* Identification Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Identification
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Faculty ID</label>
+                      <input value={form.faculty_id} onChange={e => setForm(f => ({ ...f, faculty_id: e.target.value }))} placeholder="e.g. FAC-001" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Employee Number</label>
-                    <input value={form.employee_number} onChange={e => setForm(f => ({ ...f, employee_number: e.target.value }))} placeholder="Employee number" />
+                </div>
+
+                {/* Personal Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Personal Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>First Name *</label>
+                      <input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First name" />
+                    </div>
+                    <div className="form-group">
+                      <label>Middle Name</label>
+                      <input value={form.middle_name} onChange={e => setForm(f => ({ ...f, middle_name: e.target.value }))} placeholder="Middle name" />
+                    </div>
+                    <div className="form-group">
+                      <label>Last Name *</label>
+                      <input value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Last name" />
+                    </div>
+                    <div className="form-group">
+                      <label>Birthdate</label>
+                      <input type="date" value={form.birthdate} onChange={e => setForm(f => ({ ...f, birthdate: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label>Address</label>
+                      <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>First Name *</label>
-                    <input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First name" />
+                </div>
+
+                {/* Contact Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Contact Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Email</label>
+                      <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
+                    </div>
+                    <div className="form-group">
+                      <label>Contact Number</label>
+                      <input value={form.contact_number} onChange={e => setForm(f => ({ ...f, contact_number: e.target.value }))} placeholder="Contact number" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Middle Name</label>
-                    <input value={form.middle_name} onChange={e => setForm(f => ({ ...f, middle_name: e.target.value }))} placeholder="Middle name" />
+                </div>
+
+                {/* Professional Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Professional Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Department</label>
+                      <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))}>
+                        <option value="">Select department</option>
+                        {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Position</label>
+                      <input value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. Head Teacher" />
+                    </div>
+                    <div className="form-group">
+                      <label>Role *</label>
+                      <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+                        <option value="">Select role</option>
+                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Subjects Taught</label>
+                      <input value={form.subjects_taught} onChange={e => setForm(f => ({ ...f, subjects_taught: e.target.value }))} placeholder="e.g. Math, Science" />
+                    </div>
+                    <div className="form-group">
+                      <label>Adviser Grade Level</label>
+                      <input type="number" min="1" max="10" value={form.adviser_grade_level} onChange={e => setForm(f => ({ ...f, adviser_grade_level: e.target.value }))} placeholder="Grade level advised (1-10)" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Last Name *</label>
-                    <input value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Last name" />
-                  </div>
-                  <div className="form-group">
-                    <label>Email</label>
-                    <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
-                  </div>
-                  <div className="form-group">
-                    <label>Contact Number</label>
-                    <input value={form.contact_number} onChange={e => setForm(f => ({ ...f, contact_number: e.target.value }))} placeholder="Contact number" />
-                  </div>
-                  <div className="form-group">
-                    <label>Birthdate</label>
-                    <input type="date" value={form.birthdate} onChange={e => setForm(f => ({ ...f, birthdate: e.target.value }))} />
-                  </div>
-                  <div className="form-group">
-                    <label>Address</label>
-                    <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address" />
-                  </div>
-                  <div className="form-group">
-                    <label>Department</label>
-                    <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))}>
-                      <option value="">Select department</option>
-                      {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Position</label>
-                    <input value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. Head Teacher" />
-                  </div>
-                  <div className="form-group">
-                    <label>Role *</label>
-                    <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-                      <option value="">Select role</option>
-                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Adviser Grade Level</label>
-                    <input type="number" min="1" max="10" value={form.adviser_grade_level} onChange={e => setForm(f => ({ ...f, adviser_grade_level: e.target.value }))} placeholder="Grade level advised (1-10)" />
-                  </div>
-                  <div className="form-group">
-                    <label>Subjects Taught</label>
-                    <input value={form.subjects_taught} onChange={e => setForm(f => ({ ...f, subjects_taught: e.target.value }))} placeholder="e.g. Math, Science" />
-                  </div>
-                  <div className="form-group">
-                    <label>Hire Date</label>
-                    <input type="date" value={form.hire_date} onChange={e => setForm(f => ({ ...f, hire_date: e.target.value }))} />
-                  </div>
-                  <div className="form-group">
-                    <label>Employment Status</label>
-                    <select value={form.employment_status} onChange={e => setForm(f => ({ ...f, employment_status: e.target.value }))}>
-                      <option value="Active">Active</option>
-                      <option value="On Leave">On Leave</option>
-                      <option value="Inactive">Inactive</option>
-                    </select>
+                </div>
+
+                {/* Employment Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Employment Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Hire Date</label>
+                      <input type="date" value={form.hire_date} onChange={e => setForm(f => ({ ...f, hire_date: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label>Employment Status</label>
+                      <select value={form.employment_status} onChange={e => setForm(f => ({ ...f, employment_status: e.target.value }))}>
+                        <option value="Active">Active</option>
+                        <option value="On Leave">On Leave</option>
+                        <option value="Inactive">Inactive</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>

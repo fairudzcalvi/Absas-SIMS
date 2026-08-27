@@ -116,11 +116,6 @@ const EMPTY_FORM = {
 export default function StudentsPage() {
   const { supabase } = useAuth();
 
-
-// 🔍 DEBUG: Check if supabase exists
-console.log("🔍 DEBUG - supabase object:", supabase);
-console.log("🔍 DEBUG - supabase.from exists?", typeof supabase?.from === 'function');
-
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [gradeFilter, setGradeFilter] = useState('');
@@ -139,28 +134,55 @@ console.log("🔍 DEBUG - supabase.from exists?", typeof supabase?.from === 'fun
   const fetchStudents = useCallback(async () => {
   setLoading(true);
   
-  console.log("🔍 TEST 2 - Starting Supabase client test...");
-  
   const { data, error } = await supabase
     .from('students')
     .select('*')
     .order('created_at', { ascending: false });
   
   if (error) {
-    console.error("🔍 TEST 2 - Error:", error);
+    console.error("Error fetching students:", error);
     setStudents([]);
   } else {
-    console.log("🔍 TEST 2 - Data:", data);
     setStudents(data);
   }
   
   setLoading(false);
 }, [supabase]);
 
+  /* Initial fetch on mount */
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
+
   /* derived stats */
   const total   = students.length;
   const males   = students.filter(s => (s.gender ?? '').toLowerCase() === 'male').length;
   const females = students.filter(s => (s.gender ?? '').toLowerCase() === 'female').length;
+
+  /* filtered students */
+  const filteredStudents = students.filter(s => {
+    // Grade filter
+    if (gradeFilter && s.grade_level !== Number(gradeFilter)) return false;
+    
+    // Gender filter
+    if (genderFilter && (s.gender ?? '').toLowerCase() !== genderFilter.toLowerCase()) return false;
+    
+    // Search filter
+    if (search) {
+      const searchLower = search.toLowerCase();
+      const fullName = `${s.first_name} ${s.middle_name ? s.middle_name + ' ' : ''}${s.last_name}`.toLowerCase();
+      const studentId = (s.student_id ?? '').toLowerCase();
+      const lrnId = (s.lrn_id ?? '').toLowerCase();
+      
+      if (!fullName.includes(searchLower) && 
+          !studentId.includes(searchLower) && 
+          !lrnId.includes(searchLower)) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
 
   /* open add modal */
   function openAdd() {
@@ -197,15 +219,19 @@ console.log("🔍 DEBUG - supabase.from exists?", typeof supabase?.from === 'fun
   /* save */
   async function handleSave(e) {
     e.preventDefault();
-    if (!form.first_name || !form.last_name || !form.grade_level || !form.gender) {
-      setFormError('First name, last name, grade level, and gender are required.');
+    if (!form.student_id || !form.first_name || !form.last_name || !form.grade_level || !form.gender) {
+      setFormError('Student ID, first name, last name, grade level, and gender are required.');
+      return;
+    }
+    if (form.lrn_id && form.lrn_id.length !== 12) {
+      setFormError('LRN must be exactly 12 digits.');
       return;
     }
     setSaving(true);
     setFormError('');
 
     const payload = {
-      student_id:       form.student_id       || undefined,
+      student_id:       form.student_id,
       first_name:       form.first_name,
       last_name:        form.last_name,
       middle_name:      form.middle_name      || null,
@@ -362,10 +388,10 @@ console.log("🔍 DEBUG - supabase.from exists?", typeof supabase?.from === 'fun
               <tbody>
                 {loading ? (
                   <tr><td colSpan={9} className="empty-message">Loading...</td></tr>
-                ) : students.length === 0 ? (
+                ) : filteredStudents.length === 0 ? (
                   <tr><td colSpan={9} className="empty-message">No students found</td></tr>
                 ) : (
-                  students.map(s => (
+                  filteredStudents.map(s => (
                     <tr key={s.student_record_id}>
                       <td>{s.student_id ?? '—'}</td>
                       <td>{s.lrn_id ?? '—'}</td>
@@ -410,78 +436,138 @@ console.log("🔍 DEBUG - supabase.from exists?", typeof supabase?.from === 'fun
                 {formError && (
                   <p style={{ color: '#dc3545', marginBottom: '12px', fontSize: '14px' }}>{formError}</p>
                 )}
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label>Student ID</label>
-                    <input value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} placeholder="e.g. STU-001" />
+                
+                {/* Identification Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Identification
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Student ID *</label>
+                      <input value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} placeholder="e.g. STU-001" />
+                    </div>
+                    <div className="form-group">
+                      <label>LRN</label>
+                      <input 
+                        value={form.lrn_id} 
+                        onChange={e => {
+                          const value = e.target.value.replace(/\D/g, '');
+                          setForm(f => ({ ...f, lrn_id: value }));
+                        }} 
+                        placeholder="Learner Reference Number (12 digits)" 
+                        maxLength={12}
+                      />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>LRN</label>
-                    <input value={form.lrn_id} onChange={e => setForm(f => ({ ...f, lrn_id: e.target.value }))} placeholder="Learner Reference Number" />
+                </div>
+
+                {/* Personal Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Personal Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>First Name *</label>
+                      <input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First name" />
+                    </div>
+                    <div className="form-group">
+                      <label>Middle Name</label>
+                      <input value={form.middle_name} onChange={e => setForm(f => ({ ...f, middle_name: e.target.value }))} placeholder="Middle name" />
+                    </div>
+                    <div className="form-group">
+                      <label>Last Name *</label>
+                      <input value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Last name" />
+                    </div>
+                    <div className="form-group">
+                      <label>Gender *</label>
+                      <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))}>
+                        <option value="">Select gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Birthdate</label>
+                      <input type="date" value={form.birthdate} onChange={e => setForm(f => ({ ...f, birthdate: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label>Age</label>
+                      <input type="number" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value }))} placeholder="Age" min="3" max="25" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>First Name *</label>
-                    <input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First name" />
+                </div>
+
+                {/* Academic Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Academic Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Grade Level *</label>
+                      <select value={form.grade_level} onChange={e => setForm(f => ({ ...f, grade_level: e.target.value }))}>
+                        <option value="">Select grade</option>
+                        {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Section</label>
+                      <input value={form.section_name} onChange={e => setForm(f => ({ ...f, section_name: e.target.value }))} placeholder="Section name" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Middle Name</label>
-                    <input value={form.middle_name} onChange={e => setForm(f => ({ ...f, middle_name: e.target.value }))} placeholder="Middle name" />
+                </div>
+
+                {/* Contact Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Contact Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Email</label>
+                      <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
+                    </div>
+                    <div className="form-group">
+                      <label>Contact Number</label>
+                      <input value={form.contact_number} onChange={e => setForm(f => ({ ...f, contact_number: e.target.value }))} placeholder="Contact number" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Last Name *</label>
-                    <input value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Last name" />
+                </div>
+
+                {/* Guardian Information Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Guardian Information
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Guardian Name</label>
+                      <input value={form.guardian_name} onChange={e => setForm(f => ({ ...f, guardian_name: e.target.value }))} placeholder="Guardian full name" />
+                    </div>
+                    <div className="form-group">
+                      <label>Guardian Contact</label>
+                      <input value={form.guardian_contact} onChange={e => setForm(f => ({ ...f, guardian_contact: e.target.value }))} placeholder="Guardian contact number" />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Grade Level *</label>
-                    <select value={form.grade_level} onChange={e => setForm(f => ({ ...f, grade_level: e.target.value }))}>
-                      <option value="">Select grade</option>
-                      {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Section</label>
-                    <input value={form.section_name} onChange={e => setForm(f => ({ ...f, section_name: e.target.value }))} placeholder="Section name" />
-                  </div>
-                  <div className="form-group">
-                    <label>Gender *</label>
-                    <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))}>
-                      <option value="">Select gender</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Birthdate</label>
-                    <input type="date" value={form.birthdate} onChange={e => setForm(f => ({ ...f, birthdate: e.target.value }))} />
-                  </div>
-                  <div className="form-group">
-                    <label>Age</label>
-                    <input type="number" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value }))} placeholder="Age" min="3" max="25" />
-                  </div>
-                  <div className="form-group">
-                    <label>Email</label>
-                    <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" />
-                  </div>
-                  <div className="form-group">
-                    <label>Contact Number</label>
-                    <input value={form.contact_number} onChange={e => setForm(f => ({ ...f, contact_number: e.target.value }))} placeholder="Contact number" />
-                  </div>
-                  <div className="form-group">
-                    <label>Guardian Name</label>
-                    <input value={form.guardian_name} onChange={e => setForm(f => ({ ...f, guardian_name: e.target.value }))} placeholder="Guardian full name" />
-                  </div>
-                  <div className="form-group">
-                    <label>Guardian Contact</label>
-                    <input value={form.guardian_contact} onChange={e => setForm(f => ({ ...f, guardian_contact: e.target.value }))} placeholder="Guardian contact number" />
-                  </div>
-                  <div className="form-group">
-                    <label>Status</label>
-                    <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                      <option value="Graduated">Graduated</option>
-                      <option value="Transferred">Transferred</option>
-                    </select>
+                </div>
+
+                {/* Status Section */}
+                <div style={{ marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Enrollment Status
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Status</label>
+                      <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                        <option value="Graduated">Graduated</option>
+                        <option value="Transferred">Transferred</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -36,18 +36,26 @@ export default function TeacherGradesPage() {
   const [saved, setSaved]         = useState(false);
   const [subjects, setSubjects]   = useState([]);
 
-  // Load distinct subjects for the selected grade from existing grades table
+  // Load subjects from the subjects table
   useEffect(() => {
-    if (!gradeFilter) return;
     async function loadSubjects() {
-      const { data } = await supabase
-        .from('grades')
-        .select('subject')
-        .in('student_record_id',
-          (await supabase.from('students').select('student_record_id').eq('grade_level', Number(gradeFilter))).data?.map(s => s.student_record_id) ?? []
-        );
-      const unique = [...new Set((data ?? []).map(r => r.subject))].sort();
-      setSubjects(unique);
+      const { data, error } = await supabase
+        .from('subjects')
+        .select('subject_name, grade_level')
+        .eq('status', 'Active');
+      
+      if (error) {
+        console.error("Error loading subjects:", error);
+        setSubjects([]);
+      } else {
+        console.log("Loaded subjects:", data);
+        // Filter subjects based on selected grade level
+        const filtered = gradeFilter 
+          ? (data ?? []).filter(s => !s.grade_level || s.grade_level === Number(gradeFilter))
+          : (data ?? []);
+        const unique = [...new Set(filtered.map(s => s.subject_name))].sort();
+        setSubjects(unique);
+      }
     }
     loadSubjects();
   }, [supabase, gradeFilter]);
@@ -56,19 +64,29 @@ export default function TeacherGradesPage() {
     if (!gradeFilter || !subject || !quarter) return;
     setLoading(true);
 
-    const { data: studs } = await supabase
+    const { data: studs, error: studsError } = await supabase
       .from('students')
       .select('student_record_id, student_id, first_name, last_name, section_name')
       .eq('grade_level', Number(gradeFilter))
       .order('last_name');
 
+    if (studsError) {
+      console.error("Error loading students:", studsError);
+      setLoading(false);
+      return;
+    }
+
     const ids = (studs ?? []).map(s => s.student_record_id);
-    const { data: existing } = await supabase
+    const { data: existing, error: gradesError } = await supabase
       .from('grades')
       .select('grade_id, student_record_id, written_works, performance_tasks, quarterly_assessment, participation, quarter_grade, remarks')
       .eq('subject', subject)
       .eq('quarter', quarter)
       .in('student_record_id', ids);
+
+    if (gradesError) {
+      console.error("Error loading grades:", gradesError);
+    }
 
     const map = {};
     (existing ?? []).forEach(g => { map[g.student_record_id] = { ...g }; });
@@ -78,6 +96,8 @@ export default function TeacherGradesPage() {
       }
     });
 
+    console.log("Loaded students:", studs);
+    console.log("Loaded grades:", existing);
     setStudents(studs ?? []);
     setGradeMap(map);
     setLoading(false);

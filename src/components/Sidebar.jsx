@@ -30,6 +30,15 @@ function IconFaculty() {
   );
 }
 
+function IconSubjects() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  );
+}
+
 function IconSchedules() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -86,6 +95,7 @@ const NAV_ITEMS = [
   { label: 'Overview',         path: '/dashboard',             Icon: IconOverview    },
   { label: 'Student Records',  path: '/dashboard/students',    Icon: IconStudents    },
   { label: 'Faculty Records',  path: '/dashboard/faculty',     Icon: IconFaculty     },
+  { label: 'Subjects',         path: '/dashboard/subjects',    Icon: IconSubjects   },
   { label: 'Teacher Schedules', path: '/dashboard/schedules',   Icon: IconSchedules   },
   { label: 'Transcripts',      path: '/dashboard/transcripts', Icon: IconTranscripts },
   { label: 'Finance',          path: '/dashboard/finance',     Icon: IconFinance     },

@@ -161,9 +161,26 @@ export default function TeacherAttendancePage() {
                                   <button
                                     key={opt}
                                     type="button"
-                                    onClick={() => setAttendance(a => ({ ...a, [s.student_record_id]: opt }))}
+                                    onClick={() => {
+                                      // Toggle: if already selected, deselect; otherwise select
+                                      if (status === opt) {
+                                        setAttendance(a => ({ ...a, [s.student_record_id]: 'Present' })); // default back to Present
+                                      } else {
+                                        setAttendance(a => ({ ...a, [s.student_record_id]: opt }));
+                                      }
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (status !== opt) {
+                                        e.target.style.backgroundColor = `${STATUS_COLORS[opt.toLowerCase()]}20`;
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (status !== opt) {
+                                        e.target.style.backgroundColor = 'transparent';
+                                      }
+                                    }}
                                     style={{
-                                      padding: '4px 12px',
+                                      padding: '6px 12px',
                                       borderRadius: '20px',
                                       border: '2px solid',
                                       fontSize: '12px',
@@ -174,6 +191,7 @@ export default function TeacherAttendancePage() {
                                       color: status === opt ? (opt === 'Late' ? '#000' : '#fff') : STATUS_COLORS[opt.toLowerCase()],
                                       transition: 'all 0.15s',
                                     }}
+                                    title={`Click to set as ${opt}`}
                                   >
                                     {opt}
                                   </button>
