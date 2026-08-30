@@ -401,13 +401,21 @@ button {
 
 .action-icon svg {
   color: var(--gold);
+  stroke: var(--gold);
   flex-shrink: 0;
+  transition: all 0.3s ease;
 }
 
 .quick-action-card:hover .action-icon {
   transform: scale(1.1);
   background: linear-gradient(135deg, var(--gold), #e6c200);
   color: var(--maroon);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+}
+
+.quick-action-card:hover .action-icon svg {
+  color: var(--maroon) !important;
+  stroke: var(--maroon) !important;
 }
 
 .action-label {

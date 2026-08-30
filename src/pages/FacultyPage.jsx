@@ -396,6 +396,10 @@ export default function FacultyPage() {
           const fallback = { ...payload };
           fallback.department = 'Junior High'; // Fallback to classic allowed department value
           res = await executeSave(fallback);
+        } else if (res.error.message.includes('faculty_employment_status_check')) {
+          const fallback = { ...payload };
+          fallback.employment_status = 'Active'; // Fallback to classic allowed status value
+          res = await executeSave(fallback);
         } else if (res.error.message.includes('schema cache') || res.error.message.includes('column')) {
           const fallback = { ...payload };
           delete fallback.is_archived;
