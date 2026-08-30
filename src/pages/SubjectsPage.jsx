@@ -114,7 +114,30 @@ export default function SubjectsPage() {
     setLoading(false);
   }, [supabase, deptFilter, gradeFilter, search]);
 
-  useEffect(() => { fetchSubjects(); }, [fetchSubjects]);
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      setLoading(true);
+      let q = supabase.from('subjects').select('*').order('subject_name', { ascending: true });
+      if (deptFilter) q = q.eq('department', deptFilter);
+      if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
+      if (search)     q = q.or(`subject_name.ilike.%${search}%,subject_code.ilike.%${search}%`);
+      const { data, error } = await q;
+      
+      if (!ignore) {
+        if (error) {
+          console.error("Error fetching subjects:", JSON.stringify(error, null, 2));
+          console.error("Error details:", error.message, error.code, error.hint);
+          setSubjects([]);
+        } else {
+          setSubjects(data ?? []);
+        }
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { ignore = true; };
+  }, [supabase, deptFilter, gradeFilter, search]);
 
   /* derived stats */
   const total = subjects.length;
@@ -247,13 +270,44 @@ export default function SubjectsPage() {
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Search</label>
-              <input
-                className="search-input"
-                style={{ width: '100%' }}
-                placeholder="Subject name or code..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  className="search-input"
+                  style={{ width: '100%', paddingRight: search ? '32px' : '10px' }}
+                  placeholder="Subject name or code..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      background: '#e9ecef',
+                      border: 'none',
+                      color: '#666',
+                      cursor: 'pointer',
+                      borderRadius: '50%',
+                      width: '20px',
+                      height: '20px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      lineHeight: '1',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.background = '#8B0000'; e.currentTarget.style.color = '#fff'; }}
+                    onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

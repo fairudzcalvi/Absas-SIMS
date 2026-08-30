@@ -190,7 +190,58 @@ export default function TranscriptsPage() {
     setLoading(false);
   }, [supabase, gradeFilter, search, statusFilter]);
 
-  useEffect(() => { fetchStudents(); }, [fetchStudents]);
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      setLoading(true);
+
+      // 1. Fetch students
+      let q = supabase
+        .from('students')
+        .select('student_record_id, student_id, first_name, last_name, lrn_id, grade_level, section_name')
+        .order('last_name');
+
+      if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
+      if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn_id.ilike.%${search}%,student_id.ilike.%${search}%`);
+
+      const { data: studentData } = await q;
+      const studentRows = studentData ?? [];
+
+      // 2. Fetch transcripts
+      const { data: transcriptData } = await supabase
+        .from('transcripts')
+        .select('student_record_id, general_average, generated_date, school_year');
+
+      const tMap = {};
+      (transcriptData ?? []).forEach(t => {
+        tMap[t.student_record_id] = t;
+      });
+
+      // 3. Apply status filter client-side
+      let rows = studentRows;
+      if (statusFilter === 'complete')   rows = rows.filter(s => !tMap[s.student_record_id]);
+      if (statusFilter === 'incomplete') rows = rows.filter(s => !tMap[s.student_record_id]);
+
+      // 4. Stats
+      const today = new Date().toISOString().split('T')[0];
+      const todayCount = (transcriptData ?? []).filter(t => (t.generated_date ?? '').startsWith(today)).length;
+      const completeIds = new Set((transcriptData ?? []).map(t => t.student_record_id));
+
+      if (!ignore) {
+        setTranscriptMap(tMap);
+        setStudents(rows);
+        setStats({
+          total:      (transcriptData ?? []).length,
+          today:      todayCount,
+          complete:   completeIds.size,
+          incomplete: studentRows.length - completeIds.size,
+        });
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { ignore = true; };
+  }, [supabase, gradeFilter, search, statusFilter]);
 
   /* preview grades */
   async function openPreview(student) {

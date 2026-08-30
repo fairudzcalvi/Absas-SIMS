@@ -103,14 +103,31 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar() {
-  const { session, logout } = useAuth();
-  const email = session?.user?.email ?? '';
+  const { logout, activeSchoolYear, activeQuarter } = useAuth();
 
   return (
     <aside className="sidebar">
-      {/* Brand */}
+      {/* Brand & Academic Year Indicator */}
       <div className="sidebar-header">
         <h2>ABSAS-SIMS</h2>
+        <div style={{
+          marginTop: '6px',
+          fontSize: '12px',
+          fontWeight: '600',
+          color: '#FFD700',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          flexWrap: 'wrap',
+        }}>
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }}></span>
+          <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+          {activeQuarter && (
+            <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)', fontWeight: '500' }}>
+              • {activeQuarter.quarter_name}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Navigation */}

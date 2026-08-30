@@ -8,6 +8,15 @@ function IcoUser() {
   );
 }
 
+function Field({ label, value, fullWidth = false }) {
+  return (
+    <div style={{ gridColumn: fullWidth ? '1 / -1' : 'auto', marginBottom: '16px' }}>
+      <label style={styles.fieldLabel}>{label}</label>
+      <div style={styles.fieldValue}>{value || '—'}</div>
+    </div>
+  );
+}
+
 export default function StudentProfilePage() {
   const { profile } = useAuth();
   const s = profile ?? {};
@@ -16,15 +25,6 @@ export default function StudentProfilePage() {
     year: 'numeric', month: 'long', day: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: true,
   });
-
-  function Field({ label, value, fullWidth = false }) {
-    return (
-      <div style={{ gridColumn: fullWidth ? '1 / -1' : 'auto', marginBottom: '16px' }}>
-        <label style={styles.fieldLabel}>{label}</label>
-        <div style={styles.fieldValue}>{value || '—'}</div>
-      </div>
-    );
-  }
 
   return (
     <>

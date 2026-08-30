@@ -140,10 +140,10 @@ const QUICK_ACTIONS = [
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function DashboardPage() {
-  const { supabase } = useAuth();
+  const { supabase, activeSchoolYear, activeQuarter } = useAuth();
   const navigate = useNavigate();
   const [now, setNow] = useState(new Date());
-  const [stats, setStats] = useState({ students: 0, faculty: 0, gradeLevels: 10 });
+  const [stats, setStats] = useState({ students: 0, faculty: 0, gradeLevels: 12 });
   const [enrollments, setEnrollments] = useState([]);
   const [loadingStats, setLoadingStats] = useState(true);
 
@@ -164,7 +164,7 @@ export default function DashboardPage() {
           .order('created_at', { ascending: false })
           .limit(10),
       ]);
-      setStats({ students: studentsRes.count ?? 0, faculty: facultyRes.count ?? 0, gradeLevels: 10 });
+      setStats({ students: studentsRes.count ?? 0, faculty: facultyRes.count ?? 0, gradeLevels: 12 });
       setEnrollments(enrollRes.data ?? []);
       setLoadingStats(false);
     }
@@ -176,7 +176,26 @@ export default function DashboardPage() {
       {/* Top Header */}
       <div className="top-header">
         <h1><IcoHome /> Dashboard Overview</h1>
-        <div className="header-actions">
+        <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            background: '#8B0000',
+            color: '#FFD700',
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
+          }}>
+            <span>📅 {activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+            {activeQuarter && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                {activeQuarter.quarter_name}
+              </span>
+            )}
+          </div>
           <span className="date-time">{formatDateTime(now)}</span>
         </div>
       </div>

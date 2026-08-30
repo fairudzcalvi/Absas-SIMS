@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 
 function IcoGrades() {
@@ -23,6 +23,76 @@ const GRADE_OPTIONS  = Array.from({ length: 10 }, (_, i) => ({ value: i + 1, lab
 const QUARTERS       = ['1Q', '2Q', '3Q', '4Q'];
 const QUARTER_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
+// DepEd Transmutation Table (Initial Grade -> Transmuted Grade)
+// Sorted descending by the lower bound of each range.
+const TRANSMUTATION_TABLE = [
+  { min: 100.00, grade: 100 },
+  { min: 98.40,  grade: 99 },
+  { min: 96.80,  grade: 98 },
+  { min: 95.20,  grade: 97 },
+  { min: 93.60,  grade: 96 },
+  { min: 92.00,  grade: 95 },
+  { min: 90.40,  grade: 94 },
+  { min: 88.80,  grade: 93 },
+  { min: 87.20,  grade: 92 },
+  { min: 85.60,  grade: 91 },
+  { min: 84.00,  grade: 90 },
+  { min: 82.40,  grade: 89 },
+  { min: 80.80,  grade: 88 },
+  { min: 79.20,  grade: 87 },
+  { min: 77.60,  grade: 86 },
+  { min: 76.00,  grade: 85 },
+  { min: 74.40,  grade: 84 },
+  { min: 72.80,  grade: 83 },
+  { min: 71.20,  grade: 82 },
+  { min: 69.60,  grade: 81 },
+  { min: 68.00,  grade: 80 },
+  { min: 66.40,  grade: 79 },
+  { min: 64.80,  grade: 78 },
+  { min: 63.20,  grade: 77 },
+  { min: 61.60,  grade: 76 },
+  { min: 60.00,  grade: 75 },
+  { min: 56.00,  grade: 74 },
+  { min: 52.00,  grade: 73 },
+  { min: 48.00,  grade: 72 },
+  { min: 44.00,  grade: 71 },
+  { min: 40.00,  grade: 70 },
+  { min: 36.00,  grade: 69 },
+  { min: 32.00,  grade: 68 },
+  { min: 28.00,  grade: 67 },
+  { min: 24.00,  grade: 66 },
+  { min: 20.00,  grade: 65 },
+  { min: 16.00,  grade: 64 },
+  { min: 12.00,  grade: 63 },
+  { min: 8.00,   grade: 62 },
+  { min: 4.00,   grade: 61 },
+  { min: 0.00,   grade: 60 },
+];
+
+// Converts a raw "Initial Grade" (0-100) into its DepEd "Transmuted Grade".
+function transmuteGrade(initialGrade) {
+  if (initialGrade === null || initialGrade === undefined || isNaN(initialGrade)) return '';
+  const clamped = Math.min(100, Math.max(0, initialGrade));
+  const row = TRANSMUTATION_TABLE.find(r => clamped >= r.min);
+  return row ? row.grade : 60;
+}
+
+const DEFAULT_SUBJECTS = [
+  'Mathematics',
+  'Science',
+  'English',
+  'Filipino',
+  'Araling Panlipunan',
+  'MAPEH',
+  'Edukasyon sa Pagpapakatao (EsP)',
+  'Technology and Livelihood Education (TLE)',
+  'Computer / ICT',
+  'Music',
+  'Arts',
+  'Physical Education',
+  'Health',
+];
+
 export default function TeacherGradesPage() {
   const { supabase } = useAuth();
 
@@ -34,9 +104,10 @@ export default function TeacherGradesPage() {
   const [loading, setLoading]     = useState(false);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
-  const [subjects, setSubjects]   = useState([]);
+  const [subjects, setSubjects]   = useState(DEFAULT_SUBJECTS);
+  const [customSubjectMode, setCustomSubjectMode] = useState(false);
 
-  // Load subjects from the subjects table
+  // Load subjects from the subjects table + default list
   useEffect(() => {
     async function loadSubjects() {
       const { data, error } = await supabase
@@ -44,75 +115,81 @@ export default function TeacherGradesPage() {
         .select('subject_name, grade_level')
         .eq('status', 'Active');
       
-      if (error) {
-        console.error("Error loading subjects:", error);
-        setSubjects([]);
-      } else {
-        console.log("Loaded subjects:", data);
-        // Filter subjects based on selected grade level
-        const filtered = gradeFilter 
-          ? (data ?? []).filter(s => !s.grade_level || s.grade_level === Number(gradeFilter))
-          : (data ?? []);
-        const unique = [...new Set(filtered.map(s => s.subject_name))].sort();
-        setSubjects(unique);
-      }
+      const dbSubjects = (!error && data) 
+        ? data.filter(s => !gradeFilter || !s.grade_level || s.grade_level === Number(gradeFilter)).map(s => s.subject_name)
+        : [];
+
+      const { data: gradeSubjs } = await supabase
+        .from('grades')
+        .select('subject');
+      
+      const prevSubjs = gradeSubjs ? gradeSubjs.map(g => g.subject).filter(Boolean) : [];
+      const unique = [...new Set([...DEFAULT_SUBJECTS, ...dbSubjects, ...prevSubjs])].sort();
+      setSubjects(unique);
     }
     loadSubjects();
   }, [supabase, gradeFilter]);
 
-  const loadGrades = useCallback(async () => {
-    if (!gradeFilter || !subject || !quarter) return;
-    setLoading(true);
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      if (!gradeFilter || !subject || !quarter) return;
+      setLoading(true);
 
-    const { data: studs, error: studsError } = await supabase
-      .from('students')
-      .select('student_record_id, student_id, first_name, last_name, section_name')
-      .eq('grade_level', Number(gradeFilter))
-      .order('last_name');
+      const { data: studs, error: studsError } = await supabase
+        .from('students')
+        .select('student_record_id, student_id, first_name, last_name, section_name')
+        .eq('grade_level', Number(gradeFilter))
+        .order('last_name');
 
-    if (studsError) {
-      console.error("Error loading students:", studsError);
-      setLoading(false);
-      return;
-    }
-
-    const ids = (studs ?? []).map(s => s.student_record_id);
-    const { data: existing, error: gradesError } = await supabase
-      .from('grades')
-      .select('grade_id, student_record_id, written_works, performance_tasks, quarterly_assessment, participation, quarter_grade, remarks')
-      .eq('subject', subject)
-      .eq('quarter', quarter)
-      .in('student_record_id', ids);
-
-    if (gradesError) {
-      console.error("Error loading grades:", gradesError);
-    }
-
-    const map = {};
-    (existing ?? []).forEach(g => { map[g.student_record_id] = { ...g }; });
-    (studs ?? []).forEach(s => {
-      if (!map[s.student_record_id]) {
-        map[s.student_record_id] = { written_works: '', performance_tasks: '', quarterly_assessment: '', participation: '', quarter_grade: '', remarks: '' };
+      if (studsError) {
+        console.error("Error loading students:", studsError);
+        if (!ignore) setLoading(false);
+        return;
       }
-    });
 
-    console.log("Loaded students:", studs);
-    console.log("Loaded grades:", existing);
-    setStudents(studs ?? []);
-    setGradeMap(map);
-    setLoading(false);
+      const ids = (studs ?? []).map(s => s.student_record_id);
+      const { data: existing, error: gradesError } = await supabase
+        .from('grades')
+        .select('grade_id, student_record_id, written_works, performance_tasks, quarterly_assessment, participation, quarter_grade, remarks')
+        .eq('subject', subject)
+        .eq('quarter', quarter)
+        .in('student_record_id', ids);
+
+      if (gradesError) {
+        console.error("Error loading grades:", gradesError);
+      }
+
+      const map = {};
+      (existing ?? []).forEach(g => { map[g.student_record_id] = { ...g }; });
+      (studs ?? []).forEach(s => {
+        if (!map[s.student_record_id]) {
+          map[s.student_record_id] = { written_works: '', performance_tasks: '', quarterly_assessment: '', participation: '', quarter_grade: '', remarks: '' };
+        }
+      });
+
+      if (!ignore) {
+        setStudents(studs ?? []);
+        setGradeMap(map);
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { ignore = true; };
   }, [supabase, gradeFilter, subject, quarter]);
-
-  useEffect(() => { loadGrades(); }, [loadGrades]);
 
   function updateGrade(studentId, field, value) {
     setGradeMap(prev => {
       const updated = { ...prev[studentId], [field]: value };
-      // Auto-compute quarter grade as average of non-empty components
+      // Compute the "Initial Grade" as the average of non-empty components,
+      // then run it through the DepEd transmutation table to get the
+      // official Quarter Grade.
       const vals = ['written_works', 'performance_tasks', 'quarterly_assessment', 'participation']
         .map(f => parseFloat(updated[f]))
         .filter(v => !isNaN(v));
-      updated.quarter_grade = vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : '';
+      const initialGrade = vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length) : NaN;
+      updated.initial_grade = vals.length > 0 ? initialGrade.toFixed(2) : '';
+      updated.quarter_grade = vals.length > 0 ? String(transmuteGrade(initialGrade)) : '';
       return { ...prev, [studentId]: updated };
     });
   }
@@ -161,14 +238,47 @@ export default function TeacherGradesPage() {
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Subject</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <select className="filter-select" style={{ flex: 1 }} value={subject} onChange={e => setSubject(e.target.value)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ margin: 0 }}>Subject</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomSubjectMode(prev => !prev);
+                    if (customSubjectMode) setSubject('');
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#8B0000', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  {customSubjectMode ? 'Select from list' : '+ Enter custom'}
+                </button>
+              </div>
+              {customSubjectMode ? (
+                <input
+                  className="filter-select"
+                  style={{ width: '100%' }}
+                  placeholder="Type subject name..."
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
+                  autoFocus
+                />
+              ) : (
+                <select
+                  className="filter-select"
+                  style={{ width: '100%' }}
+                  value={subject}
+                  onChange={e => {
+                    if (e.target.value === '__custom__') {
+                      setCustomSubjectMode(true);
+                      setSubject('');
+                    } else {
+                      setSubject(e.target.value);
+                    }
+                  }}
+                >
                   <option value="">Select Subject</option>
                   {subjects.map(s => <option key={s} value={s}>{s}</option>)}
+                  <option value="__custom__">+ Enter Custom Subject...</option>
                 </select>
-                <input placeholder="or type..." value={subject} onChange={e => setSubject(e.target.value)} style={{ flex: 1, padding: '10px', border: '2px solid #ddd', borderRadius: '8px', fontSize: '14px' }} />
-              </div>
+              )}
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Quarter</label>
@@ -200,6 +310,7 @@ export default function TeacherGradesPage() {
                         <th>#</th><th>Student ID</th><th>Name</th><th>Section</th>
                         <th>Written Works</th><th>Performance Tasks</th>
                         <th>Quarterly Assessment</th><th>Participation</th>
+                        <th>Initial Grade</th>
                         <th style={{ color: '#8B0000' }}>Quarter Grade</th>
                         <th>Remarks</th>
                       </tr>
@@ -225,6 +336,9 @@ export default function TeacherGradesPage() {
                                 />
                               </td>
                             ))}
+                            <td style={{ color: '#555', fontSize: '13px', textAlign: 'center' }}>
+                              {g.initial_grade || '—'}
+                            </td>
                             <td>
                               <span style={{
                                 fontWeight: '700', fontSize: '15px',

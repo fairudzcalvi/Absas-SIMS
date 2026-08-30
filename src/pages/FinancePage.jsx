@@ -218,7 +218,65 @@ export default function FinancePage() {
     setLoading(false);
   }, [supabase, gradeFilter, search, statusFilter]);
 
-  useEffect(() => { fetchRecords(); }, [fetchRecords]);
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('student_finances')
+        .select(`
+          finance_id,
+          student_record_id,
+          tuition_fee,
+          miscellaneous_fee,
+          total_fees,
+          amount_paid,
+          balance,
+          status,
+          school_year,
+          students (
+            student_record_id,
+            first_name,
+            last_name,
+            grade_level
+          )
+        `);
+
+      if (error) {
+        console.error("Error fetching finance records:", error);
+        if (!ignore) {
+          setRecords([]);
+          setLoading(false);
+        }
+        return;
+      }
+
+      let rows = data ?? [];
+
+      if (gradeFilter) rows = rows.filter(r => r.students?.grade_level === Number(gradeFilter));
+      if (search) rows = rows.filter(r => {
+        const q = search.toLowerCase();
+        const s = r.students;
+        return (s?.first_name + ' ' + s?.last_name).toLowerCase().includes(q)
+            || String(s?.student_record_id ?? '').includes(q);
+      });
+      if (statusFilter) rows = rows.filter(r => (r.status ?? '').toLowerCase() === statusFilter.toLowerCase());
+
+      if (!ignore) {
+        setRecords(rows);
+
+        const totalRevenue = rows.reduce((a, r) => a + Number(r.total_fees ?? 0), 0);
+        const totalPaid    = rows.reduce((a, r) => a + Number(r.amount_paid ?? 0), 0);
+        const totalBalance = rows.reduce((a, r) => a + Number(r.balance ?? 0), 0);
+        const fullPaid     = rows.filter(r => (r.status ?? '').toLowerCase() === 'paid').length;
+        setStats({ revenue: totalRevenue, collected: totalPaid, balance: totalBalance, fullPaid });
+
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { ignore = true; };
+  }, [supabase, gradeFilter, search, statusFilter]);
 
   /* record payment */
   async function handleSavePayment(e) {

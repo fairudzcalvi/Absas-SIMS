@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 /* ── Icons ─────────────────────────────────────────────── */
@@ -108,23 +108,26 @@ export default function SchedulesPage() {
   const [formError, setFormError]   = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  /* fetch teachers */
-  const fetchTeachers = useCallback(async () => {
-    const { data } = await supabase
-      .from('faculty')
-      .select('*')
-      .order('last_name', { ascending: true });
-    setTeachers(data ?? []);
-  }, [supabase]);
-
   /* fetch schedules when teacher changes */
   useEffect(() => {
-    fetchTeachers();
-  }, [fetchTeachers]);
+    let ignore = false;
+    async function load() {
+      const { data } = await supabase
+        .from('faculty')
+        .select('*')
+        .order('last_name', { ascending: true });
+      if (!ignore) {
+        setTeachers(data ?? []);
+      }
+    }
+    load();
+    return () => { ignore = true; };
+  }, [supabase]);
 
   useEffect(() => {
-    if (!selectedTeacher) { setSchedules([]); return; }
+    let ignore = false;
     async function fetchSchedules() {
+      if (!selectedTeacher) return;
       setLoading(true);
       const { data } = await supabase
         .from('schedules')
@@ -132,10 +135,13 @@ export default function SchedulesPage() {
         .eq('teacher', selectedTeacher)
         .order('day_of_week')
         .order('time_start');
-      setSchedules(data ?? []);
-      setLoading(false);
+      if (!ignore) {
+        setSchedules(data ?? []);
+        setLoading(false);
+      }
     }
     fetchSchedules();
+    return () => { ignore = true; };
   }, [supabase, selectedTeacher]);
 
   /* open modals */

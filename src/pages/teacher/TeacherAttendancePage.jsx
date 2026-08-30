@@ -37,32 +37,37 @@ export default function TeacherAttendancePage() {
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
 
-  async function loadStudents() {
-    if (!gradeFilter) return;
-    setLoading(true);
-    const { data: studs } = await supabase
-      .from('students')
-      .select('student_record_id, student_id, first_name, last_name, grade_level, section_name')
-      .eq('grade_level', Number(gradeFilter))
-      .order('last_name');
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      if (!gradeFilter) return;
+      setLoading(true);
+      const { data: studs } = await supabase
+        .from('students')
+        .select('student_record_id, student_id, first_name, last_name, grade_level, section_name')
+        .eq('grade_level', Number(gradeFilter))
+        .order('last_name');
 
-    const { data: existing } = await supabase
-      .from('attendance')
-      .select('student_record_id, status')
-      .eq('date', date)
-      .in('student_record_id', (studs ?? []).map(s => s.student_record_id));
+      const { data: existing } = await supabase
+        .from('attendance')
+        .select('student_record_id, status')
+        .eq('date', date)
+        .in('student_record_id', (studs ?? []).map(s => s.student_record_id));
 
-    const map = {};
-    (existing ?? []).forEach(r => { map[r.student_record_id] = r.status; });
-    // default all to Present
-    (studs ?? []).forEach(s => { if (!map[s.student_record_id]) map[s.student_record_id] = 'Present'; });
+      const map = {};
+      (existing ?? []).forEach(r => { map[r.student_record_id] = r.status; });
+      // default all to Present
+      (studs ?? []).forEach(s => { if (!map[s.student_record_id]) map[s.student_record_id] = 'Present'; });
 
-    setStudents(studs ?? []);
-    setAttendance(map);
-    setLoading(false);
-  }
-
-  useEffect(() => { loadStudents(); }, [gradeFilter, date]);
+      if (!ignore) {
+        setStudents(studs ?? []);
+        setAttendance(map);
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { ignore = true; };
+  }, [supabase, gradeFilter, date]);
 
   async function handleSave() {
     if (students.length === 0) return;

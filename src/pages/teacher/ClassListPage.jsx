@@ -88,7 +88,7 @@ const EMPTY_FORM = {
 };
 
 export default function ClassListPage() {
-  const { supabase, profile } = useAuth();
+  const { supabase } = useAuth();
 
   const [students, setStudents]     = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -116,7 +116,23 @@ export default function ClassListPage() {
     setLoading(false);
   }, [supabase, gradeFilter, genderFilter, search]);
 
-  useEffect(() => { fetchStudents(); }, [fetchStudents]);
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      setLoading(true);
+      let q = supabase.from('students').select('*').order('last_name');
+      if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
+      if (genderFilter) q = q.eq('gender', genderFilter);
+      if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%,lrn_id.ilike.%${search}%`);
+      const { data } = await q;
+      if (!ignore) {
+        setStudents(data ?? []);
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { ignore = true; };
+  }, [supabase, gradeFilter, genderFilter, search]);
 
   function openEdit(s) {
     setEditStudent(s);
@@ -149,8 +165,13 @@ export default function ClassListPage() {
       grade_level: form.grade_level ? Number(form.grade_level) : null,
       age:         form.age         ? Number(form.age)         : null,
     };
-    const { error } = await supabase.from('students').update(payload).eq('student_record_id', editStudent.student_record_id);
-    if (error) { setFormError(error.message); setSaving(false); return; }
+    if (editStudent) {
+      const { error } = await supabase.from('students').update(payload).eq('student_record_id', editStudent.student_record_id);
+      if (error) { setFormError(error.message); setSaving(false); return; }
+    } else {
+      const { error } = await supabase.from('students').insert([payload]);
+      if (error) { setFormError(error.message); setSaving(false); return; }
+    }
     setSaving(false);
     setModalOpen(false);
     fetchStudents();
@@ -204,7 +225,44 @@ export default function ClassListPage() {
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Search</label>
-              <input className="search-input" style={{ width: '100%' }} placeholder="Name, LRN, or ID..." value={search} onChange={e => setSearch(e.target.value)} />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  className="search-input"
+                  style={{ width: '100%', paddingRight: search ? '32px' : '10px' }}
+                  placeholder="Name, LRN, or ID..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      background: '#e9ecef',
+                      border: 'none',
+                      color: '#666',
+                      cursor: 'pointer',
+                      borderRadius: '50%',
+                      width: '20px',
+                      height: '20px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      lineHeight: '1',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.background = '#8B0000'; e.currentTarget.style.color = '#fff'; }}
+                    onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
