@@ -1007,6 +1007,8 @@ function FeesScholarshipsTab({ supabase }) {
     is_active: true,
   });
 
+  const [showArchived, setShowArchived] = useState(false);
+
   const fetchScholarships = useCallback(async () => {
     const { data } = await supabase.from('scholarships').select('*').order('name', { ascending: true });
     setScholarships(data || []);
@@ -1054,11 +1056,16 @@ function FeesScholarshipsTab({ supabase }) {
     fetchScholarships();
   }
 
-  async function handleDeleteScholarship(id) {
-    if (window.confirm('Delete this scholarship program?')) {
-      await supabase.from('scholarships').delete().eq('id', id);
+  async function handleArchiveScholarship(id) {
+    if (window.confirm('Archive this scholarship? It will no longer appear in new enrollments, but existing records will be preserved.')) {
+      await supabase.from('scholarships').update({ is_active: false, is_archived: true }).eq('id', id);
       fetchScholarships();
     }
+  }
+
+  async function handleRestoreScholarship(id) {
+    await supabase.from('scholarships').update({ is_active: true, is_archived: false }).eq('id', id);
+    fetchScholarships();
   }
 
   return (
@@ -1111,7 +1118,7 @@ function FeesScholarshipsTab({ supabase }) {
         </div>
       </div>
 
-      {/* Scholarships Masterlist */}
+      {/* Active Scholarships */}
       <div className="card">
         <div className="card-header">
           <div>
@@ -1138,7 +1145,9 @@ function FeesScholarshipsTab({ supabase }) {
               </tr>
             </thead>
             <tbody>
-              {scholarships.map(sch => (
+              {scholarships.filter(s => !s.is_archived).length === 0 ? (
+                <tr><td colSpan={7} className="empty-message">No active scholarships. Add one above.</td></tr>
+              ) : scholarships.filter(s => !s.is_archived).map(sch => (
                 <tr key={sch.id}>
                   <td style={{ fontWeight: '700', color: '#8B0000' }}>{sch.code}</td>
                   <td style={{ fontWeight: '600' }}>{sch.name}</td>
@@ -1157,16 +1166,93 @@ function FeesScholarshipsTab({ supabase }) {
                     </span>
                   </td>
                   <td>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteScholarship(sch.id)}><IcoTrash /></button>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        title="Edit"
+                        onClick={() => {
+                          setEditSch(sch);
+                          setSchForm({
+                            name: sch.name,
+                            code: sch.code,
+                            discount_type: sch.discount_type,
+                            discount_value: sch.discount_value,
+                            description: sch.description || '',
+                            is_active: sch.is_active,
+                          });
+                          setSchModal(true);
+                        }}
+                      >
+                        <IcoEdit />
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: '#856404', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer' }}
+                        title="Archive"
+                        onClick={() => handleArchiveScholarship(sch.id)}
+                      >
+                        Archive
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* Archived scholarships collapsible */}
+        {scholarships.filter(s => s.is_archived).length > 0 && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f2dede' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '13px' }}
+              onClick={() => setShowArchived(p => !p)}
+            >
+              {showArchived ? 'Hide' : 'Show'} Archived ({scholarships.filter(s => s.is_archived).length})
+            </button>
+            {showArchived && (
+              <div className="table-container" style={{ marginTop: '12px' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Scholarship Name</th>
+                      <th>Discount Value</th>
+                      <th>Description</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scholarships.filter(s => s.is_archived).map(sch => (
+                      <tr key={sch.id} style={{ opacity: 0.6 }}>
+                        <td style={{ fontWeight: '700', color: '#999' }}>{sch.code}</td>
+                        <td style={{ fontWeight: '600', textDecoration: 'line-through', color: '#999' }}>{sch.name}</td>
+                        <td style={{ color: '#999' }}>
+                          {sch.discount_type === 'percentage' ? `${sch.discount_value}% OFF` : `₱${Number(sch.discount_value).toLocaleString()}`}
+                        </td>
+                        <td style={{ fontSize: '13px', color: '#999' }}>{sch.description || '—'}</td>
+                        <td>
+                          <button
+                            className="btn btn-sm"
+                            style={{ background: '#28a745', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer' }}
+                            title="Restore"
+                            onClick={() => handleRestoreScholarship(sch.id)}
+                          >
+                            Restore
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Modal: Add Scholarship */}
+      {/* Modal: Add / Edit Scholarship */}
       {schModal && (
         <div className="modal active">
           <div className="modal-content">

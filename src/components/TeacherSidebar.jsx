@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import logo from '../assets/logo.png';
 
 function IcoClassList() {
   return (
@@ -52,24 +53,31 @@ export default function TeacherSidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2>ABSAS-SIMS</h2>
-        <div style={{
-          marginTop: '6px',
-          fontSize: '12px',
-          fontWeight: '600',
-          color: '#FFD700',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          flexWrap: 'wrap',
-        }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }}></span>
-          <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
-          {activeQuarter && (
-            <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)', fontWeight: '500' }}>
-              • {activeQuarter.quarter_name}
-            </span>
-          )}
+        <div className="sidebar-header-inner">
+          <div className="sidebar-logo-wrap">
+            <img src={logo} alt="ABSAS Logo" className="sidebar-logo" />
+          </div>
+          <div className="sidebar-header-text">
+            <h2>ABSAS-SIMS</h2>
+            <div style={{
+              marginTop: '4px',
+              fontSize: '12px',
+              fontWeight: '600',
+              color: '#FFD700',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flexWrap: 'wrap',
+            }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }}></span>
+              <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+              {activeQuarter && (
+                <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)', fontWeight: '500' }}>
+                  • {activeQuarter.quarter_name}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

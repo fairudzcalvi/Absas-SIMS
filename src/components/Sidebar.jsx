@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import logo from '../assets/logo.png';
 
 // SVG icon components matching the sidebar screenshot
 function IconOverview() {
@@ -15,6 +16,16 @@ function IconStudents() {
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
       <path d="M6 12v5c3 3 9 3 12 0v-5" />
+    </svg>
+  );
+}
+
+function IconEnrollment() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <polyline points="16 11 18 13 22 9" />
     </svg>
   );
 }
@@ -92,14 +103,15 @@ function IconLogout() {
 }
 
 const NAV_ITEMS = [
-  { label: 'Overview',         path: '/dashboard',             Icon: IconOverview    },
-  { label: 'Student Records',  path: '/dashboard/students',    Icon: IconStudents    },
-  { label: 'Faculty Records',  path: '/dashboard/faculty',     Icon: IconFaculty     },
-  { label: 'Subjects',         path: '/dashboard/subjects',    Icon: IconSubjects   },
+  { label: 'Overview',          path: '/dashboard',             Icon: IconOverview    },
+  { label: 'Enrollment Intake', path: '/dashboard/enrollment',  Icon: IconEnrollment  },
+  { label: 'Student Records',   path: '/dashboard/students',    Icon: IconStudents    },
+  { label: 'Faculty Records',   path: '/dashboard/faculty',     Icon: IconFaculty     },
+  { label: 'Subjects',          path: '/dashboard/subjects',    Icon: IconSubjects   },
   { label: 'Teacher Schedules', path: '/dashboard/schedules',   Icon: IconSchedules   },
-  { label: 'Transcripts',      path: '/dashboard/transcripts', Icon: IconTranscripts },
-  { label: 'Finance',          path: '/dashboard/finance',     Icon: IconFinance     },
-  { label: 'Settings',         path: '/dashboard/settings',    Icon: IconSettings    },
+  { label: 'Transcripts',       path: '/dashboard/transcripts', Icon: IconTranscripts },
+  { label: 'Finance',           path: '/dashboard/finance',     Icon: IconFinance     },
+  { label: 'Settings',          path: '/dashboard/settings',    Icon: IconSettings    },
 ];
 
 export default function Sidebar() {
@@ -109,24 +121,31 @@ export default function Sidebar() {
     <aside className="sidebar">
       {/* Brand & Academic Year Indicator */}
       <div className="sidebar-header">
-        <h2>ABSAS-SIMS</h2>
-        <div style={{
-          marginTop: '6px',
-          fontSize: '12px',
-          fontWeight: '600',
-          color: '#FFD700',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          flexWrap: 'wrap',
-        }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }}></span>
-          <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
-          {activeQuarter && (
-            <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)', fontWeight: '500' }}>
-              • {activeQuarter.quarter_name}
-            </span>
-          )}
+        <div className="sidebar-header-inner">
+          <div className="sidebar-logo-wrap">
+            <img src={logo} alt="ABSAS Logo" className="sidebar-logo" />
+          </div>
+          <div className="sidebar-header-text">
+            <h2>ABSAS-SIMS</h2>
+            <div style={{
+              marginTop: '4px',
+              fontSize: '12px',
+              fontWeight: '600',
+              color: '#FFD700',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flexWrap: 'wrap',
+            }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }}></span>
+              <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+              {activeQuarter && (
+                <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)', fontWeight: '500' }}>
+                  • {activeQuarter.quarter_name}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

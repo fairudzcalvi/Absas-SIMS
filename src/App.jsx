@@ -11,6 +11,7 @@ import SubjectsPage      from './pages/SubjectsPage';
 import SchedulesPage     from './pages/SchedulesPage';
 import TranscriptsPage   from './pages/TranscriptsPage';
 import FinancePage       from './pages/FinancePage';
+import EnrollmentPage    from './pages/EnrollmentPage';
 import SettingsPage      from './pages/SettingsPage';
 
 // Teacher
@@ -45,6 +46,7 @@ function App() {
             <Route path="schedules"    element={<SchedulesPage />} />
             <Route path="transcripts"  element={<TranscriptsPage />} />
             <Route path="finance"      element={<FinancePage />} />
+            <Route path="enrollment"   element={<EnrollmentPage />} />
             <Route path="settings"     element={<SettingsPage />} />
           </Route>
 

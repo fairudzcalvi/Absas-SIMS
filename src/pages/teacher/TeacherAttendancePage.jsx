@@ -147,7 +147,7 @@ export default function TeacherAttendancePage() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>#</th><th>Student ID</th><th>Name</th>
+                        <th>#</th><th>DepEd LRN</th><th>Student Name</th>
                         <th>Section</th><th>Status</th>
                       </tr>
                     </thead>
@@ -157,7 +157,7 @@ export default function TeacherAttendancePage() {
                         return (
                           <tr key={s.student_record_id}>
                             <td style={{ color: '#888', width: '36px' }}>{i + 1}</td>
-                            <td>{s.student_id ?? '—'}</td>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
                             <td style={{ fontWeight: '600' }}>{s.first_name} {s.last_name}</td>
                             <td>{s.section_name ?? '—'}</td>
                             <td>

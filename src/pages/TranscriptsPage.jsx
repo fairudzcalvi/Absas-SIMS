@@ -363,8 +363,7 @@ export default function TranscriptsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Student ID</th>
-                  <th>LRN</th>
+                  <th>DepEd LRN</th>
                   <th>Student Name</th>
                   <th>Grade Level</th>
                   <th>Status</th>
@@ -375,17 +374,16 @@ export default function TranscriptsPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} className="empty-message">Loading...</td></tr>
+                  <tr><td colSpan={7} className="empty-message">Loading...</td></tr>
                 ) : students.length === 0 ? (
-                  <tr><td colSpan={8} className="empty-message">No students found</td></tr>
+                  <tr><td colSpan={7} className="empty-message">No students found</td></tr>
                 ) : (
                   students.map(s => {
                     const t = transcriptMap[s.student_record_id];
                     return (
                       <tr key={s.student_record_id}>
-                        <td>{s.student_id ?? '—'}</td>
-                        <td>{s.lrn_id ?? '—'}</td>
-                        <td>{s.first_name} {s.last_name}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: '700', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
+                        <td style={{ fontWeight: '600' }}>{s.first_name} {s.last_name}</td>
                         <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'} {s.section_name ? `— ${s.section_name}` : ''}</td>
                         <td><TranscriptBadge hasTranscript={!!t} /></td>
                         <td>{t?.general_average ? Number(t.general_average).toFixed(2) : '—'}</td>
@@ -453,10 +451,9 @@ export default function TranscriptsPage() {
             <div className="modal-body">
               {/* Student Info */}
               <div style={styles.previewMeta}>
-                <div><strong>Name:</strong> {previewStudent.first_name} {previewStudent.last_name}</div>
-                <div><strong>Student ID:</strong> {previewStudent.student_id ?? '—'}</div>
-                <div><strong>LRN:</strong> {previewStudent.lrn_id ?? '—'}</div>
-                <div><strong>Grade:</strong> {previewStudent.grade_level ? `Grade ${previewStudent.grade_level}` : '—'} {previewStudent.section_name}</div>
+                <div><strong>Student Name:</strong> {previewStudent.first_name} {previewStudent.last_name}</div>
+                <div><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{previewStudent.lrn_id ?? previewStudent.student_id ?? '—'}</span></div>
+                <div><strong>Grade Level:</strong> {previewStudent.grade_level ? `Grade ${previewStudent.grade_level}` : '—'} {previewStudent.section_name}</div>
                 <div><strong>General Average:</strong> {transcriptMap[previewStudent.student_record_id]?.general_average ? Number(transcriptMap[previewStudent.student_record_id].general_average).toFixed(2) : '—'}</div>
               </div>
 

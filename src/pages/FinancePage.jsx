@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-/* ── Icons ─────────────────────────────────────────────── */
+/* ── SVG Icons ─────────────────────────────────────────── */
 function IcoFinance() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -37,36 +37,36 @@ function IcoPaid() {
     </svg>
   );
 }
-function IcoBolt() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-  );
-}
 function IcoRecordPayment() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
       <line x1="12" y1="8" x2="12" y2="16" />
       <line x1="8" y1="12" x2="16" y2="12" />
     </svg>
   );
 }
-function IcoReport() {
+function IcoReceipt() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z" />
+      <line x1="8" y1="7" x2="16" y2="7" /><line x1="8" y1="11" x2="16" y2="11" /><line x1="8" y1="15" x2="12" y2="15" />
+    </svg>
+  );
+}
+function IcoSOA() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
       <line x1="16" y1="13" x2="8" y2="13" />
       <line x1="16" y1="17" x2="8" y2="17" />
-      <line x1="10" y1="9" x2="8" y2="9" />
     </svg>
   );
 }
 function IcoExport() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
@@ -75,50 +75,19 @@ function IcoExport() {
 }
 function IcoHistory() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="1 4 1 10 7 10" />
       <path d="M3.51 15a9 9 0 1 0 .49-4" />
       <polyline points="12 7 12 12 15 15" />
     </svg>
   );
 }
-function IcoFilter() {
+function IcoPrint() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  );
-}
-function IcoList() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
-      <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
-    </svg>
-  );
-}
-function IcoFeeStructure() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
-function IcoElementary() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
-    </svg>
-  );
-}
-function IcoJuniorHigh() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-      <path d="M6 12v5c3 3 9 3 12 0v-5" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 6 2 18 2 18 9" />
+      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      <rect x="6" y="14" width="12" height="8" />
     </svg>
   );
 }
@@ -130,398 +99,563 @@ function IcoClose() {
   );
 }
 
-/* ── Constants ─────────────────────────────────────────── */
-const GRADE_OPTIONS = [
-  { value: 1,  label: 'Grade 1'  },
-  { value: 2,  label: 'Grade 2'  },
-  { value: 3,  label: 'Grade 3'  },
-  { value: 4,  label: 'Grade 4'  },
-  { value: 5,  label: 'Grade 5'  },
-  { value: 6,  label: 'Grade 6'  },
-  { value: 7,  label: 'Grade 7'  },
-  { value: 8,  label: 'Grade 8'  },
-  { value: 9,  label: 'Grade 9'  },
-  { value: 10, label: 'Grade 10' },
-];
-
-const QUICK_ACTIONS = [
-  { label: 'Record Payment',   Icon: IcoRecordPayment, action: 'record'  },
-  { label: 'Financial Report', Icon: IcoReport,        action: 'report'  },
-  { label: 'Export Data',      Icon: IcoExport,        action: 'export'  },
-  { label: 'Payment History',  Icon: IcoHistory,       action: 'history' },
-];
-
-const EMPTY_PAYMENT_FORM = {
-  student_record_id: '',
-  amount:            '',
-  payment_date:      new Date().toISOString().split('T')[0],
-  payment_method:    'Cash',
-  payment_for:       'Tuition Fee',
-  reference_number:  '',
-  remarks:           '',
+/* ── Standard DepEd & ABSAS Fee Matrix ──────────────────── */
+const DEFAULT_FEE_MATRIX = {
+  elementary: { tuition: 15000, misc: 3500, label: 'Elementary (Grades 1–6)' },
+  juniorHigh: { tuition: 18000, misc: 4000, label: 'Junior High (Grades 7–10)' },
+  seniorHigh: { tuition: 22500, misc: 5000, label: 'Senior High (Grades 11–12)' },
 };
 
-function peso(n) {
-  return '₱' + Number(n ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+function getBaseFees(gradeLevel) {
+  const g = Number(gradeLevel || 1);
+  if (g >= 11) return { tuition: 22500, misc: 5000, total: 27500, category: 'Senior High School' };
+  if (g >= 7)  return { tuition: 18000, misc: 4000, total: 22000, category: 'Junior High School' };
+  return { tuition: 15000, misc: 3500, total: 18500, category: 'Elementary Department' };
 }
 
-/* ── Page ──────────────────────────────────────────────── */
+const GRADE_OPTIONS = [
+  { value: 1,  label: 'Grade 1' },
+  { value: 2,  label: 'Grade 2' },
+  { value: 3,  label: 'Grade 3' },
+  { value: 4,  label: 'Grade 4' },
+  { value: 5,  label: 'Grade 5' },
+  { value: 6,  label: 'Grade 6' },
+  { value: 7,  label: 'Grade 7' },
+  { value: 8,  label: 'Grade 8' },
+  { value: 9,  label: 'Grade 9' },
+  { value: 10, label: 'Grade 10' },
+  { value: 11, label: 'Grade 11' },
+  { value: 12, label: 'Grade 12' },
+];
+
+function peso(n) {
+  return '₱' + Number(n ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/* ── Main Finance Page ─────────────────────────────────── */
 export default function FinancePage() {
-  const { supabase } = useAuth();
+  const { supabase, activeSchoolYear, activeQuarter } = useAuth();
 
-  const [records, setRecords]       = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [gradeFilter, setGrade]     = useState('');
-  const [statusFilter, setStatus]   = useState('');
-  const [search, setSearch]         = useState('');
-  const [stats, setStats]           = useState({ revenue: 0, collected: 0, balance: 0, fullPaid: 0 });
+  const [students, setStudents]         = useState([]);
+  const [finances, setFinances]         = useState([]);
+  const [scholarships, setScholarships] = useState([]);
+  const [strands, setStrands]           = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [dbNotice, setDbNotice]         = useState('');
 
-  const [modalOpen, setModalOpen]   = useState(false);
-  const [payForm, setPayForm]       = useState(EMPTY_PAYMENT_FORM);
-  const [saving, setSaving]         = useState(false);
-  const [formError, setFormError]   = useState('');
+  // Filters
+  const [gradeFilter, setGradeFilter]   = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch]             = useState('');
 
-  const [historyStudent, setHistoryStudent] = useState(null);
-  const [historyRecords, setHistoryRecords] = useState([]);
+  // Record Payment Modal
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent]   = useState(null);
+  const [payForm, setPayForm] = useState({
+    amount:           '',
+    payment_date:     new Date().toISOString().split('T')[0],
+    payment_method:   'Cash',
+    payment_for:      'Tuition Fee',
+    or_number:        `OR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+    reference_number: '',
+    remarks:          '',
+  });
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [paymentError, setPaymentError]   = useState('');
+
+  // Modals for Printing
+  const [viewReceipt, setViewReceipt] = useState(null); // { payment, student, finance }
+  const [viewSOA, setViewSOA]         = useState(null);     // { student, finance, payments }
+  const [viewHistory, setViewHistory] = useState(null); // { student, payments }
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  /* fetch */
-  const fetchRecords = useCallback(async () => {
+  /* Fetch all financial and student records */
+  const fetchData = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('student_finances')
-      .select(`
-        finance_id, tuition_fee, miscellaneous_fee, total_fees, amount_paid, balance, status, school_year, updated_at,
-        students ( student_record_id, first_name, last_name, grade_level, lrn_id )
-      `)
-      .order('updated_at', { ascending: false });
+    setDbNotice('');
 
-    let rows = (data ?? []).filter(r => r.students);
+    try {
+      // 1. Fetch Students
+      const { data: stuData } = await supabase
+        .from('students')
+        .select('*')
+        .order('last_name', { ascending: true });
+      setStudents(stuData ?? []);
 
-    if (gradeFilter) rows = rows.filter(r => r.students?.grade_level === Number(gradeFilter));
-    if (search) rows = rows.filter(r => {
-      const q = search.toLowerCase();
-      const s = r.students;
-      return (s?.first_name + ' ' + s?.last_name).toLowerCase().includes(q)
-          || String(s?.student_record_id ?? '').includes(q);
-    });
-    if (statusFilter) rows = rows.filter(r => (r.status ?? '').toLowerCase() === statusFilter.toLowerCase());
+      // 2. Fetch Scholarships
+      const { data: schData } = await supabase
+        .from('scholarships')
+        .select('*');
+      setScholarships(schData ?? []);
 
-    setRecords(rows);
+      // 3. Fetch Strands
+      const { data: strData } = await supabase
+        .from('shs_strands')
+        .select('*');
+      setStrands(strData ?? []);
 
-    const totalRevenue = rows.reduce((a, r) => a + Number(r.total_fees ?? 0), 0);
-    const totalPaid    = rows.reduce((a, r) => a + Number(r.amount_paid ?? 0), 0);
-    const totalBalance = rows.reduce((a, r) => a + Number(r.balance ?? 0), 0);
-    const fullPaid     = rows.filter(r => (r.status ?? '').toLowerCase() === 'paid').length;
-    setStats({ revenue: totalRevenue, collected: totalPaid, balance: totalBalance, fullPaid });
+      // 4. Fetch Student Finances
+      const { data: finData, error: finErr } = await supabase
+        .from('student_finances')
+        .select('*');
 
-    setLoading(false);
-  }, [supabase, gradeFilter, search, statusFilter]);
+      if (finErr) {
+        setDbNotice(finErr.message);
+        setFinances([]);
+      } else {
+        setFinances(finData ?? []);
+      }
+
+    } catch (err) {
+      setDbNotice(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase]);
 
   useEffect(() => {
-    let ignore = false;
-    async function load() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('student_finances')
-        .select(`
-          finance_id,
-          student_record_id,
-          tuition_fee,
-          miscellaneous_fee,
-          total_fees,
-          amount_paid,
-          balance,
-          status,
-          school_year,
-          students (
-            student_record_id,
-            first_name,
-            last_name,
-            grade_level
-          )
-        `);
+    fetchData();
+  }, [fetchData]);
 
-      if (error) {
-        console.error("Error fetching finance records:", error);
-        if (!ignore) {
-          setRecords([]);
-          setLoading(false);
-        }
-        return;
-      }
+  /* Build unified student account ledger rows */
+  const studentAccounts = students.map(student => {
+    const fin = finances.find(f => f.student_record_id === student.student_record_id);
+    const sch = scholarships.find(s => s.id === (fin?.scholarship_id || student.scholarship_id));
+    const str = strands.find(st => st.id === student.current_strand_id);
 
-      let rows = data ?? [];
+    const base = getBaseFees(student.grade_level);
+    const tuition = fin?.tuition_fee ? Number(fin.tuition_fee) : base.tuition;
+    const misc = fin?.miscellaneous_fee ? Number(fin.miscellaneous_fee) : base.misc;
+    const grossTotal = tuition + misc;
 
-      if (gradeFilter) rows = rows.filter(r => r.students?.grade_level === Number(gradeFilter));
-      if (search) rows = rows.filter(r => {
-        const q = search.toLowerCase();
-        const s = r.students;
-        return (s?.first_name + ' ' + s?.last_name).toLowerCase().includes(q)
-            || String(s?.student_record_id ?? '').includes(q);
-      });
-      if (statusFilter) rows = rows.filter(r => (r.status ?? '').toLowerCase() === statusFilter.toLowerCase());
-
-      if (!ignore) {
-        setRecords(rows);
-
-        const totalRevenue = rows.reduce((a, r) => a + Number(r.total_fees ?? 0), 0);
-        const totalPaid    = rows.reduce((a, r) => a + Number(r.amount_paid ?? 0), 0);
-        const totalBalance = rows.reduce((a, r) => a + Number(r.balance ?? 0), 0);
-        const fullPaid     = rows.filter(r => (r.status ?? '').toLowerCase() === 'paid').length;
-        setStats({ revenue: totalRevenue, collected: totalPaid, balance: totalBalance, fullPaid });
-
-        setLoading(false);
+    // Calculate discount
+    let discount = Number(fin?.discount_amount ?? 0);
+    if (!discount && sch) {
+      if (sch.discount_type === 'percentage') {
+        discount = (tuition * Number(sch.discount_value)) / 100;
+      } else {
+        discount = Number(sch.discount_value);
       }
     }
-    load();
-    return () => { ignore = true; };
-  }, [supabase, gradeFilter, search, statusFilter]);
 
-  /* record payment */
-  async function handleSavePayment(e) {
-    e.preventDefault();
-    if (!payForm.student_record_id || !payForm.amount) {
-      setFormError('Student record ID and amount are required.');
-      return;
-    }
-    setSaving(true);
-    setFormError('');
+    const netAssessment = Math.max(0, grossTotal - discount);
+    const amountPaid = Number(fin?.amount_paid ?? 0);
+    const balance = Math.max(0, netAssessment - amountPaid);
 
-    const studentRecordId = parseInt(payForm.student_record_id, 10);
-    const amount = parseFloat(payForm.amount);
-
-    // Fetch existing finance record for this student
-    const { data: existing } = await supabase
-      .from('student_finances')
-      .select('*')
-      .eq('student_record_id', studentRecordId)
-      .single();
-
-    if (existing) {
-      const newPaid   = Number(existing.amount_paid ?? 0) + amount;
-      const totalFees = Number(existing.total_fees ?? 0);
-      // Determine new status (lowercase to match CHECK constraint)
-      const newStatus = newPaid >= totalFees ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
-      // Only update amount_paid and status — balance and total_fees are GENERATED columns
-      await supabase.from('student_finances').update({
-        amount_paid: newPaid,
-        status:      newStatus,
-      }).eq('finance_id', existing.finance_id);
-    } else {
-      // No finance record yet — insert new one (omit total_fees/balance — generated)
-      await supabase.from('student_finances').insert([{
-        student_record_id: studentRecordId,
-        tuition_fee:       0,
-        miscellaneous_fee: 0,
-        amount_paid:       amount,
-        status:            'partial',
-        school_year:       '2025-2026',
-      }]);
+    let status = 'Unpaid';
+    if (amountPaid >= netAssessment && netAssessment > 0) {
+      status = 'Paid';
+    } else if (amountPaid > 0) {
+      status = 'Partial';
     }
 
-    // Insert into payments log
-    await supabase.from('payments').insert([{
-      student_record_id: studentRecordId,
-      amount:            amount,
-      payment_date:      payForm.payment_date,
-      payment_method:    payForm.payment_method,
-      payment_for:       payForm.payment_for,
-      reference_number:  payForm.reference_number || null,
-      remarks:           payForm.remarks           || null,
-    }]);
+    return {
+      student,
+      finance_id: fin?.finance_id || null,
+      tuition,
+      misc,
+      grossTotal,
+      discount,
+      netAssessment,
+      amountPaid,
+      balance,
+      status,
+      scholarship: sch,
+      strand: str,
+    };
+  });
 
-    setSaving(false);
-    setModalOpen(false);
-    setPayForm(EMPTY_PAYMENT_FORM);
-    fetchRecords();
+  /* Filtered list */
+  const filteredAccounts = studentAccounts.filter(acc => {
+    const s = acc.student;
+    if (gradeFilter && Number(s.grade_level) !== Number(gradeFilter)) return false;
+    if (statusFilter && acc.status.toLowerCase() !== statusFilter.toLowerCase()) return false;
+
+    if (search) {
+      const q = search.toLowerCase();
+      const name = `${s.first_name || ''} ${s.last_name || ''}`.toLowerCase();
+      const stuId = (s.student_id || '').toLowerCase();
+      const lrn = (s.lrn_id || '').toLowerCase();
+      if (!name.includes(q) && !stuId.includes(q) && !lrn.includes(q)) return false;
+    }
+
+    return true;
+  });
+
+  /* Financial Metrics */
+  const totalRevenue   = studentAccounts.reduce((sum, a) => sum + a.netAssessment, 0);
+  const totalCollected = studentAccounts.reduce((sum, a) => sum + a.amountPaid, 0);
+  const totalReceivable = studentAccounts.reduce((sum, a) => sum + a.balance, 0);
+  const fullyPaidCount = studentAccounts.filter(a => a.status === 'Paid').length;
+
+  /* Open Record Payment Modal */
+  function openPaymentModal(acc = null) {
+    const targetStudent = acc ? acc.student : students[0] || null;
+    setSelectedStudent(targetStudent);
+    setPayForm({
+      amount:           acc && acc.balance > 0 ? String(acc.balance) : '',
+      payment_date:     new Date().toISOString().split('T')[0],
+      payment_method:   'Cash',
+      payment_for:      'Tuition Fee',
+      or_number:        `OR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      reference_number: '',
+      remarks:          '',
+    });
+    setPaymentError('');
+    setPaymentModalOpen(true);
   }
 
-  /* view payment history */
-  async function openHistory(record) {
-    setHistoryStudent(record);
+  /* Submit Payment and generate Official Receipt */
+  async function handleSavePayment(e) {
+    e.preventDefault();
+    if (!selectedStudent || !payForm.amount || Number(payForm.amount) <= 0) {
+      setPaymentError('Please select a student and enter a valid payment amount.');
+      return;
+    }
+
+    setSavingPayment(true);
+    setPaymentError('');
+
+    try {
+      const studentId = selectedStudent.student_record_id;
+      const paymentAmount = Number(payForm.amount);
+      const acc = studentAccounts.find(a => a.student.student_record_id === studentId);
+
+      const newAmountPaid = (acc ? acc.amountPaid : 0) + paymentAmount;
+      const netAssessment = acc ? acc.netAssessment : paymentAmount;
+      const newStatus = newAmountPaid >= netAssessment ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
+
+      // 1. Update or insert into student_finances
+      const existingFin = finances.find(f => f.student_record_id === studentId);
+      if (existingFin) {
+        await supabase
+          .from('student_finances')
+          .update({
+            amount_paid: newAmountPaid,
+            status:      newStatus,
+          })
+          .eq('finance_id', existingFin.finance_id);
+      } else {
+        const base = getBaseFees(selectedStudent.grade_level);
+        await supabase
+          .from('student_finances')
+          .insert([{
+            student_record_id: studentId,
+            tuition_fee:       base.tuition,
+            miscellaneous_fee: base.misc,
+            amount_paid:       paymentAmount,
+            status:            newStatus,
+            school_year:       activeSchoolYear?.year_label || '2026-2027',
+          }]);
+      }
+
+      // 2. Insert into payments transaction log
+      const { data: createdPayment, error: payErr } = await supabase
+        .from('payments')
+        .insert([{
+          student_record_id: studentId,
+          amount:            paymentAmount,
+          payment_date:      payForm.payment_date,
+          payment_method:    payForm.payment_method,
+          payment_for:       payForm.payment_for,
+          or_number:         payForm.or_number,
+          reference_number:  payForm.reference_number || null,
+          remarks:           payForm.remarks || null,
+          school_year_id:    activeSchoolYear?.id || null,
+        }])
+        .select()
+        .single();
+
+      if (payErr) throw payErr;
+
+      setPaymentModalOpen(false);
+      fetchData();
+
+      // Open Official Receipt Slip
+      setViewReceipt({
+        payment: createdPayment,
+        student: selectedStudent,
+        finance: acc,
+      });
+
+    } catch (err) {
+      setPaymentError(err.message || 'Error recording payment.');
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  /* Open Payment History */
+  async function openHistoryModal(acc) {
+    setViewHistory({ student: acc.student, payments: [], finance: acc });
     setHistoryLoading(true);
+
     const { data } = await supabase
       .from('payments')
       .select('*')
-      .eq('student_record_id', record.students?.student_record_id)
+      .eq('student_record_id', acc.student.student_record_id)
       .order('payment_date', { ascending: false });
-    setHistoryRecords(data ?? []);
+
+    setViewHistory({ student: acc.student, payments: data ?? [], finance: acc });
     setHistoryLoading(false);
   }
 
-  /* export CSV */
+  /* Open Statement of Account (SOA) */
+  async function openSOAModal(acc) {
+    const { data } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('student_record_id', acc.student.student_record_id)
+      .order('payment_date', { ascending: false });
+
+    setViewSOA({
+      student: acc.student,
+      finance: acc,
+      payments: data ?? [],
+    });
+  }
+
+  /* Export CSV */
   function exportCSV() {
-    const headers = ['Student ID', 'Name', 'Grade', 'Total Fees', 'Amount Paid', 'Balance', 'Status'];
-    const rows = records.map(r => [
-      r.students?.student_record_id,
-      `${r.students?.first_name} ${r.students?.last_name}`,
-      r.students?.grade_level,
-      r.total_fees, r.amount_paid, r.balance, r.status,
+    const headers = ['DepEd LRN', 'Student Name', 'Grade & Strand', 'Scholarship', 'Gross Fees', 'Discount', 'Net Assessment', 'Amount Paid', 'Balance', 'Status'];
+    const rows = filteredAccounts.map(a => [
+      a.student.lrn_id || a.student.student_id || '—',
+      `${a.student.first_name} ${a.student.last_name}`,
+      `Grade ${a.student.grade_level} ${a.strand ? `(${a.strand.strand_code})` : ''}`,
+      a.scholarship ? a.scholarship.name : 'Regular',
+      a.grossTotal,
+      a.discount,
+      a.netAssessment,
+      a.amountPaid,
+      a.balance,
+      a.status,
     ]);
-    const csv = [headers, ...rows].map(row => row.map(v => `"${v ?? ''}"`).join(',')).join('\n');
+    const csv = [headers, ...rows].map(r => r.map(v => `"${v ?? ''}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a'); a.href = url; a.download = 'finance.csv'; a.click();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `student_finance_summary_${activeSchoolYear?.year_label || 'active'}.csv`; a.click();
     URL.revokeObjectURL(url);
   }
 
-  function handleQuickAction(action) {
-    if (action === 'record')  { setPayForm(EMPTY_PAYMENT_FORM); setFormError(''); setModalOpen(true); }
-    if (action === 'export')  exportCSV();
-    if (action === 'report')  alert('Financial report generation coming soon.');
-    if (action === 'history') alert('Select a student row to view payment history.');
-  }
-
-  const dateStr = new Date().toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  });
-
   return (
     <>
-      {/* Header */}
+      {/* Top Header */}
       <div className="top-header">
-        <h1><IcoFinance /> Finance Management</h1>
-        <span className="date-time">{dateStr}</span>
+        <h1><IcoFinance /> Finance, Billing &amp; Official Receipts</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            background: '#8B0000',
+            color: '#FFD700',
+            padding: '5px 12px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
+          }}>
+            <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2026-2027'}</span>
+            {activeQuarter && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                {activeQuarter.quarter_name}
+              </span>
+            )}
+          </div>
+          <span className="date-time">{new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+        </div>
       </div>
 
       <div className="content-area">
+        {/* Notice */}
+        {dbNotice && (
+          <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px' }}>
+            <strong>Notice:</strong> {dbNotice}
+          </div>
+        )}
 
-        {/* Stat Cards */}
+        {/* Financial Stat Cards */}
         <div className="stats-grid">
           <div className="stat-card">
             <div className="stat-icon"><IcoFinance /></div>
             <div className="stat-info">
-              <div className="stat-number" style={{ fontSize: '24px' }}>{peso(stats.revenue)}</div>
-              <div className="stat-label">Total Revenue</div>
+              <div className="stat-number" style={{ fontSize: '22px' }}>{peso(totalRevenue)}</div>
+              <div className="stat-label">Total Assessed Revenue</div>
             </div>
           </div>
           <div className="stat-card blue">
             <div className="stat-icon"><IcoCollected /></div>
             <div className="stat-info">
-              <div className="stat-number" style={{ fontSize: '24px' }}>{peso(stats.collected)}</div>
-              <div className="stat-label">Collected Amount</div>
+              <div className="stat-number" style={{ fontSize: '22px' }}>{peso(totalCollected)}</div>
+              <div className="stat-label">Collected Collections</div>
             </div>
           </div>
           <div className="stat-card gold">
             <div className="stat-icon"><IcoBalance /></div>
             <div className="stat-info">
-              <div className="stat-number" style={{ fontSize: '24px' }}>{peso(stats.balance)}</div>
+              <div className="stat-number" style={{ fontSize: '22px' }}>{peso(totalReceivable)}</div>
               <div className="stat-label">Outstanding Balance</div>
             </div>
           </div>
           <div className="stat-card green">
             <div className="stat-icon"><IcoPaid /></div>
             <div className="stat-info">
-              <div className="stat-number">{stats.fullPaid}</div>
+              <div className="stat-number">{fullyPaidCount} / {studentAccounts.length}</div>
               <div className="stat-label">Fully Paid Students</div>
             </div>
           </div>
         </div>
 
-        {/* Quick Actions */}
+        {/* Action Bar & Filters */}
         <div className="card">
-          <div className="card-header">
-            <h2 className="card-title"><IcoBolt /> Quick Actions</h2>
-          </div>
-          <div className="quick-actions-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            {QUICK_ACTIONS.map(({ label, Icon, action }) => (
-              <button key={label} className="quick-action-card" onClick={() => handleQuickAction(action)}>
-                <div className="action-icon"><Icon /></div>
-                <span className="action-label">{label}</span>
+          <div className="card-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-primary" onClick={() => openPaymentModal(null)}>
+                <IcoRecordPayment /> + Record Payment &amp; Issue Receipt
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* Filter */}
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title"><IcoFilter /> Filter Students</h2>
+            <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
+              <IcoExport /> Export Financial Report (CSV)
+            </button>
           </div>
-          <div className="form-grid">
+
+          <div className="form-grid" style={{ alignItems: 'flex-end', marginTop: '14px' }}>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Grade Level</label>
-              <select value={gradeFilter} onChange={e => setGrade(e.target.value)}>
-                <option value="">All Grades</option>
+              <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}>
+                <option value="">All Grade Levels (1–12)</option>
                 {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Payment Status</label>
-              <select value={statusFilter} onChange={e => setStatus(e.target.value)}>
-                <option value="">All Status</option>
-                <option value="paid">Paid</option>
-                <option value="partial">Partial</option>
-                <option value="unpaid">Unpaid</option>
+              <select className="filter-select" style={{ width: '100%' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="">All Statuses</option>
+                <option value="Paid">Fully Paid</option>
+                <option value="Partial">Partial Payment</option>
+                <option value="Unpaid">Unpaid / Zero Payment</option>
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Search Student</label>
-              <input placeholder="Search by name or ID..." value={search} onChange={e => setSearch(e.target.value)} />
+              <label>Search Student Account</label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  className="search-input"
+                  style={{ width: '100%', paddingRight: search ? '32px' : '10px' }}
+                  placeholder="Student name, ID, or LRN..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      background: '#e9ecef',
+                      border: 'none',
+                      color: '#666',
+                      cursor: 'pointer',
+                      borderRadius: '50%',
+                      width: '20px',
+                      height: '20px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      lineHeight: '1',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.background = '#8B0000'; e.currentTarget.style.color = '#fff'; }}
+                    onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Financial Records Table */}
+        {/* Student Accounts Table */}
         <div className="card">
-          <div className="card-header">
-            <h2 className="card-title"><IcoList /> Student Financial Records</h2>
-            <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
-              <IcoExport /> Export
-            </button>
-          </div>
           <div className="table-container">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Student ID</th>
+                  <th>DepEd LRN</th>
                   <th>Student Name</th>
-                  <th>Grade</th>
-                  <th>Total Fees</th>
+                  <th>Grade &amp; Strand</th>
+                  <th>Scholarship / Voucher</th>
+                  <th>Net Assessment</th>
                   <th>Amount Paid</th>
-                  <th>Balance</th>
+                  <th>Remaining Balance</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} className="empty-message">Loading...</td></tr>
-                ) : records.length === 0 ? (
-                  <tr>
-                    <td colSpan={8}>
-                      <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                        <IcoFinance />
-                        <p style={{ color: '#888', marginTop: '10px', fontStyle: 'italic' }}>No financial records found</p>
-                      </div>
-                    </td>
-                  </tr>
+                  <tr><td colSpan={9} className="empty-message">Loading financial records...</td></tr>
+                ) : filteredAccounts.length === 0 ? (
+                  <tr><td colSpan={9} className="empty-message">No student billing records found.</td></tr>
                 ) : (
-                  records.map(r => (
-                    <tr key={r.finance_id}>
-                      <td>{r.students?.student_record_id}</td>
-                      <td>{r.students?.first_name} {r.students?.last_name}</td>
-                      <td>{r.students?.grade_level ? `Grade ${r.students.grade_level}` : '—'}</td>
-                      <td>{peso(r.total_fees)}</td>
-                      <td>{peso(r.amount_paid)}</td>
-                      <td>{peso(r.balance)}</td>
-                      <td><PaymentBadge status={r.status} /></td>
+                  filteredAccounts.map(acc => (
+                    <tr key={acc.student.student_record_id}>
+                      <td style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: '700', color: '#8B0000' }}>
+                        {acc.student.lrn_id || acc.student.student_id || '—'}
+                      </td>
+                      <td style={{ fontWeight: '600' }}>{acc.student.first_name} {acc.student.last_name}</td>
+                      <td>
+                        Grade {acc.student.grade_level} {acc.strand ? `(${acc.strand.strand_code})` : ''}
+                      </td>
+                      <td>
+                        {acc.scholarship ? (
+                          <span style={styles.badgeScholarship}>
+                            {acc.scholarship.code} ({acc.scholarship.discount_type === 'percentage' ? `${acc.scholarship.discount_value}%` : `₱${acc.scholarship.discount_value}`})
+                          </span>
+                        ) : (
+                          <span style={{ color: '#888', fontSize: '12px' }}>Regular</span>
+                        )}
+                      </td>
+                      <td style={{ fontWeight: '600' }}>{peso(acc.netAssessment)}</td>
+                      <td style={{ color: '#137333', fontWeight: '600' }}>{peso(acc.amountPaid)}</td>
+                      <td style={{ color: acc.balance > 0 ? '#b06000' : '#137333', fontWeight: '700' }}>
+                        {peso(acc.balance)}
+                      </td>
+                      <td>
+                        <span style={
+                          acc.status === 'Paid' ? styles.badgePaid :
+                          acc.status === 'Partial' ? styles.badgePartial : styles.badgeUnpaid
+                        }>
+                          {acc.status}
+                        </span>
+                      </td>
                       <td>
                         <div style={{ display: 'flex', gap: '6px' }}>
                           <button
                             className="btn btn-primary btn-sm"
-                            onClick={() => {
-                              setPayForm({ ...EMPTY_PAYMENT_FORM, student_record_id: String(r.students?.student_record_id ?? '') });
-                              setFormError('');
-                              setModalOpen(true);
-                            }}
-                            title="Record Payment"
+                            onClick={() => openPaymentModal(acc)}
+                            title="Pay & Issue Receipt"
                           >
-                            <IcoRecordPayment />
+                            <IcoRecordPayment /> Pay
                           </button>
-                          <button className="btn btn-secondary btn-sm" onClick={() => openHistory(r)} title="History">
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openSOAModal(acc)}
+                            title="Statement of Account (SOA)"
+                          >
+                            <IcoSOA /> SOA
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openHistoryModal(acc)}
+                            title="Payment History Ledger"
+                          >
                             <IcoHistory />
                           </button>
                         </div>
@@ -534,66 +668,115 @@ export default function FinancePage() {
           </div>
         </div>
 
-        {/* Fee Structure */}
+        {/* Academic Fee Schedule Structure */}
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title"><IcoFeeStructure /> Fee Structure (SY 2025-2026)</h2>
+            <h2 className="card-title">🏫 DepEd &amp; ABSAS Fee Matrix Schedule (S.Y. {activeSchoolYear?.year_label || '2026-2027'})</h2>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <FeeCard
-              icon={<IcoElementary />}
-              title="Elementary (Grades 1-6)"
-              rows={[
-                { label: 'Tuition Fee:', value: '₱15,000' },
-                { label: 'Miscellaneous:', value: '₱3,500' },
-              ]}
-              total="₱18,500"
-            />
-            <FeeCard
-              icon={<IcoJuniorHigh />}
-              title="Junior High (Grades 7-10)"
-              rows={[
-                { label: 'Tuition Fee:', value: '₱18,000' },
-                { label: 'Miscellaneous:', value: '₱4,000' },
-              ]}
-              total="₱22,000"
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+            <div style={styles.feeBox}>
+              <h4 style={{ color: '#8B0000', margin: '0 0 10px 0' }}>Elementary (Grades 1–6)</h4>
+              <div style={styles.feeRow}><span>Base Tuition Fee:</span> <strong>₱15,000.00</strong></div>
+              <div style={styles.feeRow}><span>Miscellaneous Fees:</span> <strong>₱3,500.00</strong></div>
+              <div style={{ ...styles.feeRow, borderTop: '2px solid #8B0000', marginTop: '8px', paddingTop: '8px', color: '#8B0000', fontWeight: 'bold' }}>
+                <span>Annual Total Assessment:</span> <span>₱18,500.00</span>
+              </div>
+            </div>
+
+            <div style={styles.feeBox}>
+              <h4 style={{ color: '#8B0000', margin: '0 0 10px 0' }}>Junior High (Grades 7–10)</h4>
+              <div style={styles.feeRow}><span>Base Tuition Fee:</span> <strong>₱18,000.00</strong></div>
+              <div style={styles.feeRow}><span>Miscellaneous &amp; Lab:</span> <strong>₱4,000.00</strong></div>
+              <div style={{ ...styles.feeRow, borderTop: '2px solid #8B0000', marginTop: '8px', paddingTop: '8px', color: '#8B0000', fontWeight: 'bold' }}>
+                <span>Annual Total Assessment:</span> <span>₱22,000.00</span>
+              </div>
+            </div>
+
+            <div style={styles.feeBox}>
+              <h4 style={{ color: '#8B0000', margin: '0 0 10px 0' }}>Senior High (Grades 11–12)</h4>
+              <div style={styles.feeRow}><span>SHS Specialized Tuition:</span> <strong>₱22,500.00</strong></div>
+              <div style={styles.feeRow}><span>Strand &amp; Workshop Fees:</span> <strong>₱5,000.00</strong></div>
+              <div style={{ ...styles.feeRow, borderTop: '2px solid #8B0000', marginTop: '8px', paddingTop: '8px', color: '#8B0000', fontWeight: 'bold' }}>
+                <span>Annual Total Assessment:</span> <span>₱27,500.00</span>
+              </div>
+            </div>
           </div>
-          <p style={{ fontSize: '13px', color: '#888', marginTop: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <IcoFeeStructure /> Note: Fees may be paid in installments. Additional fees for books, uniforms, and other materials are separate.
-          </p>
         </div>
 
       </div>
 
       {/* ── Record Payment Modal ── */}
-      {modalOpen && (
-        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setModalOpen(false); }}>
-          <div className="modal-content" style={{ maxWidth: '520px' }}>
+      {paymentModalOpen && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setPaymentModalOpen(false); }}>
+          <div className="modal-content" style={{ maxWidth: '580px' }}>
             <div className="modal-header">
-              <h3 className="modal-title"><IcoRecordPayment /> Record Payment</h3>
-              <button className="modal-close" onClick={() => setModalOpen(false)}><IcoClose /></button>
+              <h3 className="modal-title"><IcoRecordPayment /> Record Student Payment &amp; Issue Receipt</h3>
+              <button className="modal-close" onClick={() => setPaymentModalOpen(false)}><IcoClose /></button>
             </div>
             <form onSubmit={handleSavePayment}>
               <div className="modal-body">
-                {formError && <p style={{ color: '#dc3545', marginBottom: '12px', fontSize: '14px' }}>{formError}</p>}
+                {paymentError && (
+                  <div style={{ color: '#dc3545', background: '#f8d7da', padding: '10px 14px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
+                    {paymentError}
+                  </div>
+                )}
+
+                {/* Student Selection */}
+                <div className="form-group">
+                  <label>Select Student *</label>
+                  <select
+                    value={selectedStudent?.student_record_id || ''}
+                    onChange={e => {
+                      const stu = students.find(s => String(s.student_record_id) === e.target.value);
+                      setSelectedStudent(stu || null);
+                      const acc = studentAccounts.find(a => String(a.student.student_record_id) === e.target.value);
+                      if (acc) {
+                        setPayForm(f => ({ ...f, amount: acc.balance > 0 ? String(acc.balance) : '' }));
+                      }
+                    }}
+                    required
+                  >
+                    <option value="">Choose a student...</option>
+                    {students.map(s => {
+                      const acc = studentAccounts.find(a => a.student.student_record_id === s.student_record_id);
+                      return (
+                        <option key={s.student_record_id} value={s.student_record_id}>
+                          {s.last_name}, {s.first_name} (ID: {s.student_id}) — Gr {s.grade_level} | Bal: {peso(acc?.balance ?? 0)}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
                 <div className="form-grid">
                   <div className="form-group">
-                    <label>Student Record ID *</label>
+                    <label>Official Receipt (OR) # *</label>
                     <input
-                      type="number"
-                      value={payForm.student_record_id}
-                      onChange={e => setPayForm(f => ({ ...f, student_record_id: e.target.value }))}
-                      placeholder="Numeric student record ID"
+                      value={payForm.or_number}
+                      onChange={e => setPayForm(f => ({ ...f, or_number: e.target.value }))}
+                      required
                     />
                   </div>
                   <div className="form-group">
-                    <label>Amount (₱) *</label>
-                    <input type="number" min="0" step="0.01" value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
+                    <label>Payment Amount (₱) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      value={payForm.amount}
+                      onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
+                      placeholder="0.00"
+                      required
+                    />
                   </div>
                   <div className="form-group">
                     <label>Payment Date *</label>
-                    <input type="date" value={payForm.payment_date} onChange={e => setPayForm(f => ({ ...f, payment_date: e.target.value }))} />
+                    <input
+                      type="date"
+                      value={payForm.payment_date}
+                      onChange={e => setPayForm(f => ({ ...f, payment_date: e.target.value }))}
+                      required
+                    />
                   </div>
                   <div className="form-group">
                     <label>Payment Method</label>
@@ -601,34 +784,45 @@ export default function FinancePage() {
                       <option value="Cash">Cash</option>
                       <option value="GCash">GCash</option>
                       <option value="PayMaya">PayMaya</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Bank Transfer">Bank Transfer (BDO/BPI)</option>
                       <option value="Check">Check</option>
                     </select>
                   </div>
                   <div className="form-group">
-                    <label>Payment For</label>
+                    <label>Payment Allocation</label>
                     <select value={payForm.payment_for} onChange={e => setPayForm(f => ({ ...f, payment_for: e.target.value }))}>
                       <option value="Tuition Fee">Tuition Fee</option>
+                      <option value="Downpayment / Enrollment Fee">Downpayment / Enrollment Fee</option>
+                      <option value="Prelims Installment">Prelims Installment</option>
+                      <option value="Midterms Installment">Midterms Installment</option>
+                      <option value="Semi-Finals Installment">Semi-Finals Installment</option>
+                      <option value="Finals / Full Settlement">Finals / Full Settlement</option>
                       <option value="Miscellaneous Fee">Miscellaneous Fee</option>
-                      <option value="Books">Books</option>
-                      <option value="Uniform">Uniform</option>
-                      <option value="Other">Other</option>
+                      <option value="Books / Uniforms">Books / Uniforms</option>
                     </select>
                   </div>
                   <div className="form-group">
-                    <label>Reference Number</label>
-                    <input value={payForm.reference_number} onChange={e => setPayForm(f => ({ ...f, reference_number: e.target.value }))} placeholder="Optional" />
+                    <label>Transaction / Ref Number</label>
+                    <input
+                      value={payForm.reference_number}
+                      onChange={e => setPayForm(f => ({ ...f, reference_number: e.target.value }))}
+                      placeholder="Optional (e.g. GCash Ref #)"
+                    />
                   </div>
-                  <div className="form-group">
-                    <label>Remarks</label>
-                    <input value={payForm.remarks} onChange={e => setPayForm(f => ({ ...f, remarks: e.target.value }))} placeholder="Optional remarks" />
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label>Cashier Remarks</label>
+                    <input
+                      value={payForm.remarks}
+                      onChange={e => setPayForm(f => ({ ...f, remarks: e.target.value }))}
+                      placeholder="Optional payment notes"
+                    />
                   </div>
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? 'Saving...' : 'Record Payment'}
+                <button type="button" className="btn btn-secondary" onClick={() => setPaymentModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={savingPayment}>
+                  {savingPayment ? 'Processing Payment...' : '✓ Confirm & Print Receipt'}
                 </button>
               </div>
             </form>
@@ -636,42 +830,197 @@ export default function FinancePage() {
         </div>
       )}
 
-      {/* ── Payment History Modal ── */}
-      {historyStudent && (
-        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setHistoryStudent(null); }}>
-          <div className="modal-content" style={{ maxWidth: '640px' }}>
+      {/* ── Official Receipt (OR) Printable Slip Modal ── */}
+      {viewReceipt && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setViewReceipt(null); }}>
+          <div className="modal-content" style={{ maxWidth: '600px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoReceipt /> Official Receipt — {viewReceipt.payment?.or_number}</h3>
+              <button className="modal-close" onClick={() => setViewReceipt(null)}><IcoClose /></button>
+            </div>
+            <div className="modal-body" style={{ padding: '24px', background: '#fff', border: '2px solid #8B0000', borderRadius: '8px' }}>
+              <div style={{ textAlign: 'center', borderBottom: '2px solid #8B0000', paddingBottom: '12px', marginBottom: '14px' }}>
+                <h3 style={{ color: '#8B0000', margin: '0 0 2px 0', fontSize: '18px' }}>ANGELICUM BIRMINGHAM SCHOOL OF ACADEMIC STUDIES</h3>
+                <div style={{ fontSize: '12px', color: '#555' }}>San Pedro, Laguna • Official Cashier Receipt</div>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#8B0000', marginTop: '6px' }}>
+                  OFFICIAL RECEIPT NO: {viewReceipt.payment?.or_number}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', lineHeight: '1.6' }}>
+                <div><strong>Date:</strong> {viewReceipt.payment?.payment_date}</div>
+                <div><strong>Payment Method:</strong> {viewReceipt.payment?.payment_method}</div>
+                <div><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace' }}>{viewReceipt.student?.lrn_id || '—'}</span></div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <strong>Received From:</strong> {viewReceipt.student?.first_name} {viewReceipt.student?.last_name} (Grade {viewReceipt.student?.grade_level})
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <strong>Payment For:</strong> {viewReceipt.payment?.payment_for}
+                </div>
+                {viewReceipt.payment?.reference_number && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <strong>Ref #:</strong> {viewReceipt.payment?.reference_number}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ background: '#f8f9fa', padding: '12px 16px', borderRadius: '6px', margin: '14px 0', border: '1px solid #eee' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: 'bold', color: '#8B0000' }}>
+                  <span>AMOUNT PAID:</span>
+                  <span>{peso(viewReceipt.payment?.amount)}</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '20px', paddingTop: '12px', borderTop: '1px dashed #ccc', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#555' }}>
+                <div>Issued by: Cashier / Finance Officer</div>
+                <div>Status: <strong style={{ color: '#137333' }}>CONFIRMED &amp; POSTED</strong></div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setViewReceipt(null)}>Close</button>
+              <button className="btn btn-primary" onClick={() => window.print()}>
+                <IcoPrint /> Print Official Receipt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Statement of Account (SOA) Modal ── */}
+      {viewSOA && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setViewSOA(null); }}>
+          <div className="modal-content" style={{ maxWidth: '680px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoSOA /> Statement of Account (SOA)</h3>
+              <button className="modal-close" onClick={() => setViewSOA(null)}><IcoClose /></button>
+            </div>
+            <div className="modal-body" style={{ padding: '24px', background: '#fff', border: '2px solid #8B0000', borderRadius: '8px' }}>
+              <div style={{ textAlign: 'center', borderBottom: '2px solid #8B0000', paddingBottom: '12px', marginBottom: '16px' }}>
+                <h3 style={{ color: '#8B0000', margin: '0 0 2px 0', fontSize: '18px' }}>ANGELICUM BIRMINGHAM SCHOOL OF ACADEMIC STUDIES</h3>
+                <div style={{ fontSize: '12px', color: '#555' }}>OFFICIAL STATEMENT OF ACCOUNT</div>
+                <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#8B0000', marginTop: '4px' }}>
+                  ACADEMIC YEAR {activeSchoolYear?.year_label || '2026-2027'}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                <div><strong>Student Name:</strong> {viewSOA.student?.first_name} {viewSOA.student?.last_name}</div>
+                <div><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace' }}>{viewSOA.student?.lrn_id || '—'}</span></div>
+                <div><strong>Grade &amp; Track:</strong> Grade {viewSOA.student?.grade_level} {viewSOA.finance?.strand ? `(${viewSOA.finance.strand.strand_name})` : ''}</div>
+                <div><strong>Date Generated:</strong> {new Date().toLocaleDateString()}</div>
+              </div>
+
+              {/* Assessment Breakdown */}
+              <table className="data-table" style={{ marginBottom: '16px' }}>
+                <thead>
+                  <tr>
+                    <th>Fee Description</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>Base Tuition Assessment</td><td style={{ textAlign: 'right' }}>{peso(viewSOA.finance?.tuition)}</td></tr>
+                  <tr><td>Miscellaneous &amp; Laboratory Fees</td><td style={{ textAlign: 'right' }}>{peso(viewSOA.finance?.misc)}</td></tr>
+                  {viewSOA.finance?.discount > 0 && (
+                    <tr style={{ color: '#137333', fontWeight: 'bold' }}>
+                      <td>Scholarship / Voucher Grant ({viewSOA.finance?.scholarship?.name})</td>
+                      <td style={{ textAlign: 'right' }}>- {peso(viewSOA.finance?.discount)}</td>
+                    </tr>
+                  )}
+                  <tr style={{ fontWeight: 'bold', background: '#f8f9fa' }}>
+                    <td>NET TOTAL ASSESSMENT</td>
+                    <td style={{ textAlign: 'right', color: '#8B0000' }}>{peso(viewSOA.finance?.netAssessment)}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Payment History inside SOA */}
+              <h5 style={{ margin: '0 0 8px 0', color: '#8B0000' }}>Payment Transactions Log</h5>
+              {viewSOA.payments.length === 0 ? (
+                <p style={{ fontSize: '12px', color: '#888', fontStyle: 'italic' }}>No payments recorded yet.</p>
+              ) : (
+                <table className="data-table" style={{ fontSize: '12px', marginBottom: '16px' }}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>OR #</th>
+                      <th>Method</th>
+                      <th>Payment For</th>
+                      <th style={{ textAlign: 'right' }}>Amount Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewSOA.payments.map(p => (
+                      <tr key={p.payment_id}>
+                        <td>{p.payment_date}</td>
+                        <td>{p.or_number || '—'}</td>
+                        <td>{p.payment_method}</td>
+                        <td>{p.payment_for}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#137333' }}>{peso(p.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              <div style={{ background: '#f8f9fa', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#555' }}>Total Amount Paid: <strong>{peso(viewSOA.finance?.amountPaid)}</strong></div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '12px', color: '#555' }}>Outstanding Balance:</div>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: viewSOA.finance?.balance > 0 ? '#8B0000' : '#137333' }}>
+                    {peso(viewSOA.finance?.balance)}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setViewSOA(null)}>Close</button>
+              <button className="btn btn-primary" onClick={() => window.print()}>
+                <IcoPrint /> Print Statement of Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Payment History Ledger Modal ── */}
+      {viewHistory && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setViewHistory(null); }}>
+          <div className="modal-content" style={{ maxWidth: '680px' }}>
             <div className="modal-header">
               <h3 className="modal-title">
-                <IcoHistory /> Payment History — {historyStudent.students?.first_name} {historyStudent.students?.last_name}
+                <IcoHistory /> Payment Ledger — {viewHistory.student?.first_name} {viewHistory.student?.last_name}
               </h3>
-              <button className="modal-close" onClick={() => setHistoryStudent(null)}><IcoClose /></button>
+              <button className="modal-close" onClick={() => setViewHistory(null)}><IcoClose /></button>
             </div>
             <div className="modal-body">
               {historyLoading ? (
-                <p style={{ textAlign: 'center', color: '#888' }}>Loading...</p>
-              ) : historyRecords.length === 0 ? (
-                <p className="empty-message">No payment history found.</p>
+                <p style={{ textAlign: 'center', color: '#888' }}>Loading payments...</p>
+              ) : viewHistory.payments.length === 0 ? (
+                <p className="empty-message">No payment history recorded for this student.</p>
               ) : (
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Date</th>
+                      <th>OR #</th>
+                      <th>Payment Date</th>
                       <th>Amount</th>
                       <th>Method</th>
                       <th>Payment For</th>
-                      <th>Reference</th>
-                      <th>Remarks</th>
+                      <th>Reference #</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {historyRecords.map(p => (
+                    {viewHistory.payments.map(p => (
                       <tr key={p.payment_id}>
-                        <td>{p.payment_date ? new Date(p.payment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
-                        <td>{peso(p.amount)}</td>
-                        <td>{p.payment_method ?? '—'}</td>
-                        <td>{p.payment_for ?? '—'}</td>
-                        <td>{p.reference_number ?? '—'}</td>
-                        <td>{p.remarks ?? '—'}</td>
+                        <td style={{ fontWeight: 'bold', color: '#8B0000' }}>{p.or_number || '—'}</td>
+                        <td>{p.payment_date}</td>
+                        <td style={{ color: '#137333', fontWeight: 'bold' }}>{peso(p.amount)}</td>
+                        <td>{p.payment_method}</td>
+                        <td>{p.payment_for}</td>
+                        <td>{p.reference_number || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -679,7 +1028,7 @@ export default function FinancePage() {
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setHistoryStudent(null)}>Close</button>
+              <button className="btn btn-secondary" onClick={() => setViewHistory(null)}>Close</button>
             </div>
           </div>
         </div>
@@ -688,33 +1037,55 @@ export default function FinancePage() {
   );
 }
 
-/* ── Sub-components ── */
-function PaymentBadge({ status }) {
-  const s = (status ?? '').toLowerCase();
-  const cls =
-    s === 'paid'    ? 'badge badge-success' :
-    s === 'partial' ? 'badge badge-warning' :
-                      'badge badge-danger';
-  const label = s === 'paid' ? 'Paid' : s === 'partial' ? 'Partial' : 'Unpaid';
-  return <span className={cls}>{label}</span>;
-}
-
-function FeeCard({ icon, title, rows, total }) {
-  return (
-    <div style={{ border: '1px solid #e0e0e0', borderRadius: '10px', padding: '20px', backgroundColor: '#fafafa' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', color: '#8B0000', marginBottom: '14px', fontSize: '15px' }}>
-        {icon} {title}
-      </div>
-      {rows.map(row => (
-        <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px', color: '#444', borderBottom: '1px solid #eee' }}>
-          <span>{row.label}</span>
-          <span style={{ color: '#8B0000', fontWeight: '600' }}>{row.value}</span>
-        </div>
-      ))}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', fontWeight: '700', fontSize: '15px', color: '#8B0000' }}>
-        <span>Total per Semester:</span>
-        <span>{total}</span>
-      </div>
-    </div>
-  );
-}
+/* ── Inline Styles ── */
+const styles = {
+  badgePaid: {
+    display: 'inline-block',
+    background: '#e6f4ea',
+    color: '#137333',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '700',
+  },
+  badgePartial: {
+    display: 'inline-block',
+    background: '#fef7e0',
+    color: '#b06000',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '700',
+  },
+  badgeUnpaid: {
+    display: 'inline-block',
+    background: '#fce8e6',
+    color: '#c5221f',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '700',
+  },
+  badgeScholarship: {
+    display: 'inline-block',
+    background: '#e6f4ea',
+    color: '#0d652d',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '11px',
+    fontWeight: '700',
+  },
+  feeBox: {
+    border: '1px solid #e0e0e0',
+    borderRadius: '8px',
+    padding: '16px',
+    background: '#f8f9fa',
+  },
+  feeRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: '13px',
+    color: '#444',
+    padding: '4px 0',
+  },
+};

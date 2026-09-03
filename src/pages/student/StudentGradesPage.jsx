@@ -91,35 +91,32 @@ export default function StudentGradesPage() {
               <thead>
                 <tr>
                   <th>Subject</th>
-                  <th>Written Works</th>
-                  <th>Performance Tasks</th>
-                  <th>Quarterly Assessment</th>
-                  <th>Participation</th>
-                  <th>Quarter Grade</th>
-                  <th>Remarks</th>
+                  <th style={{ textAlign: 'center', width: '180px' }}>Quarter Grade</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={7} className="empty-message">Loading...</td></tr>
+                  <tr><td colSpan={2} className="empty-message">Loading...</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={7} className="empty-message">No grades recorded for {Q_LABELS[quarter]}.</td></tr>
+                  <tr><td colSpan={2} className="empty-message">No grades recorded for {Q_LABELS[quarter]}.</td></tr>
                 ) : filtered.map(g => {
                   const qg = parseFloat(g.quarter_grade);
                   const pass = !isNaN(qg) && qg >= 75;
                   return (
                     <tr key={g.grade_id}>
                       <td style={{ fontWeight: '600' }}>{g.subject}</td>
-                      <td>{g.written_works ?? '—'}</td>
-                      <td>{g.performance_tasks ?? '—'}</td>
-                      <td>{g.quarterly_assessment ?? '—'}</td>
-                      <td>{g.participation ?? '—'}</td>
-                      <td>
-                        <span style={{ fontWeight: '700', color: isNaN(qg) ? '#888' : pass ? '#28a745' : '#dc3545' }}>
+                      <td style={{ textAlign: 'center' }}>
+                        <span style={{
+                          fontWeight: '700',
+                          fontSize: '15px',
+                          color: isNaN(qg) ? '#888' : pass ? '#137333' : '#dc3545',
+                          background: isNaN(qg) ? 'transparent' : pass ? '#e6f4ea' : '#fce8e6',
+                          padding: '4px 12px',
+                          borderRadius: '12px'
+                        }}>
                           {g.quarter_grade ?? '—'}
                         </span>
                       </td>
-                      <td>{g.remarks ?? '—'}</td>
                     </tr>
                   );
                 })}

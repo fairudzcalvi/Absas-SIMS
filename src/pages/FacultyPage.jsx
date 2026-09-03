@@ -489,7 +489,7 @@ export default function FacultyPage() {
             gap: '6px',
             boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
           }}>
-            <span>📅 {activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+            <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
             {activeQuarter && (
               <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
                 {activeQuarter.quarter_name}

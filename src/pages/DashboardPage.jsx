@@ -131,7 +131,7 @@ function formatDateTime(date) {
 }
 
 const QUICK_ACTIONS = [
-  { label: 'Add Student',         Icon: IcoAddStudent,  path: '/dashboard/students/new' },
+  { label: 'Enroll Student',      Icon: IcoAddStudent,  path: '/dashboard/enrollment'   },
   { label: 'Manage Grades',       Icon: IcoGrades,      path: '/dashboard/transcripts'  },
   { label: 'Record Payment',      Icon: IcoPayment,     path: '/dashboard/finance'      },
   { label: 'Generate Transcript', Icon: IcoTranscript,  path: '/dashboard/transcripts'  },
@@ -189,7 +189,7 @@ export default function DashboardPage() {
             gap: '8px',
             boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
           }}>
-            <span>📅 {activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+            <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
             {activeQuarter && (
               <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
                 {activeQuarter.quarter_name}
@@ -222,7 +222,7 @@ export default function DashboardPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>ID</th><th>Name</th><th>Grade</th>
+                  <th>DepEd LRN</th><th>Student Name</th><th>Grade</th>
                   <th>Section</th><th>Enrolled</th><th>Status</th>
                 </tr>
               </thead>
@@ -234,7 +234,7 @@ export default function DashboardPage() {
                 ) : (
                   enrollments.map((s) => (
                     <tr key={s.student_record_id}>
-                      <td>{s.student_id ?? s.student_record_id}</td>
+                      <td style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
                       <td>{s.first_name} {s.last_name}</td>
                       <td>{s.grade_level}</td>
                       <td>{s.section_name}</td>

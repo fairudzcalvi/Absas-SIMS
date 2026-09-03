@@ -83,11 +83,10 @@ export default function StudentTranscriptPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 32px', fontSize: '14px', marginBottom: '20px', backgroundColor: '#f9f9f9', padding: '16px', borderRadius: '8px' }}>
             {[
               ['Student Name', `${s.first_name ?? ''} ${s.last_name ?? ''}`],
-              ['Student ID',   s.student_id],
-              ['LRN',          s.lrn_id],
+              ['DepEd LRN',    s.lrn_id || s.student_id || '—'],
               ['Grade Level',  s.grade_level ? `Grade ${s.grade_level}` : '—'],
               ['Section',      s.section_name],
-              ['School Year',  transcript?.school_year ?? '2025-2026'],
+              ['School Year',  transcript?.school_year ?? '2026-2027'],
             ].map(([label, val]) => (
               <div key={label}>
                 <span style={{ color: '#8B0000', fontWeight: '600' }}>{label}: </span>

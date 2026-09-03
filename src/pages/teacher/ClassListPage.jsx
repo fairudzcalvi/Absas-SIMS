@@ -151,19 +151,62 @@ export default function ClassListPage() {
       guardian_name:    s.guardian_name    ?? '',
       guardian_contact: s.guardian_contact ?? '',
       status:           s.status           ?? 'Active',
+      photo_url:        s.photo_url        ?? '',
     });
     setFormError('');
     setModalOpen(true);
+  }
+
+  /* Handle Student Photo Upload */
+  function handlePhotoUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo file is too large. Please select an image under 5MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 320;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setForm(f => ({ ...f, photo_url: dataUrl }));
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
   }
 
   async function handleSave(e) {
     e.preventDefault();
     if (!form.first_name || !form.last_name) { setFormError('First and last name required.'); return; }
     setSaving(true);
+    const cleanId = form.student_id || (form.lrn_id ? form.lrn_id : `STU-${Date.now()}`);
     const payload = {
       ...form,
+      student_id:  cleanId,
       grade_level: form.grade_level ? Number(form.grade_level) : null,
       age:         form.age         ? Number(form.age)         : null,
+      photo_url:   form.photo_url   || null,
     };
     if (editStudent) {
       const { error } = await supabase.from('students').update(payload).eq('student_record_id', editStudent.student_record_id);
@@ -284,21 +327,45 @@ export default function ClassListPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Student ID</th><th>LRN</th><th>Name</th>
+                  <th>DepEd LRN</th><th>Name</th>
                   <th>Grade &amp; Section</th><th>Gender</th><th>Age</th>
                   <th>Guardian</th><th>Contact</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} className="empty-message">Loading...</td></tr>
+                  <tr><td colSpan={8} className="empty-message">Loading...</td></tr>
                 ) : students.length === 0 ? (
-                  <tr><td colSpan={9} className="empty-message">No students found</td></tr>
+                  <tr><td colSpan={8} className="empty-message">No students found</td></tr>
                 ) : students.map(s => (
                   <tr key={s.student_record_id}>
-                    <td>{s.student_id ?? '—'}</td>
-                    <td>{s.lrn_id ?? 'N/A'}</td>
-                    <td style={{ fontWeight: '600' }}>{s.first_name} {s.last_name}</td>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
+                    <td style={{ fontWeight: '600' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          border: '1.5px solid #8B0000',
+                          backgroundColor: '#fff8f6',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                          fontSize: '10px',
+                          fontWeight: 'bold',
+                          color: '#8B0000'
+                        }}>
+                          {s.photo_url ? (
+                            <img src={s.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            `${s.first_name?.[0] ?? ''}${s.last_name?.[0] ?? ''}`
+                          )}
+                        </div>
+                        <span>{s.first_name} {s.middle_name ? s.middle_name[0] + '. ' : ''}{s.last_name}</span>
+                      </div>
+                    </td>
                     <td>
                       {s.grade_level && (
                         <span style={{
@@ -353,10 +420,53 @@ export default function ClassListPage() {
               <button className="modal-close" onClick={() => setViewStudent(null)}><IcoClose /></button>
             </div>
             <div className="modal-body">
+              {/* Photo Header */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '16px',
+                padding: '12px 16px',
+                backgroundColor: '#fff8f6',
+                border: '1px solid #f2dede',
+                borderRadius: '8px',
+                marginBottom: '16px'
+              }}>
+                <div style={{
+                  width: '64px',
+                  height: '64px',
+                  borderRadius: '8px',
+                  border: '2px solid #8B0000',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#fff',
+                  flexShrink: 0
+                }}>
+                  {viewStudent.photo_url ? (
+                    <img src={viewStudent.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#8B0000', fontSize: '10px' }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                      </svg>
+                      <span>No Photo</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h4 style={{ margin: '0 0 4px 0', color: '#8B0000', fontSize: '16px' }}>
+                    {viewStudent.first_name} {viewStudent.middle_name ? viewStudent.middle_name + ' ' : ''}{viewStudent.last_name}
+                  </h4>
+                  <div style={{ fontSize: '12px', color: '#555' }}>
+                    <strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{viewStudent.lrn_id || 'Not assigned'}</span>
+                  </div>
+                </div>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px', fontSize: '14px' }}>
                 {[
-                  ['Student ID', viewStudent.student_id],
-                  ['LRN', viewStudent.lrn_id],
+                  ['DepEd LRN', viewStudent.lrn_id || viewStudent.student_id || 'N/A'],
                   ['Full Name', `${viewStudent.first_name} ${viewStudent.middle_name ? viewStudent.middle_name + ' ' : ''}${viewStudent.last_name}`],
                   ['Grade Level', viewStudent.grade_level ? `Grade ${viewStudent.grade_level}` : '—'],
                   ['Section', viewStudent.section_name],
@@ -394,10 +504,65 @@ export default function ClassListPage() {
             <form onSubmit={handleSave}>
               <div className="modal-body">
                 {formError && <p style={{ color: '#dc3545', fontSize: '14px', marginBottom: '12px' }}>{formError}</p>}
+
+                {/* Photo Upload Section */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  padding: '12px 16px',
+                  backgroundColor: '#fff8f6',
+                  border: '1px solid #f2dede',
+                  borderRadius: '8px',
+                  marginBottom: '16px',
+                }}>
+                  <div style={{
+                    width: '70px',
+                    height: '70px',
+                    borderRadius: '8px',
+                    border: '2px solid #8B0000',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#fff',
+                    flexShrink: 0,
+                  }}>
+                    {form.photo_url ? (
+                      <img src={form.photo_url} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#8B0000', fontSize: '10px' }}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                        </svg>
+                        <span>No Photo</span>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#8B0000', marginBottom: '2px' }}>
+                      Student ID Picture (Portrait)
+                    </label>
+                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>
+                      Upload student 2x2 portrait photo.
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', margin: 0 }}>
+                        Upload Photo
+                        <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
+                      </label>
+                      {form.photo_url && (
+                        <button type="button" className="btn btn-sm" style={{ background: '#dc3545', color: '#fff', border: 'none' }} onClick={() => setForm(f => ({ ...f, photo_url: '' }))}>
+                          ✕ Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="form-grid">
                   {[
-                    ['Student ID', 'student_id', 'text', 'e.g. G01S001'],
-                    ['LRN', 'lrn_id', 'text', 'Learner Reference Number'],
+                    ['DepEd LRN (12 Digits)', 'lrn_id', 'text', 'Learner Reference Number'],
                     ['First Name *', 'first_name', 'text', 'First name'],
                     ['Middle Name', 'middle_name', 'text', 'Middle name'],
                     ['Last Name *', 'last_name', 'text', 'Last name'],

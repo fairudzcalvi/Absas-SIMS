@@ -106,6 +106,42 @@ export default function TeacherGradesPage() {
   const [saved, setSaved]         = useState(false);
   const [subjects, setSubjects]   = useState(DEFAULT_SUBJECTS);
   const [customSubjectMode, setCustomSubjectMode] = useState(false);
+  const [gradingLocked, setGradingLocked] = useState(false);
+
+  // Check if grading is locked for the selected quarter
+  useEffect(() => {
+    async function checkGradingLock() {
+      // Map quarter filter (1Q, 2Q, 3Q, 4Q) to quarter_number (1, 2, 3, 4)
+      const qNum = parseInt(quarter?.replace('Q', ''));
+      if (!qNum) return;
+
+      // Get the active school year
+      const { data: syData } = await supabase
+        .from('school_years')
+        .select('id')
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+
+      if (!syData) {
+        setGradingLocked(false);
+        return;
+      }
+
+      // Get the quarter record for this school year and quarter number
+      const { data: qData } = await supabase
+        .from('quarters')
+        .select('is_grading_open')
+        .eq('school_year_id', syData.id)
+        .eq('quarter_number', qNum)
+        .limit(1)
+        .single();
+
+      // If is_grading_open is false, grading is locked
+      setGradingLocked(qData ? !qData.is_grading_open : false);
+    }
+    checkGradingLock();
+  }, [supabase, quarter]);
 
   // Load subjects from the subjects table + default list
   useEffect(() => {
@@ -297,6 +333,28 @@ export default function TeacherGradesPage() {
                 Grade {gradeFilter} — {subject} — {QUARTER_LABELS[quarter]}
               </h2>
             </div>
+
+            {/* Grading Lock Banner */}
+            {gradingLocked && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '12px 16px',
+                backgroundColor: '#fff3cd',
+                border: '1px solid #ffc107',
+                borderRadius: '8px',
+                margin: '0 16px 12px 16px',
+                fontSize: '14px',
+                color: '#856404',
+                fontWeight: '600',
+              }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Grading for the {QUARTER_LABELS[quarter]} is locked by the administrator. Grade inputs are read-only.
+              </div>
+            )}
             {loading ? (
               <p className="empty-message">Loading...</p>
             ) : students.length === 0 ? (
@@ -307,7 +365,7 @@ export default function TeacherGradesPage() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>#</th><th>Student ID</th><th>Name</th><th>Section</th>
+                        <th>#</th><th>DepEd LRN</th><th>Name</th><th>Section</th>
                         <th>Written Works</th><th>Performance Tasks</th>
                         <th>Quarterly Assessment</th><th>Participation</th>
                         <th>Initial Grade</th>
@@ -323,7 +381,7 @@ export default function TeacherGradesPage() {
                         return (
                           <tr key={s.student_record_id}>
                             <td style={{ color: '#888' }}>{i + 1}</td>
-                            <td>{s.student_id ?? '—'}</td>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
                             <td style={{ fontWeight: '600', whiteSpace: 'nowrap' }}>{s.first_name} {s.last_name}</td>
                             <td>{s.section_name ?? '—'}</td>
                             {['written_works', 'performance_tasks', 'quarterly_assessment', 'participation'].map(field => (
@@ -332,7 +390,11 @@ export default function TeacherGradesPage() {
                                   type="number" min="0" max="100" step="0.01"
                                   value={g[field] ?? ''}
                                   onChange={e => updateGrade(s.student_record_id, field, e.target.value)}
-                                  style={{ width: '70px', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', textAlign: 'center' }}
+                                  disabled={gradingLocked}
+                                  style={{
+                                    width: '70px', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', textAlign: 'center',
+                                    ...(gradingLocked ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed', opacity: 0.7 } : {}),
+                                  }}
                                 />
                               </td>
                             ))}
@@ -352,7 +414,11 @@ export default function TeacherGradesPage() {
                                 value={g.remarks ?? ''}
                                 onChange={e => setGradeMap(prev => ({ ...prev, [s.student_record_id]: { ...prev[s.student_record_id], remarks: e.target.value } }))}
                                 placeholder="Optional"
-                                style={{ width: '110px', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                                disabled={gradingLocked}
+                                style={{
+                                  width: '110px', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px',
+                                  ...(gradingLocked ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed', opacity: 0.7 } : {}),
+                                }}
                               />
                             </td>
                           </tr>
@@ -361,9 +427,14 @@ export default function TeacherGradesPage() {
                     </tbody>
                   </table>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-                  <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                    <IcoSave /> {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Grades'}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px', gap: '12px', alignItems: 'center' }}>
+                  {gradingLocked && (
+                    <span style={{ fontSize: '13px', color: '#856404', fontWeight: '600' }}>
+                      Grading is locked
+                    </span>
+                  )}
+                  <button className="btn btn-primary" onClick={handleSave} disabled={saving || gradingLocked}>
+                    <IcoSave /> {gradingLocked ? 'Locked' : saving ? 'Saving...' : saved ? 'Saved!' : 'Save Grades'}
                   </button>
                 </div>
               </>
