@@ -1,4 +1,5 @@
 import { useAuth } from '../../contexts/AuthContext';
+import { cleanSectionName, formatGradeSection } from '../../utils/formatters';
 
 function IcoUser() {
   return (
@@ -64,7 +65,7 @@ export default function StudentProfilePage() {
               <div style={{ fontSize: '13px', color: '#555', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <span><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</span></span>
                 <span>•</span>
-                <span><strong>Grade &amp; Section:</strong> {s.grade_level ? `Grade ${s.grade_level}` : '—'} {s.section_name ? `(${s.section_name})` : ''}</span>
+                <span><strong>Grade &amp; Section:</strong> {formatGradeSection(s.grade_level, s.section_name)}</span>
               </div>
             </div>
           </div>
@@ -82,7 +83,7 @@ export default function StudentProfilePage() {
             <Field label="Nationality"   value={s.nationality ?? 'Filipino'} />
             <Field label="Age"           value={s.age} />
             <Field label="Grade Level"   value={s.grade_level ? `Grade ${s.grade_level}` : undefined} />
-            <Field label="Section"       value={s.section_name} />
+            <Field label="Section"       value={cleanSectionName(s.section_name, s.grade_level)} />
           </div>
         </div>
       </div>

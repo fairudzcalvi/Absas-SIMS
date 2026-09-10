@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { cleanSectionName, formatGradeSection } from '../utils/formatters';
 
 /* ── SVG Icons ─────────────────────────────────────────── */
 function IcoEnrollment() {
@@ -243,6 +245,20 @@ export default function EnrollmentPage() {
     setWizardOpen(true);
   }
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const isNew = searchParams.get('new');
+    const isContinuing = searchParams.get('continuing');
+    if (isNew === 'true') {
+      openIntakeWizard('new');
+      setSearchParams({}, { replace: true });
+    } else if (isContinuing === 'true') {
+      openIntakeWizard('continuing');
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams]);
+
   /* Handle Continuing Student Selection */
   function handleSelectExistingStudent(student) {
     const currentGrade = Number(student.grade_level || 1);
@@ -302,7 +318,7 @@ export default function EnrollmentPage() {
           grade_level:        Number(wizardForm.grade_level),
           current_strand_id:  Number(wizardForm.grade_level) >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
           current_section_id: wizardForm.section_id         || null,
-          section_name:       wizardForm.section_name       || null,
+          section_name:       cleanSectionName(wizardForm.section_name, wizardForm.grade_level) || null,
           scholarship_id:     wizardForm.scholarship_id     || null,
           student_type:       wizardForm.enrollment_type,
           status:             'Active',
@@ -325,7 +341,7 @@ export default function EnrollmentPage() {
             grade_level:        Number(wizardForm.grade_level),
             current_strand_id:  Number(wizardForm.grade_level) >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
             current_section_id: wizardForm.section_id || null,
-            section_name:       wizardForm.section_name || null,
+            section_name:       cleanSectionName(wizardForm.section_name, wizardForm.grade_level) || null,
             scholarship_id:     wizardForm.scholarship_id || null,
             student_type:       wizardForm.enrollment_type,
             status:             'Active',
@@ -602,7 +618,7 @@ export default function EnrollmentPage() {
                           {student ? `${student.first_name} ${student.last_name}` : 'Student Record'}
                         </td>
                         <td>
-                          Grade {e.grade_level} {section ? ` - ${section.section_name}` : ''}
+                          {formatGradeSection(e.grade_level, section?.section_name || student?.section_name)}
                         </td>
                         <td>
                           {strand ? (
@@ -761,6 +777,24 @@ export default function EnrollmentPage() {
                   <h4 style={{ margin: '0 0 14px 0', color: '#8B0000', borderBottom: '2px solid #e9ecef', paddingBottom: '6px' }}>
                     Student Identification &amp; Demographics
                   </h4>
+                  <div style={{
+                    background: '#e8f4fd',
+                    border: '1px solid #b8daff',
+                    color: '#004085',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    lineHeight: '1.4'
+                  }}>
+                    <span style={{ fontSize: '18px' }}>⚡</span>
+                    <div>
+                      <strong>Fast Intake:</strong> Only Name and Grade Level are required to process admissions and assess fees. Additional demographic details, home address, and 2x2 portrait photo can be completed post-enrollment in <strong>Student Records</strong>.
+                    </div>
+                  </div>
                   <div className="form-grid">
                     <div className="form-group">
                       <label>Enrollment Category *</label>
@@ -861,14 +895,14 @@ export default function EnrollmentPage() {
                             setWizardForm(f => ({
                               ...f,
                               section_id: secId,
-                              section_name: secObj ? secObj.section_name : '',
+                              section_name: secObj ? cleanSectionName(secObj.section_name, wizardForm.grade_level) : '',
                             }));
                           }}
                         >
                           <option value="">Select Section...</option>
                           {wizardSections.map(sec => (
                             <option key={sec.id} value={sec.id}>
-                              {sec.section_name} {sec.room_number ? `(${sec.room_number})` : ''}
+                              {cleanSectionName(sec.section_name, wizardForm.grade_level)} {sec.room_number ? `(${sec.room_number})` : ''}
                             </option>
                           ))}
                         </select>
@@ -991,7 +1025,7 @@ export default function EnrollmentPage() {
                       <div><strong>Enrollment Type:</strong> {wizardForm.enrollment_type}</div>
                       <div><strong>Target School Year:</strong> S.Y. {activeSchoolYear?.year_label || '2026-2027'}</div>
                       <div><strong>Enrolling Grade Level:</strong> Grade {wizardForm.grade_level}</div>
-                      <div><strong>Assigned Section:</strong> {wizardForm.section_name || 'Unassigned'}</div>
+                      <div><strong>Assigned Section:</strong> {cleanSectionName(wizardForm.section_name, wizardForm.grade_level) || 'Unassigned'}</div>
                       <div><strong>SHS Strand:</strong> {strands.find(st => st.id === wizardForm.strand_id)?.strand_name || 'N/A'}</div>
                       <div><strong>Scholarship:</strong> {scholarships.find(sc => sc.id === wizardForm.scholarship_id)?.name || 'Regular'}</div>
                       <div><strong>Emergency Contact:</strong> {wizardForm.guardian_name} ({wizardForm.guardian_contact || 'N/A'})</div>
@@ -1072,7 +1106,7 @@ export default function EnrollmentPage() {
             </div>
             <div className="modal-body" id="printable-matriculation-slip" style={{ padding: '24px', background: '#fff', border: '2px solid #8B0000', borderRadius: '8px' }}>
               <div style={{ textAlign: 'center', borderBottom: '2px solid #8B0000', paddingBottom: '12px', marginBottom: '16px' }}>
-                <h2 style={{ color: '#8B0000', margin: '0 0 4px 0', fontSize: '20px' }}>ANGELICUM BIRMINGHAM SCHOOL OF ACADEMIC STUDIES</h2>
+                <h2 style={{ color: '#8B0000', margin: '0 0 4px 0', fontSize: '20px' }}>A.B SIMPSON ALLIANCE SCHOOL, INC</h2>
                 <div style={{ fontSize: '13px', color: '#555' }}>OFFICIAL ENROLLMENT CERTIFICATE</div>
                 <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#8B0000', marginTop: '4px' }}>
                   ACADEMIC YEAR {activeSchoolYear?.year_label || '2026-2027'}
@@ -1090,7 +1124,7 @@ export default function EnrollmentPage() {
                   <span style={{ fontWeight: 'bold' }}>Student Full Name:</span> {viewSlip.student?.first_name} {viewSlip.student?.last_name}
                 </div>
                 <div><span style={{ fontWeight: 'bold' }}>Grade Level:</span> Grade {viewSlip.enrollment?.grade_level}</div>
-                <div><span style={{ fontWeight: 'bold' }}>Section:</span> {sections.find(s => s.id === viewSlip.enrollment?.section_id)?.section_name || 'Unassigned'}</div>
+                <div><span style={{ fontWeight: 'bold' }}>Section:</span> {cleanSectionName(sections.find(s => s.id === viewSlip.enrollment?.section_id)?.section_name || viewSlip.student?.section_name, viewSlip.enrollment?.grade_level) || 'Unassigned'}</div>
                 <div><span style={{ fontWeight: 'bold' }}>SHS Strand:</span> {strands.find(st => st.id === viewSlip.enrollment?.strand_id)?.strand_name || 'N/A'}</div>
                 <div><span style={{ fontWeight: 'bold' }}>Scholarship:</span> {scholarships.find(sc => sc.id === viewSlip.enrollment?.scholarship_id)?.name || 'Regular'}</div>
                 <div><span style={{ fontWeight: 'bold' }}>Enrollment Type:</span> {viewSlip.enrollment?.enrollment_type}</div>

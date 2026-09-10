@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { cleanSectionName } from '../utils/formatters';
 
 /* ── SVG Icons ─────────────────────────────────────────── */
 function IcoHome() {
@@ -236,8 +237,8 @@ export default function DashboardPage() {
                     <tr key={s.student_record_id}>
                       <td style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
                       <td>{s.first_name} {s.last_name}</td>
-                      <td>{s.grade_level}</td>
-                      <td>{s.section_name}</td>
+                      <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'}</td>
+                      <td>{cleanSectionName(s.section_name, s.grade_level) || '—'}</td>
                       <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : '—'}</td>
                       <td><StatusBadge status={s.status} /></td>
                     </tr>

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { cleanSectionName } from '../../utils/formatters';
 
 /* ── Icons ── */
 function IcoStudents() {
@@ -377,7 +378,7 @@ export default function ClassListPage() {
                           fontWeight: '600',
                           whiteSpace: 'nowrap',
                         }}>
-                          Grade {s.grade_level}{s.section_name ? ` - ${s.section_name.toUpperCase()}` : ''}
+                          Grade {s.grade_level}{s.section_name ? ` - ${cleanSectionName(s.section_name, s.grade_level).toUpperCase()}` : ''}
                         </span>
                       )}
                     </td>
@@ -469,7 +470,7 @@ export default function ClassListPage() {
                   ['DepEd LRN', viewStudent.lrn_id || viewStudent.student_id || 'N/A'],
                   ['Full Name', `${viewStudent.first_name} ${viewStudent.middle_name ? viewStudent.middle_name + ' ' : ''}${viewStudent.last_name}`],
                   ['Grade Level', viewStudent.grade_level ? `Grade ${viewStudent.grade_level}` : '—'],
-                  ['Section', viewStudent.section_name],
+                  ['Section', cleanSectionName(viewStudent.section_name, viewStudent.grade_level)],
                   ['Gender', viewStudent.gender],
                   ['Age', viewStudent.age],
                   ['Birthdate', viewStudent.birthdate],

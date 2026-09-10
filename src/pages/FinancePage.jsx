@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { cleanSectionName, formatGradeSection } from '../utils/formatters';
 
 /* ── SVG Icons ─────────────────────────────────────────── */
 function IcoFinance() {
@@ -8,6 +9,32 @@ function IcoFinance() {
       <rect x="2" y="6" width="20" height="14" rx="2" />
       <line x1="2" y1="10" x2="22" y2="10" />
       <path d="M6 14h.01M10 14h4" />
+    </svg>
+  );
+}
+function IcoTuition() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <line x1="2" y1="10" x2="22" y2="10" />
+    </svg>
+  );
+}
+function IcoOtherFees() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  );
+}
+function IcoQuarterly() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="9" y1="21" x2="9" y2="9" />
     </svg>
   );
 }
@@ -132,6 +159,57 @@ function peso(n) {
   return '₱' + Number(n ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* ── Other School Fees Catalog ──────────────────────────── */
+const OTHER_FEES_CATALOG = [
+  { id: 'books',   name: 'Books & Learning Materials',           defaultAmount: 3500, category: 'Academic' },
+  { id: 'uniform', name: 'School Uniform / PE Attire',           defaultAmount: 1200, category: 'Apparel' },
+  { id: 'lab',     name: 'Science & Computer Laboratory Fee',    defaultAmount: 1500, category: 'Facility' },
+  { id: 'grad',    name: 'Graduation & Moving Up Fee',           defaultAmount: 2500, category: 'Commencement' },
+  { id: 'retreat', name: 'Spiritual Retreat / Recollection Fee', defaultAmount: 1800, category: 'Activities' },
+  { id: 'id',      name: 'Student ID & Lanyard Replacement',     defaultAmount: 250,  category: 'Administrative' },
+  { id: 'cert',    name: 'Certificates / Transcript of Records', defaultAmount: 200,  category: 'Documents' },
+  { id: 'custom',  name: 'Other Custom School Fee',              defaultAmount: 500,  category: 'Miscellaneous' },
+];
+
+/* ── Quarterly Breakdown Calculator (Q1 - Q4) ───────────── */
+function computeQuarterlyBreakdown(netAssessment, amountPaid = 0) {
+  const net = Math.max(0, Number(netAssessment || 0));
+  const paid = Math.max(0, Number(amountPaid || 0));
+
+  const qBase = Math.floor(net / 4);
+  const qRemainder = net - (qBase * 3);
+
+  const quarters = [
+    { id: 'Q1', code: '1Q', name: '1st Quarter (Enrollment / Prelims)', due: qBase,      targetDate: 'August 31' },
+    { id: 'Q2', code: '2Q', name: '2nd Quarter (Midterms)',             due: qBase,      targetDate: 'October 31' },
+    { id: 'Q3', code: '3Q', name: '3rd Quarter (Semi-Finals)',          due: qBase,      targetDate: 'January 31' },
+    { id: 'Q4', code: '4Q', name: '4th Quarter (Finals & Clearance)',   due: qRemainder, targetDate: 'March 31' },
+  ];
+
+  let remainingPaid = paid;
+  return quarters.map(q => {
+    const credited = Math.min(q.due, remainingPaid);
+    remainingPaid = Math.max(0, remainingPaid - credited);
+    const balance = Math.max(0, q.due - credited);
+
+    let status = 'Due';
+    if (credited >= q.due && q.due > 0) {
+      status = 'Paid';
+    } else if (credited > 0) {
+      status = 'Partial';
+    } else if (q.due === 0) {
+      status = 'Paid';
+    }
+
+    return {
+      ...q,
+      credited,
+      balance,
+      status,
+    };
+  });
+}
+
 /* ── Main Finance Page ─────────────────────────────────── */
 export default function FinancePage() {
   const { supabase, activeSchoolYear, activeQuarter } = useAuth();
@@ -162,6 +240,28 @@ export default function FinancePage() {
   });
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentError, setPaymentError]   = useState('');
+
+  // ── Button 2: Other School Fees State ───────────────────────
+  const [otherFeesModalOpen, setOtherFeesModalOpen] = useState(false);
+  const [otherFeesStudent, setOtherFeesStudent]     = useState(null);
+  const [otherFeesForm, setOtherFeesForm]           = useState({
+    fee_catalog_id:   'books',
+    fee_name:         'Books & Learning Materials',
+    unit_price:       3500,
+    quantity:         1,
+    total_amount:     3500,
+    payment_date:     new Date().toISOString().split('T')[0],
+    payment_method:   'Cash',
+    or_number:        `OR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+    reference_number: '',
+    remarks:          '',
+  });
+  const [savingOtherFees, setSavingOtherFees]       = useState(false);
+  const [otherFeesError, setOtherFeesError]         = useState('');
+
+  // ── Button 3: Quarterly Breakdown State ─────────────────────
+  const [quarterlyModalOpen, setQuarterlyModalOpen] = useState(false);
+  const [quarterlyAccount, setQuarterlyAccount]     = useState(null);
 
   // Modals for Printing
   const [viewReceipt, setViewReceipt] = useState(null); // { payment, student, finance }
@@ -288,21 +388,127 @@ export default function FinancePage() {
   const totalReceivable = studentAccounts.reduce((sum, a) => sum + a.balance, 0);
   const fullyPaidCount = studentAccounts.filter(a => a.status === 'Paid').length;
 
-  /* Open Record Payment Modal */
-  function openPaymentModal(acc = null) {
+  /* ── 1. Open Pay Tuition Modal ───────────────────────── */
+  function openPaymentModal(acc = null, presetAmount = null, allocationDesc = null) {
     const targetStudent = acc ? acc.student : students[0] || null;
     setSelectedStudent(targetStudent);
+
+    let initialAmount = '';
+    if (presetAmount !== null && presetAmount !== undefined) {
+      initialAmount = String(presetAmount);
+    } else if (acc && acc.balance > 0) {
+      initialAmount = String(acc.balance);
+    }
+
     setPayForm({
-      amount:           acc && acc.balance > 0 ? String(acc.balance) : '',
+      amount:           initialAmount,
       payment_date:     new Date().toISOString().split('T')[0],
       payment_method:   'Cash',
-      payment_for:      'Tuition Fee',
+      payment_for:      allocationDesc || 'Tuition Fee',
       or_number:        `OR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
       reference_number: '',
       remarks:          '',
     });
     setPaymentError('');
     setPaymentModalOpen(true);
+  }
+
+  /* ── 2. Open Other School Fees Modal ──────────────────── */
+  function openOtherFeesModal(acc = null) {
+    const targetStudent = acc ? acc.student : students[0] || null;
+    setOtherFeesStudent(targetStudent);
+    const defaultCatalog = OTHER_FEES_CATALOG[0];
+    setOtherFeesForm({
+      fee_catalog_id:   defaultCatalog.id,
+      fee_name:         defaultCatalog.name,
+      unit_price:       defaultCatalog.defaultAmount,
+      quantity:         1,
+      total_amount:     defaultCatalog.defaultAmount,
+      payment_date:     new Date().toISOString().split('T')[0],
+      payment_method:   'Cash',
+      or_number:        `OR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      reference_number: '',
+      remarks:          '',
+    });
+    setOtherFeesError('');
+    setOtherFeesModalOpen(true);
+  }
+
+  /* Handle Selection of Other Fee Item */
+  function handleSelectOtherFeeItem(catalogId) {
+    const item = OTHER_FEES_CATALOG.find(c => c.id === catalogId);
+    if (!item) return;
+    setOtherFeesForm(f => {
+      const unit = item.id === 'custom' ? f.unit_price : item.defaultAmount;
+      const qty = Number(f.quantity || 1);
+      return {
+        ...f,
+        fee_catalog_id: item.id,
+        fee_name:       item.id === 'custom' ? f.fee_name : item.name,
+        unit_price:     unit,
+        total_amount:   Number(unit) * qty,
+      };
+    });
+  }
+
+  /* Submit Other School Fee Payment */
+  async function handleSaveOtherFees(e) {
+    e.preventDefault();
+    if (!otherFeesStudent || !otherFeesForm.total_amount || Number(otherFeesForm.total_amount) <= 0) {
+      setOtherFeesError('Please select a student and specify a valid fee amount.');
+      return;
+    }
+
+    setSavingOtherFees(true);
+    setOtherFeesError('');
+
+    try {
+      const studentId = otherFeesStudent.student_record_id;
+      const amount = Number(otherFeesForm.total_amount);
+      const acc = studentAccounts.find(a => a.student.student_record_id === studentId);
+
+      const itemDesc = `${otherFeesForm.fee_name} (${otherFeesForm.quantity}x @ ₱${Number(otherFeesForm.unit_price).toLocaleString()})`;
+
+      // Insert into payments transaction log
+      const { data: createdPayment, error: payErr } = await supabase
+        .from('payments')
+        .insert([{
+          student_record_id: studentId,
+          amount:            amount,
+          payment_date:      otherFeesForm.payment_date,
+          payment_method:    otherFeesForm.payment_method,
+          payment_for:       itemDesc,
+          or_number:         otherFeesForm.or_number,
+          reference_number:  otherFeesForm.reference_number || null,
+          remarks:           otherFeesForm.remarks || null,
+          school_year_id:    activeSchoolYear?.id || null,
+        }])
+        .select()
+        .single();
+
+      if (payErr) throw payErr;
+
+      setOtherFeesModalOpen(false);
+      fetchData();
+
+      // Open Official Receipt Slip
+      setViewReceipt({
+        payment: createdPayment,
+        student: otherFeesStudent,
+        finance: acc,
+      });
+
+    } catch (err) {
+      setOtherFeesError(err.message || 'Error recording other fee payment.');
+    } finally {
+      setSavingOtherFees(false);
+    }
+  }
+
+  /* ── 3. Open Quarterly Breakdown Modal ─────────────────── */
+  function openQuarterlyModal(acc = null) {
+    setQuarterlyAccount(acc);
+    setQuarterlyModalOpen(true);
   }
 
   /* Submit Payment and generate Official Receipt */
@@ -509,9 +715,23 @@ export default function FinancePage() {
         {/* Action Bar & Filters */}
         <div className="card">
           <div className="card-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => openPaymentModal(null)}>
-                <IcoRecordPayment /> + Record Payment &amp; Issue Receipt
+                <IcoTuition /> 💳 Pay Tuition
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#b45309', borderColor: '#b45309' }}
+                onClick={() => openOtherFeesModal(null)}
+              >
+                <IcoOtherFees /> 📦 Other School Fees
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#1d4ed8', borderColor: '#1d4ed8' }}
+                onClick={() => openQuarterlyModal(null)}
+              >
+                <IcoQuarterly /> 📊 Total Per Quarter
               </button>
             </div>
 
@@ -611,7 +831,7 @@ export default function FinancePage() {
                       </td>
                       <td style={{ fontWeight: '600' }}>{acc.student.first_name} {acc.student.last_name}</td>
                       <td>
-                        Grade {acc.student.grade_level} {acc.strand ? `(${acc.strand.strand_code})` : ''}
+                        {formatGradeSection(acc.student.grade_level, acc.student.section_name)} {acc.strand ? `(${acc.strand.strand_code})` : ''}
                       </td>
                       <td>
                         {acc.scholarship ? (
@@ -636,25 +856,44 @@ export default function FinancePage() {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                           <button
                             className="btn btn-primary btn-sm"
                             onClick={() => openPaymentModal(acc)}
-                            title="Pay & Issue Receipt"
+                            title="Pay Tuition & Issue Official Receipt"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
                           >
-                            <IcoRecordPayment /> Pay
+                            💳 Pay Tuition
+                          </button>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => openOtherFeesModal(acc)}
+                            title="Pay Books, Uniforms, Lab & Other School Fees"
+                            style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            📦 Other Fees
+                          </button>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => openQuarterlyModal(acc)}
+                            title="View Q1–Q4 Quarterly Breakdown & Installments"
+                            style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            📊 Quarterly
                           </button>
                           <button
                             className="btn btn-secondary btn-sm"
                             onClick={() => openSOAModal(acc)}
                             title="Statement of Account (SOA)"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
                           >
-                            <IcoSOA /> SOA
+                            <IcoSOA />
                           </button>
                           <button
                             className="btn btn-secondary btn-sm"
                             onClick={() => openHistoryModal(acc)}
                             title="Payment History Ledger"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
                           >
                             <IcoHistory />
                           </button>
@@ -705,12 +944,12 @@ export default function FinancePage() {
 
       </div>
 
-      {/* ── Record Payment Modal ── */}
+      {/* ── Button 1: Pay Tuition Modal ── */}
       {paymentModalOpen && (
         <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setPaymentModalOpen(false); }}>
-          <div className="modal-content" style={{ maxWidth: '580px' }}>
+          <div className="modal-content" style={{ maxWidth: '620px' }}>
             <div className="modal-header">
-              <h3 className="modal-title"><IcoRecordPayment /> Record Student Payment &amp; Issue Receipt</h3>
+              <h3 className="modal-title"><IcoTuition /> 💳 Pay Tuition &amp; Issue Official Receipt</h3>
               <button className="modal-close" onClick={() => setPaymentModalOpen(false)}><IcoClose /></button>
             </div>
             <form onSubmit={handleSavePayment}>
@@ -741,12 +980,63 @@ export default function FinancePage() {
                       const acc = studentAccounts.find(a => a.student.student_record_id === s.student_record_id);
                       return (
                         <option key={s.student_record_id} value={s.student_record_id}>
-                          {s.last_name}, {s.first_name} (ID: {s.student_id}) — Gr {s.grade_level} | Bal: {peso(acc?.balance ?? 0)}
+                          {s.last_name}, {s.first_name} (LRN: {s.lrn_id || s.student_id || '—'}) — Gr {s.grade_level} | Bal: {peso(acc?.balance ?? 0)}
                         </option>
                       );
                     })}
                   </select>
                 </div>
+
+                {/* Live Account Balance Summary & Quick Chips */}
+                {selectedStudent && (() => {
+                  const acc = studentAccounts.find(a => a.student.student_record_id === selectedStudent.student_record_id);
+                  const breakdown = acc ? computeQuarterlyBreakdown(acc.netAssessment, acc.amountPaid) : [];
+                  const nextDueQuarter = breakdown.find(q => q.balance > 0);
+
+                  return (
+                    <div style={{
+                      background: '#f8f9fa',
+                      border: '1px solid #e9ecef',
+                      padding: '12px 14px',
+                      borderRadius: '8px',
+                      marginBottom: '16px',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <span style={{ color: '#666' }}>Net Assessment:</span> <strong>{peso(acc?.netAssessment ?? 0)}</strong> •
+                          <span style={{ color: '#137333', marginLeft: '6px' }}>Paid:</span> <strong>{peso(acc?.amountPaid ?? 0)}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: '#b91c1c', fontWeight: 'bold' }}>Balance Due:</span> <strong>{peso(acc?.balance ?? 0)}</strong>
+                        </div>
+                      </div>
+
+                      {acc && acc.balance > 0 && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: '#666', fontWeight: 'bold' }}>Quick Presets:</span>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '3px 8px' }}
+                            onClick={() => setPayForm(f => ({ ...f, amount: String(acc.balance), payment_for: 'Full Settlement' }))}
+                          >
+                            Full Balance ({peso(acc.balance)})
+                          </button>
+                          {nextDueQuarter && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '11px', padding: '3px 8px', borderColor: '#1d4ed8', color: '#1d4ed8' }}
+                              onClick={() => setPayForm(f => ({ ...f, amount: String(nextDueQuarter.balance), payment_for: `${nextDueQuarter.id} Installment` }))}
+                            >
+                              {nextDueQuarter.id} Due ({peso(nextDueQuarter.balance)})
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="form-grid">
                   <div className="form-group">
@@ -793,12 +1083,12 @@ export default function FinancePage() {
                     <select value={payForm.payment_for} onChange={e => setPayForm(f => ({ ...f, payment_for: e.target.value }))}>
                       <option value="Tuition Fee">Tuition Fee</option>
                       <option value="Downpayment / Enrollment Fee">Downpayment / Enrollment Fee</option>
-                      <option value="Prelims Installment">Prelims Installment</option>
-                      <option value="Midterms Installment">Midterms Installment</option>
-                      <option value="Semi-Finals Installment">Semi-Finals Installment</option>
-                      <option value="Finals / Full Settlement">Finals / Full Settlement</option>
+                      <option value="Q1 Installment (Prelims)">Q1 Installment (Prelims)</option>
+                      <option value="Q2 Installment (Midterms)">Q2 Installment (Midterms)</option>
+                      <option value="Q3 Installment (Semi-Finals)">Q3 Installment (Semi-Finals)</option>
+                      <option value="Q4 Installment (Finals)">Q4 Installment (Finals)</option>
+                      <option value="Full Settlement">Full Settlement</option>
                       <option value="Miscellaneous Fee">Miscellaneous Fee</option>
-                      <option value="Books / Uniforms">Books / Uniforms</option>
                     </select>
                   </div>
                   <div className="form-group">
@@ -826,6 +1116,432 @@ export default function FinancePage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Button 2: Other School Fees Modal ── */}
+      {otherFeesModalOpen && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setOtherFeesModalOpen(false); }}>
+          <div className="modal-content" style={{ maxWidth: '620px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoOtherFees /> 📦 Other School Fees &amp; Official Receipt</h3>
+              <button className="modal-close" onClick={() => setOtherFeesModalOpen(false)}><IcoClose /></button>
+            </div>
+            <form onSubmit={handleSaveOtherFees}>
+              <div className="modal-body">
+                {otherFeesError && (
+                  <div style={{ color: '#dc3545', background: '#f8d7da', padding: '10px 14px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
+                    {otherFeesError}
+                  </div>
+                )}
+
+                {/* Student Selection */}
+                <div className="form-group">
+                  <label>Select Enrolled Student *</label>
+                  <select
+                    value={otherFeesStudent?.student_record_id || ''}
+                    onChange={e => {
+                      const stu = students.find(s => String(s.student_record_id) === e.target.value);
+                      setOtherFeesStudent(stu || null);
+                    }}
+                    required
+                  >
+                    <option value="">Choose a student...</option>
+                    {students.map(s => (
+                      <option key={s.student_record_id} value={s.student_record_id}>
+                        {s.last_name}, {s.first_name} (LRN: {s.lrn_id || s.student_id || '—'}) — Gr {s.grade_level}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Other Fees Category Selector */}
+                <div className="form-group">
+                  <label>Fee Category / Item *</label>
+                  <select
+                    value={otherFeesForm.fee_catalog_id}
+                    onChange={e => handleSelectOtherFeeItem(e.target.value)}
+                    required
+                  >
+                    {OTHER_FEES_CATALOG.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} {item.defaultAmount > 0 ? `(₱${Number(item.defaultAmount).toLocaleString()})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {otherFeesForm.fee_catalog_id === 'custom' && (
+                  <div className="form-group">
+                    <label>Custom Fee Description *</label>
+                    <input
+                      value={otherFeesForm.fee_name}
+                      onChange={e => setOtherFeesForm(f => ({ ...f, fee_name: e.target.value }))}
+                      placeholder="e.g. Science Fair Kit, Robing Fee, Replacement ID"
+                      required
+                    />
+                  </div>
+                )}
+
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Unit Price (₱) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      value={otherFeesForm.unit_price}
+                      onChange={e => {
+                        const unit = Number(e.target.value);
+                        setOtherFeesForm(f => ({
+                          ...f,
+                          unit_price: e.target.value,
+                          total_amount: unit * Number(f.quantity || 1),
+                        }));
+                      }}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={otherFeesForm.quantity}
+                      onChange={e => {
+                        const qty = Number(e.target.value);
+                        setOtherFeesForm(f => ({
+                          ...f,
+                          quantity: e.target.value,
+                          total_amount: Number(f.unit_price || 0) * qty,
+                        }));
+                      }}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Total Computed Fee Card */}
+                <div style={{
+                  background: '#fef3c7',
+                  border: '1px solid #fde68a',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                  <div>
+                    <div style={{ fontSize: '12px', color: '#92400e', fontWeight: 'bold' }}>TOTAL OTHER FEE PAYABLE:</div>
+                    <div style={{ fontSize: '13px', color: '#b45309' }}>{otherFeesForm.fee_name} &times; {otherFeesForm.quantity}</div>
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#92400e' }}>
+                    {peso(otherFeesForm.total_amount)}
+                  </div>
+                </div>
+
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Official Receipt (OR) # *</label>
+                    <input
+                      value={otherFeesForm.or_number}
+                      onChange={e => setOtherFeesForm(f => ({ ...f, or_number: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Payment Date *</label>
+                    <input
+                      type="date"
+                      value={otherFeesForm.payment_date}
+                      onChange={e => setOtherFeesForm(f => ({ ...f, payment_date: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Payment Method</label>
+                    <select
+                      value={otherFeesForm.payment_method}
+                      onChange={e => setOtherFeesForm(f => ({ ...f, payment_method: e.target.value }))}
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="GCash">GCash</option>
+                      <option value="PayMaya">PayMaya</option>
+                      <option value="Bank Transfer">Bank Transfer (BDO/BPI)</option>
+                      <option value="Check">Check</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Transaction / Ref Number</label>
+                    <input
+                      value={otherFeesForm.reference_number}
+                      onChange={e => setOtherFeesForm(f => ({ ...f, reference_number: e.target.value }))}
+                      placeholder="Optional (e.g. GCash Ref #)"
+                    />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label>Cashier Notes / Remarks</label>
+                    <input
+                      value={otherFeesForm.remarks}
+                      onChange={e => setOtherFeesForm(f => ({ ...f, remarks: e.target.value }))}
+                      placeholder="Optional note (e.g. Size M, Set of 5 Books, ID Lost)"
+                    />
+                  </div>
+                </div>
+
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setOtherFeesModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={savingOtherFees} style={{ background: '#b45309', borderColor: '#b45309' }}>
+                  {savingOtherFees ? 'Processing...' : '✓ Confirm & Print Receipt'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Button 3: Total Per Quarter / Quarterly Breakdown Modal ── */}
+      {quarterlyModalOpen && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setQuarterlyModalOpen(false); }}>
+          <div className="modal-content" style={{ maxWidth: '850px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">
+                <IcoQuarterly /> 📊 Total Per Quarter Breakdown — {quarterlyAccount ? `${quarterlyAccount.student.first_name} ${quarterlyAccount.student.last_name}` : `School-Wide (S.Y. ${activeSchoolYear?.year_label || '2026-2027'})`}
+              </h3>
+              <button className="modal-close" onClick={() => setQuarterlyModalOpen(false)}><IcoClose /></button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px' }}>
+              {quarterlyAccount ? (
+                /* Individual Student Quarterly Breakdown */
+                <div>
+                  <div style={{
+                    background: '#f8f9fa',
+                    border: '1px solid #e9ecef',
+                    borderRadius: '8px',
+                    padding: '14px 18px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#8B0000' }}>
+                        {quarterlyAccount.student.first_name} {quarterlyAccount.student.middle_name ? quarterlyAccount.student.middle_name + ' ' : ''}{quarterlyAccount.student.last_name}
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#555', marginTop: '3px' }}>
+                        <strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace' }}>{quarterlyAccount.student.lrn_id || quarterlyAccount.student.student_id || '—'}</span> • {formatGradeSection(quarterlyAccount.student.grade_level, quarterlyAccount.student.section_name)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '12px', color: '#666' }}>Net Annual Assessment</div>
+                      <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#8B0000' }}>{peso(quarterlyAccount.netAssessment)}</div>
+                      <div style={{ fontSize: '12px', color: '#137333', fontWeight: '600' }}>Paid: {peso(quarterlyAccount.amountPaid)} • Bal: {peso(quarterlyAccount.balance)}</div>
+                    </div>
+                  </div>
+
+                  {/* 4 Quarter Cards Grid */}
+                  <h4 style={{ margin: '0 0 12px 0', color: '#8B0000' }}>Academic Quarters Schedule (Q1 - Q4)</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+                    {computeQuarterlyBreakdown(quarterlyAccount.netAssessment, quarterlyAccount.amountPaid).map(q => {
+                      const isPaid = q.status === 'Paid';
+                      const isPartial = q.status === 'Partial';
+                      return (
+                        <div key={q.id} style={{
+                          border: `2px solid ${isPaid ? '#22c55e' : isPartial ? '#f59e0b' : '#e5e7eb'}`,
+                          borderRadius: '8px',
+                          padding: '14px',
+                          background: isPaid ? '#f0fdf4' : isPartial ? '#fffbeb' : '#fff',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                        }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <strong style={{ color: '#8B0000', fontSize: '14px' }}>{q.id}</strong>
+                              <span style={
+                                isPaid ? styles.badgePaid : isPartial ? styles.badgePartial : styles.badgeUnpaid
+                              }>
+                                {q.status}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#666', marginBottom: '6px' }}>Target: {q.targetDate}</div>
+                            <div style={{ fontSize: '12px', color: '#444' }}>Quarter Assessment:</div>
+                            <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#111' }}>{peso(q.due)}</div>
+                            <div style={{ fontSize: '11px', color: '#137333', marginTop: '4px' }}>Paid: {peso(q.credited)}</div>
+                            {q.balance > 0 && (
+                              <div style={{ fontSize: '12px', color: '#b91c1c', fontWeight: '600', marginTop: '2px' }}>
+                                Due: {peso(q.balance)}
+                              </div>
+                            )}
+                          </div>
+                          {!isPaid && (
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              style={{ marginTop: '12px', width: '100%', fontSize: '11px', padding: '5px' }}
+                              onClick={() => {
+                                setQuarterlyModalOpen(false);
+                                openPaymentModal(quarterlyAccount, q.balance, `${q.id} Tuition Installment`);
+                              }}
+                            >
+                              💳 Pay {q.id}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Quarterly Table View */}
+                  <table className="data-table" style={{ fontSize: '13px' }}>
+                    <thead>
+                      <tr>
+                        <th>Quarter Term</th>
+                        <th>Target Due Date</th>
+                        <th style={{ textAlign: 'right' }}>Assessed Amount</th>
+                        <th style={{ textAlign: 'right' }}>Credited Payment</th>
+                        <th style={{ textAlign: 'right' }}>Balance Due</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {computeQuarterlyBreakdown(quarterlyAccount.netAssessment, quarterlyAccount.amountPaid).map(q => (
+                        <tr key={q.id}>
+                          <td style={{ fontWeight: '600', color: '#8B0000' }}>{q.name}</td>
+                          <td>{q.targetDate}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{peso(q.due)}</td>
+                          <td style={{ textAlign: 'right', color: '#137333', fontWeight: '600' }}>{peso(q.credited)}</td>
+                          <td style={{ textAlign: 'right', color: q.balance > 0 ? '#b91c1c' : '#137333', fontWeight: '700' }}>
+                            {peso(q.balance)}
+                          </td>
+                          <td>
+                            <span style={q.status === 'Paid' ? styles.badgePaid : q.status === 'Partial' ? styles.badgePartial : styles.badgeUnpaid}>
+                              {q.status}
+                            </span>
+                          </td>
+                          <td>
+                            {q.balance > 0 ? (
+                              <button
+                                className="btn btn-primary btn-sm"
+                                style={{ padding: '3px 8px', fontSize: '11px' }}
+                                onClick={() => {
+                                  setQuarterlyModalOpen(false);
+                                  openPaymentModal(quarterlyAccount, q.balance, `${q.id} Tuition Installment`);
+                                }}
+                              >
+                                Pay Installment
+                              </button>
+                            ) : (
+                              <span style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '12px' }}>✓ Cleared</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                /* School-Wide Quarterly Overview */
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+                    {['Q1', 'Q2', 'Q3', 'Q4'].map((qCode, idx) => {
+                      const qLabel = idx === 0 ? '1st Quarter (Enrollment)' : idx === 1 ? '2nd Quarter (Midterms)' : idx === 2 ? '3rd Quarter (Semi-Finals)' : '4th Quarter (Finals)';
+                      const totalDue = studentAccounts.reduce((sum, a) => {
+                        const b = computeQuarterlyBreakdown(a.netAssessment, a.amountPaid);
+                        return sum + (b[idx]?.due || 0);
+                      }, 0);
+                      const totalPaid = studentAccounts.reduce((sum, a) => {
+                        const b = computeQuarterlyBreakdown(a.netAssessment, a.amountPaid);
+                        return sum + (b[idx]?.credited || 0);
+                      }, 0);
+                      const totalBal = Math.max(0, totalDue - totalPaid);
+
+                      return (
+                        <div key={qCode} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px', background: '#f8f9fa' }}>
+                          <div style={{ fontWeight: 'bold', color: '#8B0000', fontSize: '15px' }}>{qCode}</div>
+                          <div style={{ fontSize: '11px', color: '#666', marginBottom: '8px' }}>{qLabel}</div>
+                          <div style={{ fontSize: '12px', color: '#555' }}>Assessed: <strong>{peso(totalDue)}</strong></div>
+                          <div style={{ fontSize: '12px', color: '#137333', fontWeight: 'bold', marginTop: '2px' }}>Collected: {peso(totalPaid)}</div>
+                          <div style={{ fontSize: '12px', color: '#b91c1c', fontWeight: 'bold', marginTop: '2px' }}>Outstanding: {peso(totalBal)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <h4 style={{ margin: '0 0 10px 0', color: '#8B0000' }}>Student Quarterly Status Ledger</h4>
+                  <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #e0e0e0', borderRadius: '6px' }}>
+                    <table className="data-table" style={{ fontSize: '12px' }}>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff' }}>
+                        <tr>
+                          <th>DepEd LRN</th>
+                          <th>Student Name</th>
+                          <th>Grade</th>
+                          <th>Q1</th>
+                          <th>Q2</th>
+                          <th>Q3</th>
+                          <th>Q4</th>
+                          <th>Balance</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAccounts.map(acc => {
+                          const breakdown = computeQuarterlyBreakdown(acc.netAssessment, acc.amountPaid);
+                          return (
+                            <tr key={acc.student.student_record_id}>
+                              <td style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>
+                                {acc.student.lrn_id || acc.student.student_id || '—'}
+                              </td>
+                              <td style={{ fontWeight: '600' }}>{acc.student.first_name} {acc.student.last_name}</td>
+                              <td>Gr {acc.student.grade_level}</td>
+                              {breakdown.map(q => (
+                                <td key={q.id}>
+                                  <span style={q.status === 'Paid' ? styles.badgePaid : q.status === 'Partial' ? styles.badgePartial : styles.badgeUnpaid}>
+                                    {q.status}
+                                  </span>
+                                </td>
+                              ))}
+                              <td style={{ fontWeight: 'bold', color: acc.balance > 0 ? '#b91c1c' : '#137333' }}>
+                                {peso(acc.balance)}
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '2px 6px', fontSize: '11px' }}
+                                  onClick={() => setQuarterlyAccount(acc)}
+                                >
+                                  Breakdown
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setQuarterlyModalOpen(false)}>Close</button>
+              {quarterlyAccount && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setQuarterlyModalOpen(false);
+                    openSOAModal(quarterlyAccount);
+                  }}
+                >
+                  <IcoPrint /> Print Statement of Account
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

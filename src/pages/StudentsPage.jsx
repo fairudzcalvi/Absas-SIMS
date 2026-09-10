@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { cleanSectionName, formatGradeSection } from '../utils/formatters';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoStudents() {
@@ -158,6 +160,7 @@ const EMPTY_FORM = {
 /* ── Main Students Page ─────────────────────────────────── */
 export default function StudentsPage() {
   const { supabase, activeSchoolYear, activeQuarter } = useAuth();
+  const navigate = useNavigate();
 
   const [students, setStudents] = useState([]);
   const [sections, setSections] = useState([]);
@@ -375,7 +378,9 @@ export default function StudentsPage() {
     let sectionDisplayName = form.section_name;
     if (form.current_section_id) {
       const matchedSec = sections.find(sec => String(sec.id) === String(form.current_section_id));
-      if (matchedSec) sectionDisplayName = matchedSec.section_name;
+      if (matchedSec) sectionDisplayName = cleanSectionName(matchedSec.section_name, form.grade_level);
+    } else if (sectionDisplayName) {
+      sectionDisplayName = cleanSectionName(sectionDisplayName, form.grade_level);
     }
 
     // Auto-maintain student_id for database schema compatibility
@@ -605,8 +610,8 @@ export default function StudentsPage() {
               <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
                 <IcoExport /> Export CSV
               </button>
-              <button className="btn btn-primary btn-sm" onClick={openAdd}>
-                <IcoAddStudent /> Add Student Record
+              <button className="btn btn-primary btn-sm" onClick={() => navigate('/dashboard/enrollment?new=true')}>
+                <IcoAddStudent /> + Enroll New Student
               </button>
             </div>
           </div>
@@ -724,12 +729,49 @@ export default function StudentsPage() {
                                 `${s.first_name?.[0] ?? ''}${s.last_name?.[0] ?? ''}`
                               )}
                             </div>
-                            <span>{s.first_name} {s.middle_name ? s.middle_name[0] + '. ' : ''}{s.last_name}</span>
+                            <div>
+                              <div>{s.first_name} {s.middle_name ? s.middle_name[0] + '. ' : ''}{s.last_name}</div>
+                              {(!s.photo_url || !s.middle_name || !s.birthdate || !s.address || !s.guardian_name) ? (
+                                <span
+                                  title="Click to complete post-enrollment profile (Photo, Middle Name, Address, Guardian)"
+                                  style={{
+                                    display: 'inline-block',
+                                    fontSize: '10px',
+                                    fontWeight: '600',
+                                    color: '#856404',
+                                    background: '#fff3cd',
+                                    border: '1px solid #ffeeba',
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    marginTop: '2px',
+                                    cursor: 'pointer'
+                                  }}
+                                  onClick={() => openEdit(s)}
+                                >
+                                  Incomplete Profile ✎
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    fontSize: '10px',
+                                    fontWeight: '600',
+                                    color: '#155724',
+                                    background: '#d4edda',
+                                    border: '1px solid #c3e6cb',
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    marginTop: '2px'
+                                  }}
+                                >
+                                  ✓ Profile Complete
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td>
-                          {s.grade_level ? `Grade ${s.grade_level}` : '—'}
-                          {s.section_name ? ` - ${s.section_name}` : ''}
+                          {formatGradeSection(s.grade_level, s.section_name)}
                         </td>
                         <td>
                           {strand ? (
@@ -841,7 +883,7 @@ export default function StudentsPage() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', paddingBottom: '16px', borderBottom: '1px solid #eee' }}>
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Grade Level:</span> Grade {viewStudent.grade_level}</div>
-                <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Section:</span> {viewStudent.section_name || 'Unassigned'}</div>
+                <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Section:</span> {cleanSectionName(viewStudent.section_name, viewStudent.grade_level) || 'Unassigned'}</div>
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Senior High Strand:</span> {strands.find(st => st.id === viewStudent.current_strand_id)?.strand_name || 'N/A'}</div>
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Scholarship / Grant:</span> {scholarships.find(sc => sc.id === viewStudent.scholarship_id)?.name || 'None'}</div>
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Student Category:</span> {viewStudent.student_type || 'Continuing'}</div>
@@ -880,7 +922,7 @@ export default function StudentsPage() {
           <div className="modal-content" style={{ maxWidth: '750px' }}>
             <div className="modal-header">
               <h3 className="modal-title">
-                <IcoAddStudent /> {editStudent ? 'Edit Student Record' : 'Register Student (First-Timer / Continuing)'}
+                <IcoAddStudent /> {editStudent ? 'Edit & Complete Student Profile' : 'Register Student Record'}
               </h3>
               <button className="modal-close" onClick={() => setModalOpen(false)}><IcoClose /></button>
             </div>
@@ -889,6 +931,27 @@ export default function StudentsPage() {
                 {formError && (
                   <div style={{ color: '#dc3545', background: '#f8d7da', padding: '10px 14px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
                     {formError}
+                  </div>
+                )}
+
+                {editStudent && (
+                  <div style={{
+                    background: '#e8f4fd',
+                    border: '1px solid #b8daff',
+                    color: '#004085',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    lineHeight: '1.4'
+                  }}>
+                    <span style={{ fontSize: '18px' }}>📝</span>
+                    <div>
+                      <strong>Post-Enrollment Profile Completion:</strong> You can update the student's portrait photo, middle name, residential address, parent/guardian details, or academic section here anytime after initial enrollment intake.
+                    </div>
                   </div>
                 )}
 
@@ -1056,14 +1119,14 @@ export default function StudentsPage() {
                             setForm(f => ({
                               ...f,
                               current_section_id: secId,
-                              section_name: secObj ? secObj.section_name : '',
+                              section_name: secObj ? cleanSectionName(secObj.section_name, form.grade_level) : '',
                             }));
                           }}
                         >
                           <option value="">Select Section...</option>
                           {availableSections.map(sec => (
                             <option key={sec.id} value={sec.id}>
-                              {sec.section_name} {sec.room_number ? `(${sec.room_number})` : ''}
+                              {cleanSectionName(sec.section_name, form.grade_level)} {sec.room_number ? `(${sec.room_number})` : ''}
                             </option>
                           ))}
                         </select>

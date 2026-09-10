@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { formatGradeSection } from '../utils/formatters';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoTranscript() {
@@ -384,7 +385,7 @@ export default function TranscriptsPage() {
                       <tr key={s.student_record_id}>
                         <td style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: '700', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
                         <td style={{ fontWeight: '600' }}>{s.first_name} {s.last_name}</td>
-                        <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'} {s.section_name ? `— ${s.section_name}` : ''}</td>
+                        <td>{formatGradeSection(s.grade_level, s.section_name)}</td>
                         <td><TranscriptBadge hasTranscript={!!t} /></td>
                         <td>{t?.general_average ? Number(t.general_average).toFixed(2) : '—'}</td>
                         <td>
@@ -453,7 +454,7 @@ export default function TranscriptsPage() {
               <div style={styles.previewMeta}>
                 <div><strong>Student Name:</strong> {previewStudent.first_name} {previewStudent.last_name}</div>
                 <div><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{previewStudent.lrn_id ?? previewStudent.student_id ?? '—'}</span></div>
-                <div><strong>Grade Level:</strong> {previewStudent.grade_level ? `Grade ${previewStudent.grade_level}` : '—'} {previewStudent.section_name}</div>
+                <div><strong>Grade &amp; Section:</strong> {formatGradeSection(previewStudent.grade_level, previewStudent.section_name)}</div>
                 <div><strong>General Average:</strong> {transcriptMap[previewStudent.student_record_id]?.general_average ? Number(transcriptMap[previewStudent.student_record_id].general_average).toFixed(2) : '—'}</div>
               </div>
 
