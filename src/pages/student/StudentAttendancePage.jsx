@@ -11,10 +11,34 @@ function IcoAttend() {
 }
 
 const STATUS_COLORS = {
-  present: { bg: '#e8f5e9', color: '#2e7d32', label: 'Present' },
-  absent:  { bg: '#ffebee', color: '#c62828', label: 'Absent'  },
-  late:    { bg: '#fff8e1', color: '#f57f17', label: 'Late'    },
-  excused: { bg: '#e3f2fd', color: '#1565c0', label: 'Excused' },
+  present: {
+    bg: '#e8f5e9',
+    border: '#a5d6a7',
+    color: '#1b5e20',
+    iconBg: 'linear-gradient(135deg, #2e7d32, #1b5e20)',
+    label: 'Present',
+  },
+  absent: {
+    bg: '#ffebee',
+    border: '#ef9a9a',
+    color: '#b71c1c',
+    iconBg: 'linear-gradient(135deg, #c62828, #b71c1c)',
+    label: 'Absent',
+  },
+  late: {
+    bg: '#fff8e1',
+    border: '#ffe082',
+    color: '#e65100',
+    iconBg: 'linear-gradient(135deg, #f57f17, #e65100)',
+    label: 'Late',
+  },
+  excused: {
+    bg: '#e3f2fd',
+    border: '#90caf9',
+    color: '#0d47a1',
+    iconBg: 'linear-gradient(135deg, #1565c0, #0d47a1)',
+    label: 'Excused',
+  },
 };
 
 export default function StudentAttendancePage() {
@@ -64,14 +88,34 @@ export default function StudentAttendancePage() {
 
         {/* Summary tiles */}
         <div className="stats-grid">
-          {Object.entries(STATUS_COLORS).map(([key, { bg, color, label }]) => (
-            <div key={key} className="stat-card" style={{ borderLeftColor: color }}>
-              <div className="stat-icon" style={{ background: bg }}>
+          {Object.entries(STATUS_COLORS).map(([key, { border, color, iconBg, label }]) => (
+            <div
+              key={key}
+              className="stat-card"
+              style={{
+                border: `1.5px solid ${border}`,
+                borderLeft: `5px solid ${color}`,
+                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.07)',
+                background: '#ffffff',
+              }}
+            >
+              <div
+                className="stat-icon"
+                style={{
+                  background: iconBg,
+                  color: '#ffffff',
+                  boxShadow: `0 4px 10px ${color}33`,
+                }}
+              >
                 <IcoAttend />
               </div>
               <div className="stat-info">
-                <div className="stat-number" style={{ color }}>{counts[key] ?? 0}</div>
-                <div className="stat-label">{label}</div>
+                <div className="stat-number" style={{ color: color, fontSize: '32px', fontWeight: '800' }}>
+                  {counts[key] ?? 0}
+                </div>
+                <div className="stat-label" style={{ fontWeight: '600', color: '#475569', fontSize: '13px' }}>
+                  {label}
+                </div>
               </div>
             </div>
           ))}
@@ -107,7 +151,7 @@ export default function StudentAttendancePage() {
                     <tr key={r.attendance_id}>
                       <td>{new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</td>
                       <td>
-                        <span style={{ backgroundColor: c.bg, color: c.color, padding: '3px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: '700' }}>
+                        <span style={{ backgroundColor: c.bg, color: c.color, border: `1px solid ${c.border || '#ddd'}`, padding: '3px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: '700' }}>
                           {r.status}
                         </span>
                       </td>
