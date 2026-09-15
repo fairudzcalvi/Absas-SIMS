@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ABSAS SIMS - Database Schema Visualizer</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #090d16;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #131d2e;
+      padding: 16px 28px;
+      border-bottom: 1px solid #24344d;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-title h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .header-title p {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+    button {
+      background: #0284c7;
+      color: #ffffff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+    button:hover {
+      background: #0369a1;
+      transform: translateY(-1px);
+    }
+    button.btn-svg {
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+    }
+    button.btn-svg:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+    main {
+      flex: 1;
+      overflow: auto;
+      padding: 30px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    #diagram-container {
+      background: #ffffff;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+      min-width: 950px;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+    footer {
+      text-align: center;
+      padding: 14px;
+      font-size: 12px;
+      color: #64748b;
+      background: #131d2e;
+      border-top: 1px solid #24344d;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-title">
+      <h1>📊 ABSAS SIMS Database Schema</h1>
+      <p>Multi-Year Calendar, SHS Strands, Dynamic Sections, Faculty, Student Lifecycle, and Finance Ledger</p>
+    </div>
+    <div class="btn-group">
+      <button class="btn-svg" id="btnSvg">
+        💾 Download as SVG (Vector)
+      </button>
+      <button id="btnPng">
+        🖼️ Download as PNG (Image)
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <div id="diagram-container">
+      <pre class="mermaid" id="erd">
+erDiagram
+    SCHOOL_YEARS {
+        uuid id PK
+        varchar year_label "Unique e.g. 2025-2026"
+        date start_date
+        date end_date
+        boolean is_active "Active flag"
+    }
+
+    QUARTERS {
+        uuid id PK
+        uuid school_year_id FK "References school_years"
+        int quarter_number "1 to 4"
+        varchar quarter_name "1st to 4th Quarter"
+        boolean is_active "Active quarter flag"
+        boolean is_grading_open "Lock or open grading"
+    }
+
+    SHS_STRANDS {
+        uuid id PK
+        varchar strand_code "STEM, ABM, HUMSS, TVL"
+        varchar strand_name "Strand Name"
+        varchar track_type "Academic or TVL"
+        varchar status "Active or Inactive"
+    }
+
+    SECTIONS {
+        uuid id PK
+        int grade_level "Grades 1 to 12"
+        varchar section_name "e.g. Diamond, Emerald"
+        uuid school_year_id FK "References school_years"
+        uuid strand_id FK "References shs_strands"
+        bigint adviser_id FK "References faculty"
+        varchar room_number
+        int max_capacity "Max 45"
+    }
+
+    SUBJECTS {
+        uuid subject_id PK
+        varchar subject_code "e.g. MATH-JH, SCI-11"
+        varchar subject_name "Subject Title"
+        varchar department "Elementary, JHS, SHS"
+        int grade_level "Grade 1 to 12"
+        varchar semester "1st or 2nd Sem"
+        uuid strand_id FK "References shs_strands"
+    }
+
+    SCHEDULES {
+        uuid id PK
+        uuid section_id FK "References sections"
+        uuid subject_id FK "References subjects"
+        bigint faculty_id FK "References faculty"
+        uuid school_year_id FK "References school_years"
+        uuid quarter_id FK "References quarters"
+        varchar schedule_day "Day of week"
+        time start_time
+        time end_time
+    }
+
+    ADMINS {
+        uuid id PK
+        varchar username
+        varchar full_name
+        varchar email
+        varchar role "SuperAdmin, Registrar, Cashier"
+    }
+
+    FACULTY {
+        bigint faculty_record_id PK
+        varchar employee_id "Employee Code"
+        varchar first_name
+        varchar last_name
+        varchar email
+        varchar department "Elementary, JHS, SHS"
+        varchar position "Principal, Head, Teacher"
+        int adviser_grade_level
+        boolean is_archived
+    }
+
+    STUDENTS {
+        bigint student_record_id PK
+        varchar lrn "12-digit DepEd LRN"
+        varchar first_name
+        varchar last_name
+        varchar gender
+        date birth_date
+        int grade_level "Grades 1 to 12"
+        uuid current_section_id FK "References sections"
+        uuid current_strand_id FK "References shs_strands"
+        uuid scholarship_id FK "References scholarships"
+        varchar status "Active, Graduated, Transferred"
+        boolean is_archived
+    }
+
+    ENROLLMENTS {
+        uuid id PK
+        bigint student_record_id FK "References students"
+        uuid school_year_id FK "References school_years"
+        uuid section_id FK "References sections"
+        uuid strand_id FK "References shs_strands"
+        uuid scholarship_id FK "References scholarships"
+        varchar enrollment_type "New, Continuing, Transferee"
+        varchar enrollment_status "Enrolled, Pending, Dropped"
+        jsonb requirements_submitted "PSA, Form 138, etc"
+        date date_enrolled
+    }
+
+    GRADES {
+        bigint id PK
+        bigint student_record_id FK "References students"
+        varchar subject "Subject code"
+        varchar quarter "1st, 2nd, 3rd, 4th"
+        numeric written_works "WW score"
+        numeric performance_tasks "PT score"
+        numeric quarterly_assessment "QA score"
+        numeric quarter_grade "Transmuted Grade"
+        varchar remarks "Passed or Failed"
+    }
+
+    ATTENDANCE {
+        bigint id PK
+        bigint student_record_id FK "References students"
+        date date
+        varchar status "Present, Absent, Late"
+        varchar remarks
+    }
+
+    TRANSCRIPTS {
+        bigint id PK
+        bigint student_record_id FK "References students"
+        uuid school_year_id FK "References school_years"
+        numeric general_average "Final GPA"
+        varchar promotional_status "Promoted or Retained"
+        jsonb quarterly_grades_snapshot
+    }
+
+    SCHOLARSHIPS {
+        uuid id PK
+        varchar name "ESC Voucher, Honor, Sibling"
+        varchar code "ESC-GRANT, SIBLING-10"
+        varchar discount_type "percentage or fixed"
+        numeric discount_value "Amount or percent"
+        boolean is_active
+    }
+
+    STUDENT_FINANCES {
+        bigint id PK
+        bigint student_record_id FK "References students"
+        uuid school_year_id FK "References school_years"
+        uuid scholarship_id FK "References scholarships"
+        numeric tuition_fee "Tuition assessment"
+        numeric discount_amount "Total discount"
+        numeric net_payable "Net due"
+        numeric total_paid "Total payments"
+        numeric balance "Remaining balance"
+        varchar payment_status "Paid, Partial, Unpaid"
+    }
+
+    PAYMENTS {
+        bigint payment_id PK
+        bigint student_record_id FK "References students"
+        uuid school_year_id FK "References school_years"
+        varchar or_number "Official Receipt Number"
+        numeric amount "Payment amount"
+        varchar payment_method "Cash, GCash, Bank"
+        varchar payment_for "Tuition or Other Fees"
+        varchar cashier_name
+        timestamp payment_date
+        varchar reference_number
+    }
+
+    SCHOOL_YEARS ||--o{ QUARTERS : "manages"
+    SCHOOL_YEARS ||--o{ SECTIONS : "contains"
+    SCHOOL_YEARS ||--o{ ENROLLMENTS : "tracks"
+    SCHOOL_YEARS ||--o{ STUDENT_FINANCES : "bills"
+
+    SHS_STRANDS ||--o{ SECTIONS : "categorizes"
+    FACULTY ||--o{ SECTIONS : "advises"
+
+    SECTIONS ||--o{ ENROLLMENTS : "assigns"
+    SECTIONS ||--o{ STUDENTS : "places"
+    SECTIONS ||--o{ SCHEDULES : "timetables"
+
+    SUBJECTS ||--o{ SCHEDULES : "taught_in"
+    FACULTY ||--o{ SCHEDULES : "instructs"
+
+    STUDENTS ||--o{ ENROLLMENTS : "enrolls_in"
+    STUDENTS ||--o{ GRADES : "earns"
+    STUDENTS ||--o{ ATTENDANCE : "logged_in"
+    STUDENTS ||--o{ TRANSCRIPTS : "records"
+    STUDENTS ||--|| STUDENT_FINANCES : "ledger_for"
+    STUDENTS ||--o{ PAYMENTS : "receipted_for"
+
+    SCHOLARSHIPS ||--o{ STUDENTS : "granted_to"
+    SCHOLARSHIPS ||--o{ STUDENT_FINANCES : "deducted_from"
+    STUDENT_FINANCES ||--o{ PAYMENTS : "credited_by"
+      </pre>
+    </div>
+  </main>
+
+  <footer>
+    ABSAS SIMS Database Architecture - Multi-Tier School Information System
+  </footer>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      securityLevel: 'loose'
+    });
+
+    document.getElementById('btnSvg').addEventListener('click', downloadSVG);
+    document.getElementById('btnPng').addEventListener('click', downloadPNG);
+
+    function getSVGElement() {
+      return document.querySelector('#diagram-container svg');
+    }
+
+    function downloadSVG() {
+      const svg = getSVGElement();
+      if (!svg) {
+        alert('Diagram is still rendering, please try again in a moment.');
+        return;
+      }
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ABSAS_SIMS_Database_Schema.svg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function downloadPNG() {
+      const svg = getSVGElement();
+      if (!svg) {
+        alert('Diagram is still rendering, please try again in a moment.');
+        return;
+      }
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+
+      const bbox = svg.getBoundingClientRect();
+      const scale = 2; // High-resolution export
+      canvas.width = Math.max(svg.clientWidth || 0, bbox.width || 0, 1600) * scale;
+      canvas.height = Math.max(svg.clientHeight || 0, bbox.height || 0, 1000) * scale;
+
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = function () {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+
+        const a = document.createElement('a');
+        a.download = 'ABSAS_SIMS_Database_Schema.png';
+        a.href = canvas.toDataURL('image/png');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+      img.src = url;
+    }
+  </script>
+</body>
+</html>
