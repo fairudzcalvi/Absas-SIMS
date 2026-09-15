@@ -52,7 +52,7 @@ function IcoClose() {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const DEPARTMENTS = ['Elementary', 'Junior High', 'Administration'];
+const DEPARTMENTS = ['Elementary', 'Junior High', 'Senior High', 'Administration'];
 const GRADE_OPTIONS = [
   { value: 1,  label: 'Grade 1'  },
   { value: 2,  label: 'Grade 2'  },
@@ -64,6 +64,8 @@ const GRADE_OPTIONS = [
   { value: 8,  label: 'Grade 8'  },
   { value: 9,  label: 'Grade 9'  },
   { value: 10, label: 'Grade 10' },
+  { value: 11, label: 'Grade 11' },
+  { value: 12, label: 'Grade 12' },
 ];
 
 const EMPTY_FORM = {

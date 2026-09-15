@@ -17,7 +17,7 @@ function IcoSave() {
   );
 }
 
-const GRADE_OPTIONS = Array.from({ length: 10 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
+const GRADE_OPTIONS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
 const STATUS_OPTIONS = ['Present', 'Absent', 'Late', 'Excused'];
 
 const STATUS_COLORS = {

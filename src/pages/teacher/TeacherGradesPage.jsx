@@ -19,7 +19,7 @@ function IcoSave() {
   );
 }
 
-const GRADE_OPTIONS  = Array.from({ length: 10 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
+const GRADE_OPTIONS  = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
 const QUARTERS       = ['1Q', '2Q', '3Q', '4Q'];
 const QUARTER_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 

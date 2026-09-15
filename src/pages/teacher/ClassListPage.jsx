@@ -74,12 +74,12 @@ function IcoSave() {
   );
 }
 
-const GRADE_OPTIONS = Array.from({ length: 10 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
+const GRADE_OPTIONS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
 
 const GRADE_COLORS = {
   1: '#e74c3c', 2: '#e67e22', 3: '#f1c40f', 4: '#2ecc71',
   5: '#1abc9c', 6: '#3498db', 7: '#9b59b6', 8: '#e91e63',
-  9: '#00bcd4', 10: '#ff5722',
+  9: '#00bcd4', 10: '#ff5722', 11: '#673ab7', 12: '#3f51b5',
 };
 
 const EMPTY_FORM = {
@@ -93,9 +93,11 @@ export default function ClassListPage() {
 
   const [students, setStudents]     = useState([]);
   const [loading, setLoading]       = useState(true);
-  const [gradeFilter, setGrade]     = useState('');
-  const [genderFilter, setGender]   = useState('');
-  const [search, setSearch]         = useState('');
+  const [gradeFilter, setGrade]         = useState('');
+  const [sectionFilter, setSectionFilter] = useState('');
+  const [sectionsList, setSectionsList]   = useState([]);
+  const [genderFilter, setGender]       = useState('');
+  const [search, setSearch]             = useState('');
 
   const [modalOpen, setModalOpen]   = useState(false);
   const [viewStudent, setViewStudent] = useState(null);
@@ -106,6 +108,18 @@ export default function ClassListPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [saved, setSaved]           = useState(false);
 
+  useEffect(() => {
+    async function loadSections() {
+      try {
+        const { data } = await supabase.from('sections').select('*').order('grade_level');
+        setSectionsList(data ?? []);
+      } catch (err) {
+        console.error('Error fetching sections:', err);
+      }
+    }
+    loadSections();
+  }, [supabase]);
+
   const fetchStudents = useCallback(async () => {
     setLoading(true);
     let q = supabase.from('students').select('*').order('last_name');
@@ -113,9 +127,13 @@ export default function ClassListPage() {
     if (genderFilter) q = q.eq('gender', genderFilter);
     if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%,lrn_id.ilike.%${search}%`);
     const { data } = await q;
-    setStudents(data ?? []);
+    let list = data ?? [];
+    if (sectionFilter) {
+      list = list.filter(s => s.section_name && cleanSectionName(s.section_name, s.grade_level).toLowerCase() === sectionFilter.toLowerCase());
+    }
+    setStudents(list);
     setLoading(false);
-  }, [supabase, gradeFilter, genderFilter, search]);
+  }, [supabase, gradeFilter, sectionFilter, genderFilter, search]);
 
   useEffect(() => {
     let ignore = false;
@@ -127,13 +145,17 @@ export default function ClassListPage() {
       if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%,lrn_id.ilike.%${search}%`);
       const { data } = await q;
       if (!ignore) {
-        setStudents(data ?? []);
+        let list = data ?? [];
+        if (sectionFilter) {
+          list = list.filter(s => s.section_name && cleanSectionName(s.section_name, s.grade_level).toLowerCase() === sectionFilter.toLowerCase());
+        }
+        setStudents(list);
         setLoading(false);
       }
     }
     load();
     return () => { ignore = true; };
-  }, [supabase, gradeFilter, genderFilter, search]);
+  }, [supabase, gradeFilter, sectionFilter, genderFilter, search]);
 
   function openEdit(s) {
     setEditStudent(s);
@@ -238,6 +260,30 @@ export default function ClassListPage() {
 
   const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
 
+  const availableSections = Array.from(
+    new Set([
+      ...sectionsList
+        .filter(sec => !gradeFilter || sec.grade_level === Number(gradeFilter))
+        .map(sec => cleanSectionName(sec.section_name, sec.grade_level)),
+      ...students
+        .filter(s => !gradeFilter || s.grade_level === Number(gradeFilter))
+        .map(s => s.section_name ? cleanSectionName(s.section_name, s.grade_level) : null)
+        .filter(Boolean),
+    ])
+  ).sort();
+
+  const availableModalSections = Array.from(
+    new Set([
+      ...sectionsList
+        .filter(sec => !form.grade_level || sec.grade_level === Number(form.grade_level))
+        .map(sec => cleanSectionName(sec.section_name, sec.grade_level)),
+      ...students
+        .filter(s => !form.grade_level || s.grade_level === Number(form.grade_level))
+        .map(s => s.section_name ? cleanSectionName(s.section_name, s.grade_level) : null)
+        .filter(Boolean),
+    ])
+  ).sort();
+
   return (
     <>
       <div className="top-header">
@@ -254,9 +300,18 @@ export default function ClassListPage() {
           <div className="form-grid" style={{ alignItems: 'flex-end' }}>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Grade Level</label>
-              <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => setGrade(e.target.value)}>
+              <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => { setGrade(e.target.value); setSectionFilter(''); }}>
                 <option value="">All Grades</option>
                 {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Section</label>
+              <select className="filter-select" style={{ width: '100%' }} value={sectionFilter} onChange={e => setSectionFilter(e.target.value)}>
+                <option value="">All Sections</option>
+                {availableSections.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
@@ -587,7 +642,17 @@ export default function ClassListPage() {
                   </div>
                   <div className="form-group">
                     <label>Section</label>
-                    <input value={form.section_name} placeholder="Section name" onChange={e => setForm(f => ({ ...f, section_name: e.target.value }))} />
+                    <input
+                      list="sections-modal-list"
+                      value={form.section_name}
+                      placeholder="Select or type section"
+                      onChange={e => setForm(f => ({ ...f, section_name: e.target.value }))}
+                    />
+                    <datalist id="sections-modal-list">
+                      {availableModalSections.map(secName => (
+                        <option key={secName} value={secName} />
+                      ))}
+                    </datalist>
                   </div>
                   <div className="form-group">
                     <label>Gender</label>

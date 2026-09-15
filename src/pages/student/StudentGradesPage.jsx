@@ -14,31 +14,115 @@ function IcoGrades() {
 const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const Q_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
+function getStandardSubjects(gradeLevel) {
+  const gl = Number(gradeLevel);
+  if (gl >= 1 && gl <= 3) {
+    return [
+      'Mother Tongue',
+      'Filipino',
+      'English',
+      'Mathematics',
+      'Araling Panlipunan',
+      'Edukasyon sa Pagpapakatao (EsP)',
+      'MAPEH',
+    ];
+  }
+  if (gl >= 4 && gl <= 6) {
+    return [
+      'Filipino',
+      'English',
+      'Mathematics',
+      'Science',
+      'Araling Panlipunan',
+      'Edukasyon sa Pagpapakatao (EsP)',
+      'Edukasyong Pantahanan at Pangkabuhayan (EPP)',
+      'MAPEH',
+    ];
+  }
+  if (gl >= 7 && gl <= 10) {
+    return [
+      'Filipino',
+      'English',
+      'Mathematics',
+      'Science',
+      'Araling Panlipunan',
+      'Edukasyon sa Pagpapakatao (EsP)',
+      'Technology and Livelihood Education (TLE)',
+      'MAPEH',
+    ];
+  }
+  if (gl >= 11 && gl <= 12) {
+    return [
+      'Oral Communication',
+      'Komunikasyon at Pananaliksik',
+      'General Mathematics',
+      'Earth and Life Science',
+      '21st Century Literature',
+      'Personal Development',
+      'Physical Education and Health',
+      'Empowerment Technologies',
+    ];
+  }
+  return [
+    'English',
+    'Mathematics',
+    'Science',
+    'Filipino',
+    'Araling Panlipunan',
+    'MAPEH',
+    'Edukasyon sa Pagpapakatao (EsP)',
+  ];
+}
+
 export default function StudentGradesPage() {
   const { supabase, profile } = useAuth();
-  const [grades, setGrades]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [quarter, setQuarter] = useState('1Q');
+  const [grades, setGrades]         = useState([]);
+  const [dbSubjects, setDbSubjects] = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [quarter, setQuarter]       = useState('1Q');
 
   useEffect(() => {
     if (!profile?.student_record_id) return;
     async function fetch() {
       setLoading(true);
-      const { data } = await supabase
-        .from('grades')
-        .select('*')
-        .eq('student_record_id', profile.student_record_id)
-        .order('subject');
-      setGrades(data ?? []);
-      setLoading(false);
+      try {
+        const [{ data: gData }, { data: sData }] = await Promise.all([
+          supabase
+            .from('grades')
+            .select('*')
+            .eq('student_record_id', profile.student_record_id)
+            .order('subject'),
+          supabase
+            .from('subjects')
+            .select('subject_name, grade_level, strand_id, status')
+            .eq('status', 'Active'),
+        ]);
+        setGrades(gData ?? []);
+        setDbSubjects(sData ?? []);
+      } catch (err) {
+        console.error('Error fetching grades and subjects:', err);
+      } finally {
+        setLoading(false);
+      }
     }
     fetch();
   }, [supabase, profile]);
 
-  const filtered = grades.filter(g => g.quarter === quarter);
+  // Derive complete subject list: DepEd standard + active DB subjects + previously graded subjects
+  const studentGrade = profile?.grade_level ? Number(profile.grade_level) : null;
+  const dbMatching = dbSubjects
+    .filter(s => !s.grade_level || s.grade_level === studentGrade)
+    .filter(s => !s.strand_id || !profile?.current_strand_id || s.strand_id === profile.current_strand_id)
+    .map(s => s.subject_name);
+
+  const stdSubjects = getStandardSubjects(studentGrade);
+  const gradedSubjects = grades.map(g => g.subject).filter(Boolean);
+
+  const subjects = Array.from(
+    new Set([...stdSubjects, ...dbMatching, ...gradedSubjects])
+  ).sort();
 
   // Group by subject across all quarters for summary
-  const subjects = [...new Set(grades.map(g => g.subject))].sort();
   const summary = subjects.map(subj => {
     const row = { subject: subj };
     QUARTERS.forEach(q => {
@@ -97,25 +181,40 @@ export default function StudentGradesPage() {
               <tbody>
                 {loading ? (
                   <tr><td colSpan={2} className="empty-message">Loading...</td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={2} className="empty-message">No grades recorded for {Q_LABELS[quarter]}.</td></tr>
-                ) : filtered.map(g => {
-                  const qg = parseFloat(g.quarter_grade);
-                  const pass = !isNaN(qg) && qg >= 75;
+                ) : subjects.length === 0 ? (
+                  <tr><td colSpan={2} className="empty-message">No subjects found.</td></tr>
+                ) : subjects.map(subj => {
+                  const g = grades.find(x => x.subject === subj && x.quarter === quarter);
+                  const qg = g?.quarter_grade != null ? parseFloat(g.quarter_grade) : null;
+                  const hasGrade = qg != null && !isNaN(qg);
+                  const pass = hasGrade && qg >= 75;
                   return (
-                    <tr key={g.grade_id}>
-                      <td style={{ fontWeight: '600' }}>{g.subject}</td>
+                    <tr key={subj}>
+                      <td style={{ fontWeight: '600' }}>{subj}</td>
                       <td style={{ textAlign: 'center' }}>
-                        <span style={{
-                          fontWeight: '700',
-                          fontSize: '15px',
-                          color: isNaN(qg) ? '#888' : pass ? '#137333' : '#dc3545',
-                          background: isNaN(qg) ? 'transparent' : pass ? '#e6f4ea' : '#fce8e6',
-                          padding: '4px 12px',
-                          borderRadius: '12px'
-                        }}>
-                          {g.quarter_grade ?? '—'}
-                        </span>
+                        {hasGrade ? (
+                          <span style={{
+                            fontWeight: '700',
+                            fontSize: '15px',
+                            color: pass ? '#137333' : '#dc3545',
+                            background: pass ? '#e6f4ea' : '#fce8e6',
+                            padding: '4px 12px',
+                            borderRadius: '12px'
+                          }}>
+                            {g.quarter_grade}
+                          </span>
+                        ) : (
+                          <span style={{
+                            color: '#888',
+                            fontSize: '13px',
+                            background: '#f1f3f4',
+                            padding: '4px 12px',
+                            borderRadius: '12px',
+                            fontStyle: 'italic'
+                          }}>
+                            — Not yet encoded —
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
