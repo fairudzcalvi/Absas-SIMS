@@ -517,10 +517,12 @@ export default function FacultyPage() {
               <div className="stat-label">Active Faculty &amp; Staff</div>
             </div>
           </div>
-          <div className="stat-card" style={{ borderColor: '#8B0000' }}>
-            <div className="stat-icon" style={{ color: '#8B0000' }}><IcoPrincipal /></div>
+          <div className="stat-card" style={{ borderLeftColor: '#8B0000' }}>
+            <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #a71d2a, #6d0000)', color: '#ffffff' }}>
+              <IcoPrincipal />
+            </div>
             <div className="stat-info">
-              <div className="stat-number">{principals}</div>
+              <div className="stat-number" style={{ color: '#8B0000' }}>{principals}</div>
               <div className="stat-label">School Heads &amp; Principals</div>
             </div>
           </div>

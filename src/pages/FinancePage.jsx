@@ -717,21 +717,21 @@ export default function FinancePage() {
           <div className="card-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => openPaymentModal(null)}>
-                <IcoTuition /> 💳 Pay Tuition
+                <IcoTuition /> Pay Tuition
               </button>
               <button
                 className="btn btn-primary"
                 style={{ background: '#b45309', borderColor: '#b45309' }}
                 onClick={() => openOtherFeesModal(null)}
               >
-                <IcoOtherFees /> 📦 Other School Fees
+                <IcoOtherFees /> Other School Fees
               </button>
               <button
                 className="btn btn-primary"
                 style={{ background: '#1d4ed8', borderColor: '#1d4ed8' }}
                 onClick={() => openQuarterlyModal(null)}
               >
-                <IcoQuarterly /> 📊 Total Per Quarter
+                <IcoQuarterly /> Total Per Quarter
               </button>
             </div>
 
@@ -1027,7 +1027,16 @@ export default function FinancePage() {
                               type="button"
                               className="btn btn-secondary btn-sm"
                               style={{ fontSize: '11px', padding: '3px 8px', borderColor: '#1d4ed8', color: '#1d4ed8' }}
-                              onClick={() => setPayForm(f => ({ ...f, amount: String(nextDueQuarter.balance), payment_for: `${nextDueQuarter.id} Installment` }))}
+                              onClick={() => {
+                                const quarterLabels = {
+                                  'Q1': 'Q1 Installment (Prelims)',
+                                  'Q2': 'Q2 Installment (Midterms)',
+                                  'Q3': 'Q3 Installment (Semi-Finals)',
+                                  'Q4': 'Q4 Installment (Finals)',
+                                };
+                                const paymentForValue = quarterLabels[nextDueQuarter.id] || 'Tuition Fee';
+                                setPayForm(f => ({ ...f, amount: String(nextDueQuarter.balance), payment_for: paymentForValue }));
+                              }}
                             >
                               {nextDueQuarter.id} Due ({peso(nextDueQuarter.balance)})
                             </button>
