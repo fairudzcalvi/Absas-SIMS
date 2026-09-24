@@ -204,16 +204,7 @@ export default function StudentGradesPage() {
                             {g.quarter_grade}
                           </span>
                         ) : (
-                          <span style={{
-                            color: '#888',
-                            fontSize: '13px',
-                            background: '#f1f3f4',
-                            padding: '4px 12px',
-                            borderRadius: '12px',
-                            fontStyle: 'italic'
-                          }}>
-                            — Not yet encoded —
-                          </span>
+                          <span style={{ color: '#aaa', fontSize: '15px' }}>—</span>
                         )}
                       </td>
                     </tr>
