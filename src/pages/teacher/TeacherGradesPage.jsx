@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { getCurriculumSubjects, sortSubjectsByCurriculum } from '../../utils/curriculum';
 
 function IcoGrades() {
   return (
@@ -143,16 +144,19 @@ export default function TeacherGradesPage() {
     checkGradingLock();
   }, [supabase, quarter]);
 
-  // Load subjects from the subjects table + default list
+  // Load subjects according to grade level curriculum + db subjects
   useEffect(() => {
     async function loadSubjects() {
+      const gl = gradeFilter ? Number(gradeFilter) : null;
+      const baseList = gl ? getCurriculumSubjects(gl) : DEFAULT_SUBJECTS;
+
       const { data, error } = await supabase
         .from('subjects')
         .select('subject_name, grade_level')
         .eq('status', 'Active');
       
       const dbSubjects = (!error && data) 
-        ? data.filter(s => !gradeFilter || !s.grade_level || s.grade_level === Number(gradeFilter)).map(s => s.subject_name)
+        ? data.filter(s => !gl || !s.grade_level || s.grade_level === gl).map(s => s.subject_name)
         : [];
 
       const { data: gradeSubjs } = await supabase
@@ -160,8 +164,9 @@ export default function TeacherGradesPage() {
         .select('subject');
       
       const prevSubjs = gradeSubjs ? gradeSubjs.map(g => g.subject).filter(Boolean) : [];
-      const unique = [...new Set([...DEFAULT_SUBJECTS, ...dbSubjects, ...prevSubjs])].sort();
-      setSubjects(unique);
+      const unique = [...new Set([...baseList, ...dbSubjects, ...prevSubjs])];
+      const sorted = sortSubjectsByCurriculum(unique, gl);
+      setSubjects(sorted);
     }
     loadSubjects();
   }, [supabase, gradeFilter]);

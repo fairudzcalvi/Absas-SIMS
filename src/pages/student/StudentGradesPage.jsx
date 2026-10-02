@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { buildStudentSubjectList } from '../../utils/curriculum';
 
 function IcoGrades() {
   return (
@@ -14,70 +15,11 @@ function IcoGrades() {
 const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const Q_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
-function getStandardSubjects(gradeLevel) {
-  const gl = Number(gradeLevel);
-  if (gl >= 1 && gl <= 3) {
-    return [
-      'Mother Tongue',
-      'Filipino',
-      'English',
-      'Mathematics',
-      'Araling Panlipunan',
-      'Edukasyon sa Pagpapakatao (EsP)',
-      'MAPEH',
-    ];
-  }
-  if (gl >= 4 && gl <= 6) {
-    return [
-      'Filipino',
-      'English',
-      'Mathematics',
-      'Science',
-      'Araling Panlipunan',
-      'Edukasyon sa Pagpapakatao (EsP)',
-      'Edukasyong Pantahanan at Pangkabuhayan (EPP)',
-      'MAPEH',
-    ];
-  }
-  if (gl >= 7 && gl <= 10) {
-    return [
-      'Filipino',
-      'English',
-      'Mathematics',
-      'Science',
-      'Araling Panlipunan',
-      'Edukasyon sa Pagpapakatao (EsP)',
-      'Technology and Livelihood Education (TLE)',
-      'MAPEH',
-    ];
-  }
-  if (gl >= 11 && gl <= 12) {
-    return [
-      'Oral Communication',
-      'Komunikasyon at Pananaliksik',
-      'General Mathematics',
-      'Earth and Life Science',
-      '21st Century Literature',
-      'Personal Development',
-      'Physical Education and Health',
-      'Empowerment Technologies',
-    ];
-  }
-  return [
-    'English',
-    'Mathematics',
-    'Science',
-    'Filipino',
-    'Araling Panlipunan',
-    'MAPEH',
-    'Edukasyon sa Pagpapakatao (EsP)',
-  ];
-}
-
 export default function StudentGradesPage() {
   const { supabase, profile } = useAuth();
   const [grades, setGrades]         = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
+  const [strandCode, setStrandCode] = useState(null);
   const [loading, setLoading]       = useState(true);
   const [quarter, setQuarter]       = useState('1Q');
 
@@ -86,19 +28,29 @@ export default function StudentGradesPage() {
     async function fetch() {
       setLoading(true);
       try {
-        const [{ data: gData }, { data: sData }] = await Promise.all([
+        const [{ data: gData }, { data: sData }, { data: strData }] = await Promise.all([
           supabase
             .from('grades')
             .select('*')
-            .eq('student_record_id', profile.student_record_id)
-            .order('subject'),
+            .eq('student_record_id', profile.student_record_id),
           supabase
             .from('subjects')
             .select('subject_name, grade_level, strand_id, status')
             .eq('status', 'Active'),
+          profile.current_strand_id
+            ? supabase
+                .from('shs_strands')
+                .select('strand_code')
+                .eq('id', profile.current_strand_id)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
         ]);
+
         setGrades(gData ?? []);
         setDbSubjects(sData ?? []);
+        if (strData?.strand_code) {
+          setStrandCode(strData.strand_code);
+        }
       } catch (err) {
         console.error('Error fetching grades and subjects:', err);
       } finally {
@@ -108,19 +60,14 @@ export default function StudentGradesPage() {
     fetch();
   }, [supabase, profile]);
 
-  // Derive complete subject list: DepEd standard + active DB subjects + previously graded subjects
+  // Derive complete subject list strictly ordered by DepEd curriculum
   const studentGrade = profile?.grade_level ? Number(profile.grade_level) : null;
-  const dbMatching = dbSubjects
-    .filter(s => !s.grade_level || s.grade_level === studentGrade)
-    .filter(s => !s.strand_id || !profile?.current_strand_id || s.strand_id === profile.current_strand_id)
-    .map(s => s.subject_name);
-
-  const stdSubjects = getStandardSubjects(studentGrade);
-  const gradedSubjects = grades.map(g => g.subject).filter(Boolean);
-
-  const subjects = Array.from(
-    new Set([...stdSubjects, ...dbMatching, ...gradedSubjects])
-  ).sort();
+  const subjects = buildStudentSubjectList({
+    gradeLevel: studentGrade,
+    strandCode: strandCode || profile?.strand_code,
+    dbSubjects,
+    grades,
+  });
 
   // Group by subject across all quarters for summary
   const summary = subjects.map(subj => {
@@ -231,21 +178,37 @@ export default function StudentGradesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.map(row => {
-                    const avg = parseFloat(row.avg);
-                    const pass = !isNaN(avg) && avg >= 75;
-                    return (
-                      <tr key={row.subject}>
-                        <td style={{ fontWeight: '600' }}>{row.subject}</td>
-                        {QUARTERS.map(q => <td key={q}>{row[q] ?? '—'}</td>)}
-                        <td>
-                          <span style={{ fontWeight: '700', color: isNaN(avg) ? '#888' : pass ? '#28a745' : '#dc3545' }}>
-                            {row.avg ?? '—'}
-                          </span>
+                  {summary.map(row => (
+                    <tr key={row.subject}>
+                      <td style={{ fontWeight: '600' }}>{row.subject}</td>
+                      {QUARTERS.map(q => (
+                        <td key={q} style={{ textAlign: 'center' }}>
+                          {row[q] != null ? (
+                            <span style={{
+                              fontWeight: '600',
+                              color: Number(row[q]) >= 75 ? '#137333' : '#dc3545',
+                            }}>
+                              {row[q]}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#aaa' }}>—</span>
+                          )}
                         </td>
-                      </tr>
-                    );
-                  })}
+                      ))}
+                      <td style={{ textAlign: 'center', fontWeight: '700' }}>
+                        {row.avg != null ? (
+                          <span style={{
+                            color: Number(row.avg) >= 75 ? '#137333' : '#dc3545',
+                            background: Number(row.avg) >= 75 ? '#e6f4ea' : '#fce8e6',
+                            padding: '2px 8px',
+                            borderRadius: '8px',
+                          }}>
+                            {row.avg}
+                          </span>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

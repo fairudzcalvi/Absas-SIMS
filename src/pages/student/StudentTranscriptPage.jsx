@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { buildStudentSubjectList } from '../../utils/curriculum';
 
 function IcoTranscript() {
   return (
@@ -16,70 +17,11 @@ function IcoTranscript() {
 const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const Q_LABELS = { '1Q': '1st Qtr', '2Q': '2nd Qtr', '3Q': '3rd Qtr', '4Q': '4th Qtr' };
 
-function getStandardSubjects(gradeLevel) {
-  const gl = Number(gradeLevel);
-  if (gl >= 1 && gl <= 3) {
-    return [
-      'Mother Tongue',
-      'Filipino',
-      'English',
-      'Mathematics',
-      'Araling Panlipunan',
-      'Edukasyon sa Pagpapakatao (EsP)',
-      'MAPEH',
-    ];
-  }
-  if (gl >= 4 && gl <= 6) {
-    return [
-      'Filipino',
-      'English',
-      'Mathematics',
-      'Science',
-      'Araling Panlipunan',
-      'Edukasyon sa Pagpapakatao (EsP)',
-      'Edukasyong Pantahanan at Pangkabuhayan (EPP)',
-      'MAPEH',
-    ];
-  }
-  if (gl >= 7 && gl <= 10) {
-    return [
-      'Filipino',
-      'English',
-      'Mathematics',
-      'Science',
-      'Araling Panlipunan',
-      'Edukasyon sa Pagpapakatao (EsP)',
-      'Technology and Livelihood Education (TLE)',
-      'MAPEH',
-    ];
-  }
-  if (gl >= 11 && gl <= 12) {
-    return [
-      'Oral Communication',
-      'Komunikasyon at Pananaliksik',
-      'General Mathematics',
-      'Earth and Life Science',
-      '21st Century Literature',
-      'Personal Development',
-      'Physical Education and Health',
-      'Empowerment Technologies',
-    ];
-  }
-  return [
-    'English',
-    'Mathematics',
-    'Science',
-    'Filipino',
-    'Araling Panlipunan',
-    'MAPEH',
-    'Edukasyon sa Pagpapakatao (EsP)',
-  ];
-}
-
 export default function StudentTranscriptPage() {
   const { supabase, profile } = useAuth();
   const [grades, setGrades]         = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
+  const [strandCode, setStrandCode] = useState(null);
   const [transcript, setTranscript] = useState(null);
   const [loading, setLoading]       = useState(true);
 
@@ -90,14 +32,37 @@ export default function StudentTranscriptPage() {
     async function fetch() {
       setLoading(true);
       try {
-        const [{ data: g }, { data: t }, { data: subjs }] = await Promise.all([
-          supabase.from('grades').select('*').eq('student_record_id', profile.student_record_id).order('subject'),
-          supabase.from('transcripts').select('*').eq('student_record_id', profile.student_record_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-          supabase.from('subjects').select('subject_name, grade_level, strand_id, status').eq('status', 'Active'),
+        const [{ data: g }, { data: t }, { data: subjs }, { data: strData }] = await Promise.all([
+          supabase
+            .from('grades')
+            .select('*')
+            .eq('student_record_id', profile.student_record_id),
+          supabase
+            .from('transcripts')
+            .select('*')
+            .eq('student_record_id', profile.student_record_id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supabase
+            .from('subjects')
+            .select('subject_name, grade_level, strand_id, status')
+            .eq('status', 'Active'),
+          profile.current_strand_id
+            ? supabase
+                .from('shs_strands')
+                .select('strand_code')
+                .eq('id', profile.current_strand_id)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
         ]);
+
         setGrades(g ?? []);
         setTranscript(t);
         setDbSubjects(subjs ?? []);
+        if (strData?.strand_code) {
+          setStrandCode(strData.strand_code);
+        }
       } catch (err) {
         console.error('Error fetching transcript details:', err);
       } finally {
@@ -107,19 +72,14 @@ export default function StudentTranscriptPage() {
     fetch();
   }, [supabase, profile]);
 
-  // Derive complete subject list
+  // Derive complete subject list strictly ordered by DepEd curriculum
   const studentGrade = profile?.grade_level ? Number(profile.grade_level) : null;
-  const dbMatching = dbSubjects
-    .filter(sub => !sub.grade_level || sub.grade_level === studentGrade)
-    .filter(sub => !sub.strand_id || !profile?.current_strand_id || sub.strand_id === profile.current_strand_id)
-    .map(sub => sub.subject_name);
-
-  const stdSubjects = getStandardSubjects(studentGrade);
-  const gradedSubjects = grades.map(g => g.subject).filter(Boolean);
-
-  const subjects = Array.from(
-    new Set([...stdSubjects, ...dbMatching, ...gradedSubjects])
-  ).sort();
+  const subjects = buildStudentSubjectList({
+    gradeLevel: studentGrade,
+    strandCode: strandCode || profile?.strand_code,
+    dbSubjects,
+    grades,
+  });
 
   const rows = subjects.map(subj => {
     const row = { subject: subj };
