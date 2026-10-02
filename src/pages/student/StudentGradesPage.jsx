@@ -16,7 +16,8 @@ const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const Q_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
 export default function StudentGradesPage() {
-  const { supabase, profile } = useAuth();
+  const { supabase, profile, activePolicy } = useAuth();
+  const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
   const [grades, setGrades]         = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
   const [strandCode, setStrandCode] = useState(null);
@@ -134,7 +135,7 @@ export default function StudentGradesPage() {
                   const g = grades.find(x => x.subject === subj && x.quarter === quarter);
                   const qg = g?.quarter_grade != null ? parseFloat(g.quarter_grade) : null;
                   const hasGrade = qg != null && !isNaN(qg);
-                  const pass = hasGrade && qg >= 75;
+                  const pass = hasGrade && qg >= passingMark;
                   return (
                     <tr key={subj}>
                       <td style={{ fontWeight: '600' }}>{subj}</td>
@@ -186,7 +187,7 @@ export default function StudentGradesPage() {
                           {row[q] != null ? (
                             <span style={{
                               fontWeight: '600',
-                              color: Number(row[q]) >= 75 ? '#137333' : '#dc3545',
+                              color: Number(row[q]) >= passingMark ? '#137333' : '#dc3545',
                             }}>
                               {row[q]}
                             </span>
@@ -198,8 +199,8 @@ export default function StudentGradesPage() {
                       <td style={{ textAlign: 'center', fontWeight: '700' }}>
                         {row.avg != null ? (
                           <span style={{
-                            color: Number(row.avg) >= 75 ? '#137333' : '#dc3545',
-                            background: Number(row.avg) >= 75 ? '#e6f4ea' : '#fce8e6',
+                            color: Number(row.avg) >= passingMark ? '#137333' : '#dc3545',
+                            background: Number(row.avg) >= passingMark ? '#e6f4ea' : '#fce8e6',
                             padding: '2px 8px',
                             borderRadius: '8px',
                           }}>

@@ -15,6 +15,7 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);        // the matching admins/faculty/students row
   const [activeSchoolYear, setActiveSchoolYear] = useState(null);
   const [activeQuarter, setActiveQuarter]       = useState(null);
+  const [activePolicy, setActivePolicy]         = useState(null);
 
   async function fetchAcademicInfo() {
     try {
@@ -46,8 +47,26 @@ export function AuthProvider({ children }) {
           setActiveSchoolYear({ year_label: settings.school_year });
         }
       }
+
+      // 3. Fetch active school policy (grading weights, passing mark, attendance threshold)
+      const { data: polData } = await supabase
+        .from('school_policies')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      setActivePolicy(polData || {
+        policy_name: 'DepEd Standard Policy',
+        written_work_pct: 30,
+        performance_task_pct: 50,
+        quarterly_exam_pct: 20,
+        passing_grade: 75,
+        attendance_warning_threshold: 10,
+      });
     } catch (err) {
-      console.error('Error fetching active school year:', err);
+      console.error('Error fetching academic info and policies:', err);
     }
   }
 
@@ -134,6 +153,8 @@ export function AuthProvider({ children }) {
       profile,
       activeSchoolYear,
       activeQuarter,
+      activePolicy,
+      refreshAcademicInfo: fetchAcademicInfo,
       refreshAcademicYear: fetchAcademicInfo,
       logout,
     }}>

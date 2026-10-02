@@ -18,7 +18,8 @@ const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const Q_LABELS = { '1Q': '1st Qtr', '2Q': '2nd Qtr', '3Q': '3rd Qtr', '4Q': '4th Qtr' };
 
 export default function StudentTranscriptPage() {
-  const { supabase, profile } = useAuth();
+  const { supabase, profile, activePolicy } = useAuth();
+  const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
   const [grades, setGrades]         = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
   const [strandCode, setStrandCode] = useState(null);
@@ -154,7 +155,7 @@ export default function StudentTranscriptPage() {
                   <tbody>
                     {rows.map(row => {
                       const avg = parseFloat(row.avg);
-                      const pass = !isNaN(avg) && avg >= 75;
+                      const pass = !isNaN(avg) && avg >= passingMark;
                       return (
                         <tr key={row.subject}>
                           <td style={{ fontWeight: '600' }}>{row.subject}</td>
@@ -177,14 +178,14 @@ export default function StudentTranscriptPage() {
                     <tr style={{ backgroundColor: '#f5f5f5' }}>
                       <td colSpan={5} style={{ fontWeight: '700', textAlign: 'right', color: '#8B0000' }}>General Average:</td>
                       <td>
-                        <span style={{ fontWeight: '700', fontSize: '16px', color: parseFloat(overallAvg) >= 75 ? '#28a745' : '#dc3545' }}>
+                        <span style={{ fontWeight: '700', fontSize: '16px', color: parseFloat(overallAvg) >= passingMark ? '#28a745' : '#dc3545' }}>
                           {overallAvg ?? '—'}
                         </span>
                       </td>
                       <td>
                         {overallAvg && (
-                          <span className={`badge ${parseFloat(overallAvg) >= 75 ? 'badge-success' : 'badge-danger'}`}>
-                            {parseFloat(overallAvg) >= 75 ? 'Promoted' : 'Failed'}
+                          <span className={`badge ${parseFloat(overallAvg) >= passingMark ? 'badge-success' : 'badge-danger'}`}>
+                            {parseFloat(overallAvg) >= passingMark ? 'Promoted' : 'Failed'}
                           </span>
                         )}
                       </td>

@@ -95,7 +95,7 @@ const DEFAULT_SUBJECTS = [
 ];
 
 export default function TeacherGradesPage() {
-  const { supabase } = useAuth();
+  const { supabase, activePolicy } = useAuth();
 
   const [gradeFilter, setGrade]   = useState('');
   const [subject, setSubject]     = useState('');
@@ -219,18 +219,47 @@ export default function TeacherGradesPage() {
     return () => { ignore = true; };
   }, [supabase, gradeFilter, subject, quarter]);
 
+  const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
+  const wwWeight = activePolicy?.written_work_pct != null ? Number(activePolicy.written_work_pct) / 100 : 0.30;
+  const ptWeight = activePolicy?.performance_task_pct != null ? Number(activePolicy.performance_task_pct) / 100 : 0.50;
+  const qaWeight = activePolicy?.quarterly_exam_pct != null ? Number(activePolicy.quarterly_exam_pct) / 100 : 0.20;
+
   function updateGrade(studentId, field, value) {
     setGradeMap(prev => {
       const updated = { ...prev[studentId], [field]: value };
-      // Compute the "Initial Grade" as the average of non-empty components,
-      // then run it through the DepEd transmutation table to get the
-      // official Quarter Grade.
-      const vals = ['written_works', 'performance_tasks', 'quarterly_assessment', 'participation']
-        .map(f => parseFloat(updated[f]))
-        .filter(v => !isNaN(v));
-      const initialGrade = vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length) : NaN;
-      updated.initial_grade = vals.length > 0 ? initialGrade.toFixed(2) : '';
-      updated.quarter_grade = vals.length > 0 ? String(transmuteGrade(initialGrade)) : '';
+      
+      const ww = parseFloat(updated.written_works);
+      const pt = parseFloat(updated.performance_tasks);
+      const qa = parseFloat(updated.quarterly_assessment);
+
+      let weightedSum = 0;
+      let totalWeight = 0;
+
+      if (!isNaN(ww)) {
+        weightedSum += ww * wwWeight;
+        totalWeight += wwWeight;
+      }
+      if (!isNaN(pt)) {
+        weightedSum += pt * ptWeight;
+        totalWeight += ptWeight;
+      }
+      if (!isNaN(qa)) {
+        weightedSum += qa * qaWeight;
+        totalWeight += qaWeight;
+      }
+
+      // If only participation is provided
+      if (isNaN(ww) && isNaN(pt) && isNaN(qa)) {
+        const part = parseFloat(updated.participation);
+        if (!isNaN(part)) {
+          weightedSum = part;
+          totalWeight = 1;
+        }
+      }
+
+      const initialGrade = totalWeight > 0 ? (weightedSum / totalWeight) : NaN;
+      updated.initial_grade = !isNaN(initialGrade) ? initialGrade.toFixed(2) : '';
+      updated.quarter_grade = !isNaN(initialGrade) ? String(transmuteGrade(initialGrade)) : '';
       return { ...prev, [studentId]: updated };
     });
   }
@@ -366,13 +395,37 @@ export default function TeacherGradesPage() {
               <p className="empty-message">No students in this grade level.</p>
             ) : (
               <>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 16px',
+                  background: '#f8fafc',
+                  borderBottom: '1px solid #e2e8f0',
+                  fontSize: '13px',
+                  color: '#475569',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                }}>
+                  <div>
+                    <span style={{ fontWeight: '600', color: '#1e293b' }}>Active Grading Policy:</span>{' '}
+                    <span>{activePolicy?.policy_name || 'Standard DepEd Policy'}</span>
+                    <span style={{ margin: '0 8px', color: '#cbd5e1' }}>•</span>
+                    <span>Weights: Written <strong>{(wwWeight * 100).toFixed(0)}%</strong> | Performance <strong>{(ptWeight * 100).toFixed(0)}%</strong> | Exam <strong>{(qaWeight * 100).toFixed(0)}%</strong></span>
+                  </div>
+                  <div>
+                    Passing Mark: <strong style={{ color: '#137333' }}>{passingMark}</strong>
+                  </div>
+                </div>
                 <div className="table-container">
                   <table className="data-table">
                     <thead>
                       <tr>
                         <th>#</th><th>DepEd LRN</th><th>Name</th><th>Section</th>
-                        <th>Written Works</th><th>Performance Tasks</th>
-                        <th>Quarterly Assessment</th><th>Participation</th>
+                        <th>Written Works ({(wwWeight * 100).toFixed(0)}%)</th>
+                        <th>Performance Tasks ({(ptWeight * 100).toFixed(0)}%)</th>
+                        <th>Quarterly Assessment ({(qaWeight * 100).toFixed(0)}%)</th>
+                        <th>Participation</th>
                         <th>Initial Grade</th>
                         <th style={{ color: '#8B0000' }}>Quarter Grade</th>
                         <th>Remarks</th>
@@ -382,7 +435,7 @@ export default function TeacherGradesPage() {
                       {students.map((s, i) => {
                         const g = gradeMap[s.student_record_id] ?? {};
                         const qg = parseFloat(g.quarter_grade);
-                        const isPassing = !isNaN(qg) && qg >= 75;
+                        const isPassing = !isNaN(qg) && qg >= passingMark;
                         return (
                           <tr key={s.student_record_id}>
                             <td style={{ color: '#888' }}>{i + 1}</td>
