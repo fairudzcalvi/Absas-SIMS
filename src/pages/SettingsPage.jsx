@@ -1025,8 +1025,10 @@ function FeesScholarshipsTab({ supabase }) {
     fetchScholarships();
   }, [fetchScholarships]);
 
-  function updateFee(i, field, val) {
-    setFees(prev => prev.map((f, idx) => idx === i ? { ...f, [field]: Number(val) } : f));
+  const [deptFilter, setDeptFilter] = useState('ALL');
+
+  function updateFeeByGrade(gradeLevel, field, val) {
+    setFees(prev => prev.map(f => Number(f.grade_level) === Number(gradeLevel) ? { ...f, [field]: Number(val) } : f));
   }
 
   async function handleSaveFees() {
@@ -1090,48 +1092,105 @@ function FeesScholarshipsTab({ supabase }) {
     fetchScholarships();
   }
 
+  const displayedFees = fees.filter(row => deptFilter === 'ALL' || row.department === deptFilter);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Fee Structure */}
       <div className="card">
-        <div className="card-header">
-          <h2 className="card-title"><IcoFee /> Tuition & Miscellaneous Fee Matrix</h2>
+        <div className="card-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h2 className="card-title"><IcoFee /> Tuition & Miscellaneous Fee Matrix (Grades 1–12)</h2>
+            <p style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>
+              Configure specific tuition and miscellaneous fee assessments for every individual grade level.
+            </p>
+          </div>
           <button className="btn btn-primary" onClick={handleSaveFees} disabled={feeSaving}>
             <IcoSave /> {feeSaving ? 'Saving...' : feeSaved ? 'Saved Successfully!' : 'Save Fee Changes'}
           </button>
         </div>
+
+        {/* Department Filter Tabs */}
+        <div style={{ display: 'flex', gap: '8px', padding: '0 16px 12px', flexWrap: 'wrap' }}>
+          {[
+            { id: 'ALL', label: 'All Grades (1–12)' },
+            { id: 'Elementary', label: 'Elementary (Grades 1–6)' },
+            { id: 'Junior High', label: 'Junior High (Grades 7–10)' },
+            { id: 'Senior High', label: 'Senior High (Grades 11–12)' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`btn btn-sm ${deptFilter === tab.id ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setDeptFilter(tab.id)}
+              style={{
+                fontSize: '12px',
+                padding: '5px 12px',
+                borderRadius: '20px',
+                ...(deptFilter === tab.id ? { background: '#8B0000', borderColor: '#8B0000', color: '#fff' } : {}),
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         <div className="table-container">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Academic Level</th>
-                <th>Tuition Fee (₱)</th>
-                <th>Miscellaneous (₱)</th>
-                <th>Total Assessment (₱)</th>
+                <th style={{ width: '220px' }}>Tuition Fee (₱)</th>
+                <th style={{ width: '220px' }}>Miscellaneous (₱)</th>
+                <th style={{ width: '180px' }}>Total Assessment (₱)</th>
               </tr>
             </thead>
             <tbody>
-              {fees.map((row, i) => (
-                <tr key={i}>
-                  <td style={{ fontWeight: '600' }}>{row.level}</td>
+              {displayedFees.map(row => (
+                <tr key={row.grade_level}>
                   <td>
-                    <input
-                      style={styles.tableInput}
-                      type="number"
-                      value={row.tuition}
-                      onChange={e => updateFee(i, 'tuition', e.target.value)}
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: '700', fontSize: '15px' }}>{row.level}</span>
+                      <span style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        fontWeight: '600',
+                        background: row.department === 'Elementary' ? '#e8f0fe' : row.department === 'Junior High' ? '#fef3c7' : '#fce8e6',
+                        color: row.department === 'Elementary' ? '#1a73e8' : row.department === 'Junior High' ? '#b45309' : '#8B0000',
+                      }}>
+                        {row.department}
+                      </span>
+                    </div>
                   </td>
                   <td>
-                    <input
-                      style={styles.tableInput}
-                      type="number"
-                      value={row.miscellaneous}
-                      onChange={e => updateFee(i, 'miscellaneous', e.target.value)}
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ color: '#888', fontWeight: 'bold' }}>₱</span>
+                      <input
+                        style={styles.tableInput}
+                        type="number"
+                        min="0"
+                        step="100"
+                        value={row.tuition}
+                        onChange={e => updateFeeByGrade(row.grade_level, 'tuition', e.target.value)}
+                      />
+                    </div>
                   </td>
-                  <td style={{ fontWeight: '700', color: '#8B0000' }}>
-                    ₱{(Number(row.tuition) + Number(row.miscellaneous)).toLocaleString()}
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ color: '#888', fontWeight: 'bold' }}>₱</span>
+                      <input
+                        style={styles.tableInput}
+                        type="number"
+                        min="0"
+                        step="100"
+                        value={row.miscellaneous}
+                        onChange={e => updateFeeByGrade(row.grade_level, 'miscellaneous', e.target.value)}
+                      />
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: '700', fontSize: '15px', color: '#8B0000' }}>
+                    ₱{(Number(row.tuition || 0) + Number(row.miscellaneous || 0)).toLocaleString()}
                   </td>
                 </tr>
               ))}
