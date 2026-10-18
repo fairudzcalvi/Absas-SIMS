@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { fetchFeeMatrix, saveFeeMatrix, DEFAULT_FEES } from '../utils/feeMatrix';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoSettings() {
@@ -986,16 +987,11 @@ function SectionsManagerTab({ supabase }) {
 /* ══════════════════════════════════════════════════════════
    TAB 4: Fee Structure & Scholarships Matrix
    ══════════════════════════════════════════════════════════ */
-const DEFAULT_FEES = [
-  { level: 'Elementary (Grades 1–6)', tuition: 15000, miscellaneous: 3500 },
-  { level: 'Junior High (Grades 7–10)', tuition: 18000, miscellaneous: 4000 },
-  { level: 'Senior High (Grades 11–12)', tuition: 22000, miscellaneous: 4500 },
-];
-
 function FeesScholarshipsTab({ supabase }) {
   const [fees, setFees] = useState(DEFAULT_FEES);
   const [scholarships, setScholarships] = useState([]);
   const [feeSaved, setFeeSaved] = useState(false);
+  const [feeSaving, setFeeSaving] = useState(false);
   const [schModal, setSchModal] = useState(false);
   const [editSch, setEditSch] = useState(null);
   const [schForm, setSchForm] = useState({
@@ -1009,6 +1005,17 @@ function FeesScholarshipsTab({ supabase }) {
 
   const [showArchived, setShowArchived] = useState(false);
 
+  // Load persistent fee matrix
+  useEffect(() => {
+    let ignore = false;
+    async function loadFees() {
+      const data = await fetchFeeMatrix(supabase);
+      if (!ignore && data) setFees(data);
+    }
+    loadFees();
+    return () => { ignore = true; };
+  }, [supabase]);
+
   const fetchScholarships = useCallback(async () => {
     const { data } = await supabase.from('scholarships').select('*').order('name', { ascending: true });
     setScholarships(data || []);
@@ -1020,6 +1027,21 @@ function FeesScholarshipsTab({ supabase }) {
 
   function updateFee(i, field, val) {
     setFees(prev => prev.map((f, idx) => idx === i ? { ...f, [field]: Number(val) } : f));
+  }
+
+  async function handleSaveFees() {
+    setFeeSaving(true);
+    try {
+      await saveFeeMatrix(supabase, fees);
+      setFeeSaved(true);
+      setTimeout(() => setFeeSaved(false), 3500);
+    } catch (err) {
+      console.error('Error saving fee matrix:', err);
+      setFeeSaved(true);
+      setTimeout(() => setFeeSaved(false), 3500);
+    } finally {
+      setFeeSaving(false);
+    }
   }
 
   function openAddScholarship() {
@@ -1074,8 +1096,8 @@ function FeesScholarshipsTab({ supabase }) {
       <div className="card">
         <div className="card-header">
           <h2 className="card-title"><IcoFee /> Tuition & Miscellaneous Fee Matrix</h2>
-          <button className="btn btn-primary" onClick={() => { setFeeSaved(true); setTimeout(() => setFeeSaved(false), 3000); }}>
-            <IcoSave /> {feeSaved ? 'Saved!' : 'Save Fee Changes'}
+          <button className="btn btn-primary" onClick={handleSaveFees} disabled={feeSaving}>
+            <IcoSave /> {feeSaving ? 'Saving...' : feeSaved ? 'Saved Successfully!' : 'Save Fee Changes'}
           </button>
         </div>
         <div className="table-container">

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName, formatGradeSection } from '../utils/formatters';
+import { getBaseFees, fetchFeeMatrix } from '../utils/feeMatrix';
 
 /* ── SVG Icons ─────────────────────────────────────────── */
 function IcoFinance() {
@@ -127,18 +128,7 @@ function IcoClose() {
 }
 
 /* ── Standard DepEd & ABSAS Fee Matrix ──────────────────── */
-const DEFAULT_FEE_MATRIX = {
-  elementary: { tuition: 15000, misc: 3500, label: 'Elementary (Grades 1–6)' },
-  juniorHigh: { tuition: 18000, misc: 4000, label: 'Junior High (Grades 7–10)' },
-  seniorHigh: { tuition: 22500, misc: 5000, label: 'Senior High (Grades 11–12)' },
-};
 
-function getBaseFees(gradeLevel) {
-  const g = Number(gradeLevel || 1);
-  if (g >= 11) return { tuition: 22500, misc: 5000, total: 27500, category: 'Senior High School' };
-  if (g >= 7)  return { tuition: 18000, misc: 4000, total: 22000, category: 'Junior High School' };
-  return { tuition: 15000, misc: 3500, total: 18500, category: 'Elementary Department' };
-}
 
 const GRADE_OPTIONS = [
   { value: 1,  label: 'Grade 1' },
@@ -262,6 +252,7 @@ export default function FinancePage() {
   // ── Button 3: Quarterly Breakdown State ─────────────────────
   const [quarterlyModalOpen, setQuarterlyModalOpen] = useState(false);
   const [quarterlyAccount, setQuarterlyAccount]     = useState(null);
+  const [feeMatrix, setFeeMatrix]                   = useState(null);
 
   // Modals for Printing
   const [viewReceipt, setViewReceipt] = useState(null); // { payment, student, finance }
@@ -306,6 +297,10 @@ export default function FinancePage() {
         setFinances(finData ?? []);
       }
 
+      // 5. Fetch Dynamic Fee Matrix
+      const feesData = await fetchFeeMatrix(supabase);
+      setFeeMatrix(feesData);
+
     } catch (err) {
       setDbNotice(err.message);
     } finally {
@@ -323,7 +318,7 @@ export default function FinancePage() {
     const sch = scholarships.find(s => s.id === (fin?.scholarship_id || student.scholarship_id));
     const str = strands.find(st => st.id === student.current_strand_id);
 
-    const base = getBaseFees(student.grade_level);
+    const base = getBaseFees(student.grade_level, feeMatrix);
     const tuition = fin?.tuition_fee ? Number(fin.tuition_fee) : base.tuition;
     const misc = fin?.miscellaneous_fee ? Number(fin.miscellaneous_fee) : base.misc;
     const grossTotal = tuition + misc;
@@ -542,7 +537,7 @@ export default function FinancePage() {
           })
           .eq('finance_id', existingFin.finance_id);
       } else {
-        const base = getBaseFees(selectedStudent.grade_level);
+        const base = getBaseFees(selectedStudent.grade_level, feeMatrix);
         await supabase
           .from('student_finances')
           .insert([{
