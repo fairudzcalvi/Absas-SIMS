@@ -44,14 +44,14 @@ const NAV_ITEMS = [
   { label: 'Students Grades',     path: '/teacher/grades',      Icon: IcoGrades,     end: false },
 ];
 
-export default function TeacherSidebar() {
+export default function TeacherSidebar({ isOpen = false, onClose }) {
   const { profile, logout, activeSchoolYear, activeQuarter } = useAuth();
   const name = profile
     ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim()
     : 'Teacher';
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'active' : ''}`}>
       <div className="sidebar-header">
         <div className="sidebar-header-inner">
           <div className="sidebar-logo-wrap">
@@ -78,6 +78,19 @@ export default function TeacherSidebar() {
               )}
             </div>
           </div>
+          {onClose && (
+            <button
+              type="button"
+              className="sidebar-close-btn"
+              onClick={onClose}
+              aria-label="Close sidebar"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -88,6 +101,9 @@ export default function TeacherSidebar() {
             to={path}
             end={end}
             className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+            onClick={() => {
+              if (onClose) onClose();
+            }}
           >
             <span className="icon"><Icon /></span>
             {label}

@@ -113,7 +113,7 @@ export default function LoginPage() {
 
   return (
     <div style={styles.wrapper}>
-      <div style={styles.card}>
+      <div style={styles.card} className="login-card-responsive">
 
         {/* Logo */}
         <div style={styles.logoWrap}>

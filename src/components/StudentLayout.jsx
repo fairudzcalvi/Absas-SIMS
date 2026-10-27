@@ -1,9 +1,18 @@
-import { Outlet, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import StudentSidebar from './StudentSidebar';
+import MobileNavbar from './MobileNavbar';
 
 export default function StudentLayout() {
   const { session, role } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  // Automatically close sidebar when navigating to a new route
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   // Show loading only while session is being resolved (undefined)
   // or while session exists but role hasn't been determined yet
@@ -18,8 +27,20 @@ export default function StudentLayout() {
   return (
     <div className="dashboard-page">
       <div className="dashboard-container">
-        <StudentSidebar />
+        {/* Backdrop for mobile drawer */}
+        <div
+          className={`sidebar-backdrop ${sidebarOpen ? 'active' : ''}`}
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+
+        <StudentSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
         <main className="main-content">
+          <MobileNavbar
+            role="student"
+            onToggleSidebar={() => setSidebarOpen(prev => !prev)}
+          />
           <Outlet />
         </main>
       </div>

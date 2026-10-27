@@ -1,9 +1,18 @@
-import { Outlet, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Sidebar from './Sidebar';
+import MobileNavbar from './MobileNavbar';
 
 export default function DashboardLayout() {
   const { session, role } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  // Automatically close sidebar when navigating to a new route
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   if (session === undefined || (session && role === null)) {
     return <div style={styles.loading}>Loading...</div>;
@@ -16,8 +25,20 @@ export default function DashboardLayout() {
   return (
     <div className="dashboard-page">
       <div className="dashboard-container">
-        <Sidebar />
+        {/* Backdrop for mobile drawer */}
+        <div
+          className={`sidebar-backdrop ${sidebarOpen ? 'active' : ''}`}
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
         <main className="main-content">
+          <MobileNavbar
+            role={role || 'admin'}
+            onToggleSidebar={() => setSidebarOpen(prev => !prev)}
+          />
           <Outlet />
         </main>
       </div>

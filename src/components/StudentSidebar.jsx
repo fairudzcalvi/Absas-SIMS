@@ -55,12 +55,12 @@ function IcoLogout() {
   );
 }
 
-export default function StudentSidebar() {
+export default function StudentSidebar({ isOpen = false, onClose }) {
   const { profile, logout, activeSchoolYear, activeQuarter } = useAuth();
   const name = profile ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() : 'Student';
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'active' : ''}`}>
       <div className="sidebar-header">
         <div className="sidebar-header-inner">
           <div className="sidebar-logo-wrap">
@@ -87,6 +87,19 @@ export default function StudentSidebar() {
               )}
             </div>
           </div>
+          {onClose && (
+            <button
+              type="button"
+              className="sidebar-close-btn"
+              onClick={onClose}
+              aria-label="Close sidebar"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
       <nav className="sidebar-nav">
@@ -94,6 +107,9 @@ export default function StudentSidebar() {
           <NavLink
             key={path} to={path} end={end}
             className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+            onClick={() => {
+              if (onClose) onClose();
+            }}
           >
             <span className="icon"><Icon name={icon} /></span>
             {label}
