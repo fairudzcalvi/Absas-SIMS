@@ -268,7 +268,30 @@ BEGIN
     ALTER TABLE subjects ADD CONSTRAINT subjects_grade_level_check CHECK (grade_level BETWEEN 1 AND 12);
 END $$;
 
--- D. Schedules Table Creation & Enhancements
+-- D. Sections Table Enhancements
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='strand_id') THEN
+        ALTER TABLE sections ADD COLUMN strand_id UUID REFERENCES shs_strands(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='adviser_id') THEN
+        ALTER TABLE sections ADD COLUMN adviser_id BIGINT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='school_year_id') THEN
+        ALTER TABLE sections ADD COLUMN school_year_id UUID REFERENCES school_years(id) ON DELETE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='max_capacity') THEN
+        ALTER TABLE sections ADD COLUMN max_capacity INT DEFAULT 45;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='room_number') THEN
+        ALTER TABLE sections ADD COLUMN room_number VARCHAR(50);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='status') THEN
+        ALTER TABLE sections ADD COLUMN status VARCHAR(20) DEFAULT 'Active';
+    END IF;
+END $$;
+
+-- E. Schedules Table Creation & Enhancements
 CREATE TABLE IF NOT EXISTS schedules (
     schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     subject VARCHAR(255) NOT NULL,

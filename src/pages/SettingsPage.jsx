@@ -1342,19 +1342,76 @@ function SectionsManagerTab({ supabase }) {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const { data: sy } = await supabase.from('school_years').select('*').eq('is_active', true).maybeSingle();
-    setActiveSy(sy);
+    let sy = null;
+    try {
+      const { data } = await supabase.from('school_years').select('*').eq('is_active', true).maybeSingle();
+      sy = data;
+      setActiveSy(sy);
+    } catch {
+      setActiveSy(null);
+    }
 
-    const { data: fac } = await supabase.from('faculty').select('faculty_record_id, faculty_id, first_name, last_name').order('last_name', { ascending: true });
-    setFaculty(fac || []);
+    let facList = [];
+    try {
+      const { data: fac } = await supabase.from('faculty').select('faculty_record_id, faculty_id, first_name, last_name').order('last_name', { ascending: true });
+      facList = fac || [];
+      setFaculty(facList);
+    } catch {
+      setFaculty([]);
+    }
 
-    const { data: str } = await supabase.from('shs_strands').select('*').order('strand_code', { ascending: true });
-    setStrands(str || []);
+    let strList = [];
+    try {
+      const { data: str } = await supabase.from('shs_strands').select('*').order('strand_code', { ascending: true });
+      strList = str || [];
+      setStrands(strList);
+    } catch {
+      setStrands([]);
+    }
 
-    let q = supabase.from('sections').select('*, shs_strands(strand_code), faculty(first_name, last_name)').order('grade_level', { ascending: true });
-    if (sy) q = q.eq('school_year_id', sy.id);
-    const { data: sec } = await q;
-    setSections(sec || []);
+    // Resilient sections fetch:
+    // 1. Fetch raw sections without foreign-key joins to avoid PostgREST relationship cache errors
+    let rawSections = [];
+    
+    // First try: active school year or sections with null school_year_id
+    if (sy?.id) {
+      const { data, error } = await supabase
+        .from('sections')
+        .select('*')
+        .or(`school_year_id.eq.${sy.id},school_year_id.is.null`)
+        .order('grade_level', { ascending: true });
+      if (!error && data && data.length > 0) {
+        rawSections = data;
+      }
+    }
+
+    // Second try / fallback: fetch all sections without SY filter if first try returned empty or had error
+    if (rawSections.length === 0) {
+      const { data, error } = await supabase
+        .from('sections')
+        .select('*')
+        .order('grade_level', { ascending: true });
+      if (!error && data) {
+        rawSections = data;
+      }
+    }
+
+    // Map relationships in JS using facList and strList
+    const joinedSections = (rawSections || []).map(sec => {
+      const adviser = facList.find(f => 
+        f.faculty_record_id === sec.adviser_id || 
+        f.faculty_id === sec.adviser_id ||
+        String(f.faculty_record_id) === String(sec.adviser_id)
+      );
+      const strand = strList.find(st => st.id === sec.strand_id);
+      return {
+        ...sec,
+        faculty: adviser ? { first_name: adviser.first_name, last_name: adviser.last_name } : null,
+        shs_strands: strand ? { strand_code: strand.strand_code } : null,
+      };
+    });
+
+    setSections(joinedSections);
     setLoading(false);
   }, [supabase]);
 
@@ -1406,9 +1463,21 @@ function SectionsManagerTab({ supabase }) {
     };
 
     if (editSection) {
-      await supabase.from('sections').update(payload).eq('id', editSection.id);
+      const { error } = await supabase.from('sections').update(payload).eq('id', editSection.id);
+      if (error) {
+        const fallback = { ...payload };
+        delete fallback.school_year_id;
+        delete fallback.strand_id;
+        await supabase.from('sections').update(fallback).eq('id', editSection.id);
+      }
     } else {
-      await supabase.from('sections').insert([payload]);
+      const { error } = await supabase.from('sections').insert([payload]);
+      if (error) {
+        const fallback = { ...payload };
+        delete fallback.school_year_id;
+        delete fallback.strand_id;
+        await supabase.from('sections').insert([fallback]);
+      }
     }
     setModalOpen(false);
     fetchData();
