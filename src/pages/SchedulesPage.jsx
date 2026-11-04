@@ -124,17 +124,86 @@ export default function SchedulesPage() {
     return () => { ignore = true; };
   }, [supabase]);
 
+  /* Helper to fetch schedules dynamically across possible column names (teacher, faculty_id, teacher_id, teacher_name) */
+  const fetchSchedulesForTeacher = async (teacherRecord) => {
+    if (!teacherRecord) return [];
+    
+    // Build array of candidate queries to handle different column names in Supabase schema
+    const email = teacherRecord.email;
+    const facId = teacherRecord.faculty_id || teacherRecord.faculty_record_id;
+    const fullName = `${teacherRecord.first_name || ''} ${teacherRecord.last_name || ''}`.trim();
+
+    // 1. Try 'teacher' column first
+    if (email) {
+      const { data, error } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('teacher', email)
+        .order('day_of_week')
+        .order('time_start');
+      if (!error) return data ?? [];
+    }
+
+    // 2. Try 'faculty_id'
+    if (facId) {
+      const { data, error } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('faculty_id', facId)
+        .order('day_of_week')
+        .order('time_start');
+      if (!error) return data ?? [];
+    }
+
+    // 3. Try 'teacher_id'
+    if (facId) {
+      const { data, error } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('teacher_id', facId)
+        .order('day_of_week')
+        .order('time_start');
+      if (!error) return data ?? [];
+    }
+
+    // 4. Try 'teacher_name'
+    if (fullName) {
+      const { data, error } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('teacher_name', fullName)
+        .order('day_of_week')
+        .order('time_start');
+      if (!error) return data ?? [];
+    }
+
+    // 5. Fallback: select all and filter in JS if columns differ
+    const { data: allData, error: allErr } = await supabase
+      .from('schedules')
+      .select('*')
+      .order('day_of_week')
+      .order('time_start');
+
+    if (!allErr && allData) {
+      return allData.filter(s => {
+        const tVal = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
+        return tVal === email || tVal === facId || tVal === fullName;
+      });
+    }
+
+    return [];
+  };
+
   useEffect(() => {
     let ignore = false;
     async function fetchSchedules() {
-      if (!selectedTeacher) return;
+      if (!selectedTeacher) {
+        setSchedules([]);
+        return;
+      }
       setLoading(true);
-      const { data } = await supabase
-        .from('schedules')
-        .select('*')
-        .eq('teacher', selectedTeacher)
-        .order('day_of_week')
-        .order('time_start');
+      const teacherObj = teachers.find(t => t.email === selectedTeacher || t.faculty_id === selectedTeacher) || { email: selectedTeacher };
+      const data = await fetchSchedulesForTeacher(teacherObj);
       if (!ignore) {
         setSchedules(data ?? []);
         setLoading(false);
@@ -142,7 +211,7 @@ export default function SchedulesPage() {
     }
     fetchSchedules();
     return () => { ignore = true; };
-  }, [supabase, selectedTeacher]);
+  }, [supabase, selectedTeacher, teachers]);
 
   /* open modals */
   function openAdd() {
@@ -155,7 +224,7 @@ export default function SchedulesPage() {
     setEditItem(item);
     setForm({
       subject:      item.subject      ?? '',
-      teacher:      item.teacher      ?? selectedTeacher,
+      teacher:      item.teacher || item.faculty_id || item.teacher_name || selectedTeacher,
       day_of_week:  item.day_of_week  ?? 'Monday',
       section_name: item.section_name ?? '',
       grade_level:  item.grade_level  ?? '',
@@ -177,26 +246,64 @@ export default function SchedulesPage() {
     }
     setSaving(true);
     setFormError('');
-    const payload = {
-      ...form,
-      teacher: selectedTeacher,
+
+    const teacherObj = teachers.find(t => t.email === selectedTeacher || t.faculty_id === selectedTeacher);
+    const teacherEmail = teacherObj?.email || selectedTeacher;
+    const teacherId = teacherObj?.faculty_id || teacherObj?.faculty_record_id;
+    const teacherName = teacherObj ? `${teacherObj.first_name || ''} ${teacherObj.last_name || ''}`.trim() : selectedTeacher;
+
+    const basePayload = {
+      subject: form.subject,
+      section_name: form.section_name || null,
       grade_level: form.grade_level ? Number(form.grade_level) : null,
+      day_of_week: form.day_of_week,
+      time_start: form.time_start,
+      time_end: form.time_end,
+      room: form.room || null,
+      school_year: form.school_year || '2025-2026',
     };
 
-    if (editItem) {
-      const { error } = await supabase.from('schedules').update(payload).eq('schedule_id', editItem.schedule_id);
-      if (error) { setFormError(error.message); setSaving(false); return; }
-    } else {
-      const { error } = await supabase.from('schedules').insert([payload]);
-      if (error) { setFormError(error.message); setSaving(false); return; }
+    // Construct adaptive payload prioritizing 'teacher' with fallbacks
+    const candidatePayloads = [
+      { ...basePayload, teacher: teacherEmail },
+      { ...basePayload, teacher: teacherEmail, faculty_id: teacherId },
+      { ...basePayload, faculty_id: teacherId },
+      { ...basePayload, teacher_id: teacherId },
+      { ...basePayload, teacher_name: teacherName },
+    ];
+
+    let saveSuccess = false;
+    let lastError = null;
+
+    for (const payload of candidatePayloads) {
+      if (editItem) {
+        const { error } = await supabase.from('schedules').update(payload).eq('schedule_id', editItem.schedule_id);
+        if (!error) {
+          saveSuccess = true;
+          break;
+        }
+        lastError = error;
+      } else {
+        const { error } = await supabase.from('schedules').insert([payload]);
+        if (!error) {
+          saveSuccess = true;
+          break;
+        }
+        lastError = error;
+      }
+    }
+
+    if (!saveSuccess) {
+      setFormError(lastError?.message || 'Failed to save schedule record.');
+      setSaving(false);
+      return;
     }
 
     setSaving(false);
     setModalOpen(false);
+
     // re-fetch
-    const { data } = await supabase
-      .from('schedules').select('*')
-      .eq('teacher', selectedTeacher).order('day_of_week').order('time_start');
+    const data = await fetchSchedulesForTeacher(teacherObj || { email: selectedTeacher });
     setSchedules(data ?? []);
   }
 
@@ -205,9 +312,8 @@ export default function SchedulesPage() {
     if (!deleteTarget) return;
     await supabase.from('schedules').delete().eq('schedule_id', deleteTarget.schedule_id);
     setDeleteTarget(null);
-    const { data } = await supabase
-      .from('schedules').select('*')
-      .eq('teacher', selectedTeacher).order('day_of_week').order('time_start');
+    const teacherObj = teachers.find(t => t.email === selectedTeacher || t.faculty_id === selectedTeacher) || { email: selectedTeacher };
+    const data = await fetchSchedulesForTeacher(teacherObj);
     setSchedules(data ?? []);
   }
 

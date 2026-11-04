@@ -242,9 +242,40 @@ BEGIN
     ALTER TABLE subjects ADD CONSTRAINT subjects_grade_level_check CHECK (grade_level BETWEEN 1 AND 12);
 END $$;
 
--- D. Schedules Table Enhancements
+-- D. Schedules Table Creation & Enhancements
+CREATE TABLE IF NOT EXISTS schedules (
+    schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subject VARCHAR(255) NOT NULL,
+    teacher VARCHAR(255),
+    faculty_id BIGINT,
+    teacher_name VARCHAR(255),
+    day_of_week VARCHAR(50) NOT NULL,
+    time_start TIME NOT NULL,
+    time_end TIME NOT NULL,
+    room VARCHAR(100),
+    section_name VARCHAR(100),
+    grade_level INT,
+    school_year VARCHAR(50) DEFAULT '2025-2026',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 DO $$ 
 BEGIN
+    -- Ensure teacher column exists
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schedules' AND column_name='teacher') THEN
+        ALTER TABLE schedules ADD COLUMN teacher VARCHAR(255);
+    END IF;
+
+    -- Ensure faculty_id column exists
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schedules' AND column_name='faculty_id') THEN
+        ALTER TABLE schedules ADD COLUMN faculty_id BIGINT;
+    END IF;
+
+    -- Ensure teacher_name column exists
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schedules' AND column_name='teacher_name') THEN
+        ALTER TABLE schedules ADD COLUMN teacher_name VARCHAR(255);
+    END IF;
+
     -- Add section_id
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schedules' AND column_name='section_id') THEN
         ALTER TABLE schedules ADD COLUMN section_id UUID REFERENCES sections(id) ON DELETE SET NULL;
@@ -481,3 +512,7 @@ BEGIN
         END IF;
     END IF;
 END $$;
+
+-- Reload Supabase PostgREST Schema Cache
+NOTIFY pgrst, 'reload schema';
+

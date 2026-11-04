@@ -92,7 +92,7 @@ export default function StudentSchedulesPage() {
                           </td>
                         )}
                         <td style={{ fontWeight: '600' }}>{s.subject}</td>
-                        <td>{s.teacher ?? '—'}</td>
+                        <td>{s.teacher_name || s.teacher || s.faculty_id || '—'}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>{fmt(s.time_start)} – {fmt(s.time_end)}</td>
                         <td>{s.room ?? '—'}</td>
                       </tr>
