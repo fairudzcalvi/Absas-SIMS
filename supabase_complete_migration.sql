@@ -224,9 +224,35 @@ BEGIN
     ALTER TABLE faculty ADD CONSTRAINT faculty_adviser_grade_level_check CHECK (adviser_grade_level IS NULL OR (adviser_grade_level BETWEEN 1 AND 12));
 END $$;
 
+-- C. Curriculums Table (Dynamic - schools can define their own)
+CREATE TABLE IF NOT EXISTS curriculums (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,                      -- e.g. "DepEd K-12 Elementary"
+    code VARCHAR(50) UNIQUE NOT NULL,               -- e.g. "ELEM", "JHS", "SHS"
+    grade_level_start INT NOT NULL DEFAULT 1,       -- Inclusive start grade
+    grade_level_end INT NOT NULL DEFAULT 6,         -- Inclusive end grade
+    description TEXT,
+    sort_order INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Default DepEd K-12 curriculums
+INSERT INTO curriculums (name, code, grade_level_start, grade_level_end, description, sort_order, is_active) VALUES
+    ('Elementary', 'ELEM', 1, 6, 'DepEd K-12 Elementary curriculum covering Grades 1 to 6.', 1, TRUE),
+    ('Junior High School', 'JHS', 7, 10, 'DepEd K-12 Junior High School curriculum covering Grades 7 to 10.', 2, TRUE),
+    ('Senior High School', 'SHS', 11, 12, 'DepEd K-12 Senior High School curriculum covering Grades 11 and 12.', 3, TRUE)
+ON CONFLICT (code) DO NOTHING;
+
 -- C. Subjects Table Enhancements
 DO $$ 
 BEGIN
+    -- Add curriculum_id FK to curriculums
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='subjects' AND column_name='curriculum_id') THEN
+        ALTER TABLE subjects ADD COLUMN curriculum_id UUID REFERENCES curriculums(id) ON DELETE SET NULL;
+    END IF;
+
     -- Add strand_id for SHS Subjects
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='subjects' AND column_name='strand_id') THEN
         ALTER TABLE subjects ADD COLUMN strand_id UUID REFERENCES shs_strands(id) ON DELETE SET NULL;
