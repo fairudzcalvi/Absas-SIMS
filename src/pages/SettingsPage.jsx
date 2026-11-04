@@ -281,17 +281,25 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   const [syFormError, setSyFormError] = useState('');
   const [sySaving, setSySaving] = useState(false);
 
-  // Edit Academic Structure Modal
+  // Edit Academic Structure Modal (Supports fully dynamic numeric values & custom period naming)
   const [structureModal, setStructureModal] = useState(false);
   const [structureSaving, setStructureSaving] = useState(false);
   const [structureError, setStructureError] = useState('');
   const [editSemesters, setEditSemesters] = useState(2);
   const [editQuartersCount, setEditQuartersCount] = useState(4);
+  const [structurePeriods, setStructurePeriods] = useState([]); // Array of { name, semester }
+
+  // Inline Quarter/Period Edit Modal
+  const [editQuarterModal, setEditQuarterModal] = useState(false);
+  const [editingQuarter, setEditingQuarter] = useState(null); // { id, quarter_name, semester_name }
+  const [editQuarterSaving, setEditQuarterSaving] = useState(false);
+  const [editQuarterError, setEditQuarterError] = useState('');
 
   // Add Custom Period Modal
   const [periodModal, setPeriodModal] = useState(false);
   const [newPeriodName, setNewPeriodName] = useState('');
   const [newPeriodSemester, setNewPeriodSemester] = useState('1st Semester');
+  const [customSemesterText, setCustomSemesterText] = useState('');
   const [periodSaving, setPeriodSaving] = useState(false);
   const [periodError, setPeriodError] = useState('');
 
@@ -444,9 +452,55 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   function openStructureModal() {
     if (!activeYear) return;
     setStructureError('');
-    setEditSemesters(activeYear.semester_count != null ? activeYear.semester_count : 2);
-    setEditQuartersCount(activeYear.quarter_count != null ? activeYear.quarter_count : (quarters.length || 4));
+    const sCount = activeYear.semester_count != null ? activeYear.semester_count : 2;
+    const qCount = activeYear.quarter_count != null ? activeYear.quarter_count : (quarters.length || 4);
+    setEditSemesters(sCount);
+    setEditQuartersCount(qCount);
+
+    // Populate current period items with custom names and semesters
+    if (quarters.length > 0) {
+      setStructurePeriods(quarters.map(q => ({
+        id: q.id,
+        quarter_number: q.quarter_number,
+        quarter_name: q.quarter_name,
+        semester_name: q.semester_name || (q.quarter_number <= 2 ? '1st Semester' : '2nd Semester'),
+      })));
+    } else {
+      const generated = [];
+      for (let i = 1; i <= qCount; i++) {
+        const qOrdinal = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`;
+        generated.push({
+          quarter_number: i,
+          quarter_name: `${qOrdinal} Quarter`,
+          semester_name: (sCount === 2 && i > 2) ? '2nd Semester' : '1st Semester',
+        });
+      }
+      setStructurePeriods(generated);
+    }
     setStructureModal(true);
+  }
+
+  // Adjust structurePeriods dynamically when count changes
+  function handleQuartersCountChange(newCount) {
+    const count = Math.max(1, Math.min(8, Number(newCount)));
+    setEditQuartersCount(count);
+    setStructurePeriods(prev => {
+      const updated = [...prev];
+      if (count > updated.length) {
+        for (let i = updated.length + 1; i <= count; i++) {
+          const qOrdinal = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`;
+          const sName = (editSemesters === 2 && i > 2) ? '2nd Semester' : '1st Semester';
+          updated.push({
+            quarter_number: i,
+            quarter_name: `${qOrdinal} Quarter`,
+            semester_name: sName,
+          });
+        }
+      } else if (count < updated.length) {
+        return updated.slice(0, count);
+      }
+      return updated;
+    });
   }
 
   async function handleSaveStructure(e) {
@@ -469,43 +523,37 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
         throw syErr;
       }
 
-      // 2. Adjust quarters table: add missing or update semester associations
-      const currentCount = quarters.length;
-      if (targetQ > currentCount) {
-        // Add additional quarters
-        const toAdd = [];
-        for (let i = currentCount + 1; i <= targetQ; i++) {
-          const qOrdinal = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`;
-          let semName = null;
-          if (targetSem === 2) {
-            semName = (targetQ === 4 && i > 2) ? '2nd Semester' : (targetQ === 2 && i === 2) ? '2nd Semester' : '1st Semester';
+      // 2. Upsert each period with user's customized name and semester track
+      for (let idx = 0; idx < structurePeriods.length; idx++) {
+        const p = structurePeriods[idx];
+        const qNum = idx + 1;
+        const row = {
+          school_year_id: activeYear.id,
+          quarter_number: qNum,
+          quarter_name: p.quarter_name || `${qNum}th Quarter`,
+          semester_name: p.semester_name || '1st Semester',
+        };
+
+        if (p.id) {
+          await supabase.from('quarters').update(row).eq('id', p.id);
+        } else {
+          const { error: insErr } = await supabase.from('quarters').insert([{
+            ...row,
+            is_active: qNum === 1,
+            is_grading_open: qNum <= 2,
+          }]);
+          if (insErr && (insErr.message.includes('semester_name') || insErr.code === '42703')) {
+            const { semester_name, ...baseRow } = row;
+            await supabase.from('quarters').insert([baseRow]);
           }
-          toAdd.push({
-            school_year_id: activeYear.id,
-            quarter_number: i,
-            quarter_name: `${qOrdinal} Quarter`,
-            semester_name: semName,
-            is_active: false,
-            is_grading_open: false,
-          });
-        }
-        const { error: insErr } = await supabase.from('quarters').insert(toAdd);
-        if (insErr && (insErr.message.includes('semester_name') || insErr.code === '42703')) {
-          await supabase.from('quarters').insert(toAdd.map(({ semester_name, ...r }) => r));
-        }
-      } else if (targetQ < currentCount) {
-        // If shrinking quarters, remove excess higher numbered quarters if no grades depend on them
-        const toRemove = quarters.filter(q => q.quarter_number > targetQ);
-        for (const q of toRemove) {
-          await supabase.from('quarters').delete().eq('id', q.id);
         }
       }
 
-      // Update semester_name tags on existing quarters if column exists
-      if (targetSem === 2) {
-        for (let i = 1; i <= targetQ; i++) {
-          const semName = (targetQ === 4 && i > 2) ? '2nd Semester' : (targetQ === 2 && i === 2) ? '2nd Semester' : '1st Semester';
-          await supabase.from('quarters').update({ semester_name: semName }).eq('school_year_id', activeYear.id).eq('quarter_number', i);
+      // If user reduced the number of periods, delete the surplus ones
+      if (quarters.length > targetQ) {
+        const surplus = quarters.filter(q => q.quarter_number > targetQ);
+        for (const s of surplus) {
+          await supabase.from('quarters').delete().eq('id', s.id);
         }
       }
 
@@ -519,6 +567,53 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
     }
   }
 
+  function openEditQuarterModal(q) {
+    setEditQuarterError('');
+    setEditingQuarter({
+      id: q.id,
+      quarter_name: q.quarter_name,
+      semester_name: q.semester_name || '1st Semester',
+    });
+    setEditQuarterModal(true);
+  }
+
+  async function handleSaveQuarterEdit(e) {
+    e.preventDefault();
+    if (!editingQuarter) return;
+    setEditQuarterSaving(true);
+    setEditQuarterError('');
+
+    try {
+      const updateData = {
+        quarter_name: editingQuarter.quarter_name.trim(),
+        semester_name: editingQuarter.semester_name,
+      };
+
+      const { error } = await supabase
+        .from('quarters')
+        .update(updateData)
+        .eq('id', editingQuarter.id);
+
+      if (error && (error.message.includes('semester_name') || error.code === '42703')) {
+        await supabase
+          .from('quarters')
+          .update({ quarter_name: editingQuarter.quarter_name.trim() })
+          .eq('id', editingQuarter.id);
+      } else if (error) {
+        throw error;
+      }
+
+      setEditQuarterModal(false);
+      setEditingQuarter(null);
+      fetchData();
+      if (refreshAcademicYear) refreshAcademicYear();
+    } catch (err) {
+      setEditQuarterError(err.message || 'Failed to update period');
+    } finally {
+      setEditQuarterSaving(false);
+    }
+  }
+
   async function handleAddCustomPeriod(e) {
     e.preventDefault();
     if (!activeYear || !newPeriodName.trim()) return;
@@ -526,12 +621,16 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
     setPeriodError('');
 
     try {
+      const semToUse = newPeriodSemester === '__custom__'
+        ? (customSemesterText.trim() || 'Custom Semester')
+        : newPeriodSemester;
+
       const nextNum = quarters.length ? Math.max(...quarters.map(q => q.quarter_number)) + 1 : 1;
       const row = {
         school_year_id: activeYear.id,
         quarter_number: nextNum,
         quarter_name: newPeriodName.trim(),
-        semester_name: newPeriodSemester,
+        semester_name: semToUse,
         is_active: false,
         is_grading_open: true,
       };
@@ -549,6 +648,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
 
       setPeriodModal(false);
       setNewPeriodName('');
+      setCustomSemesterText('');
       fetchData();
       if (refreshAcademicYear) refreshAcademicYear();
     } catch (err) {
@@ -770,6 +870,14 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                           <td>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <button
+                                type="button"
+                                className="btn btn-sm btn-secondary"
+                                title="Edit period name or semester track"
+                                onClick={() => openEditQuarterModal(q)}
+                              >
+                                <IcoEdit /> Edit
+                              </button>
+                              <button
                                 className={`btn btn-sm ${q.is_active ? 'btn-secondary' : 'btn-primary'}`}
                                 onClick={() => handleToggleQuarter(q.id, q.is_active)}
                               >
@@ -889,35 +997,35 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                   <div className="form-grid">
                     <div className="form-group">
                       <label>Number of Semesters</label>
-                      <select
+                      <input
+                        type="number"
+                        min="1"
+                        max="6"
                         className="filter-select"
                         style={{ width: '100%' }}
                         value={newSySemesters}
-                        onChange={e => setNewSySemesters(Number(e.target.value))}
-                      >
-                        <option value={2}>2 Semesters (Standard DepEd / SHS)</option>
-                        <option value={1}>1 Full Year Academic Term</option>
-                        <option value={3}>3 Trimesters</option>
-                      </select>
+                        onChange={e => setNewSySemesters(Math.max(1, Math.min(6, Number(e.target.value) || 1)))}
+                        required
+                      />
                       <small style={{ color: '#666', fontSize: '11px', marginTop: '4px', display: 'block' }}>
-                        Used for Junior & Senior High semester categorization.
+                        e.g. 2 for Standard Semestral (1st & 2nd), 1 for Full Year, 3 for Trimesters
                       </small>
                     </div>
 
                     <div className="form-group">
                       <label>Number of Quarters / Periods</label>
-                      <select
+                      <input
+                        type="number"
+                        min="1"
+                        max="8"
                         className="filter-select"
                         style={{ width: '100%' }}
                         value={newSyQuarters}
-                        onChange={e => setNewSyQuarters(Number(e.target.value))}
-                      >
-                        <option value={4}>4 Quarters (Standard K to 12: Q1, Q2, Q3, Q4)</option>
-                        <option value={2}>2 Semestral Periods (Sem 1 & Sem 2)</option>
-                        <option value={3}>3 Trimester Periods</option>
-                      </select>
+                        onChange={e => setNewSyQuarters(Math.max(1, Math.min(8, Number(e.target.value) || 1)))}
+                        required
+                      />
                       <small style={{ color: '#666', fontSize: '11px', marginTop: '4px', display: 'block' }}>
-                        Auto-generates quarterly grading periods for this school year.
+                        Total grading periods to generate (e.g. 4 for standard Q1-Q4, 2 for Sem 1 & 2)
                       </small>
                     </div>
                   </div>
@@ -937,9 +1045,9 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
       {/* Modal: Configure Academic Structure (Semesters & Quarters) */}
       {structureModal && activeYear && (
         <div className="modal active">
-          <div className="modal-content">
+          <div className="modal-content" style={{ maxWidth: '680px' }}>
             <div className="modal-header">
-              <h3 className="modal-title"><IcoEdit /> Configure Academic Structure (S.Y. {activeYear.year_label})</h3>
+              <h3 className="modal-title"><IcoEdit /> Dynamic Academic Structure (S.Y. {activeYear.year_label})</h3>
               <button className="modal-close" onClick={() => setStructureModal(false)}><IcoClose /></button>
             </div>
             <form onSubmit={handleSaveStructure}>
@@ -950,49 +1058,144 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                   </div>
                 )}
                 <p style={{ fontSize: '13px', color: '#555', marginBottom: '16px' }}>
-                  Adjust the number of semesters and grading quarters for this school year. Existing quarter records will be preserved or adjusted to match.
+                  Dynamically adjust the number of semesters and grading periods for this school year. You can customize the name and semester track for every individual period below.
                 </p>
 
-                <div className="form-group">
-                  <label>Number of Semesters *</label>
-                  <select
-                    className="filter-select"
-                    style={{ width: '100%' }}
-                    value={editSemesters}
-                    onChange={e => setEditSemesters(Number(e.target.value))}
-                    required
-                  >
-                    <option value={2}>2 Semesters (Standard: 1st Semester & 2nd Semester)</option>
-                    <option value={1}>1 Full-Year Term</option>
-                    <option value={3}>3 Trimesters</option>
-                  </select>
-                  <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
-                    SHS subjects and report cards will be mapped according to these semesters.
-                  </small>
+                <div className="form-grid" style={{ marginBottom: '16px' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Number of Semesters *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="6"
+                      className="filter-select"
+                      style={{ width: '100%' }}
+                      value={editSemesters}
+                      onChange={e => setEditSemesters(Math.max(1, Math.min(6, Number(e.target.value) || 1)))}
+                      required
+                    />
+                    <small style={{ color: '#666', fontSize: '11px', marginTop: '4px', display: 'block' }}>
+                      e.g. 2 for Semestral, 1 for Full Year, 3 for Trimesters
+                    </small>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Number of Grading Periods *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="8"
+                      className="filter-select"
+                      style={{ width: '100%' }}
+                      value={editQuartersCount}
+                      onChange={e => handleQuartersCountChange(e.target.value)}
+                      required
+                    />
+                    <small style={{ color: '#666', fontSize: '11px', marginTop: '4px', display: 'block' }}>
+                      Total number of grading periods (1 to 8)
+                    </small>
+                  </div>
                 </div>
 
-                <div className="form-group">
-                  <label>Number of Quarters / Grading Periods *</label>
-                  <select
-                    className="filter-select"
-                    style={{ width: '100%' }}
-                    value={editQuartersCount}
-                    onChange={e => setEditQuartersCount(Number(e.target.value))}
-                    required
-                  >
-                    <option value={4}>4 Quarters (Standard DepEd K to 12)</option>
-                    <option value={2}>2 Semestral Periods (Midterms / Finals)</option>
-                    <option value={3}>3 Trimester Periods</option>
-                  </select>
-                  <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
-                    If changed, missing quarters will be auto-generated with default open/locked statuses.
-                  </small>
+                {/* Dynamic Period Customizer List */}
+                <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px', marginTop: '12px' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#8B0000', fontWeight: '700' }}>
+                    Period Names & Semester Associations
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '260px', overflowY: 'auto' }}>
+                    {structurePeriods.map((p, idx) => (
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#555' }}>
+                          Period {idx + 1}:
+                        </span>
+                        <input
+                          type="text"
+                          className="search-input"
+                          style={{ padding: '6px 10px', fontSize: '13px' }}
+                          placeholder="e.g. 1st Quarter, Midterm"
+                          value={p.quarter_name}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setStructurePeriods(curr => {
+                              const copy = [...curr];
+                              copy[idx] = { ...copy[idx], quarter_name: val };
+                              return copy;
+                            });
+                          }}
+                          required
+                        />
+                        <input
+                          type="text"
+                          className="search-input"
+                          style={{ padding: '6px 10px', fontSize: '13px' }}
+                          placeholder="Semester (e.g. 1st Semester)"
+                          value={p.semester_name}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setStructurePeriods(curr => {
+                              const copy = [...curr];
+                              copy[idx] = { ...copy[idx], semester_name: val };
+                              return copy;
+                            });
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setStructureModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={structureSaving}>
                   <IcoSave /> {structureSaving ? 'Saving...' : 'Save Structure'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Single Period Inline */}
+      {editQuarterModal && editingQuarter && (
+        <div className="modal active">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoEdit /> Edit Period</h3>
+              <button className="modal-close" onClick={() => setEditQuarterModal(false)}><IcoClose /></button>
+            </div>
+            <form onSubmit={handleSaveQuarterEdit}>
+              <div className="modal-body">
+                {editQuarterError && (
+                  <div style={{ color: '#dc3545', background: '#f8d7da', padding: '10px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
+                    {editQuarterError}
+                  </div>
+                )}
+                <div className="form-group">
+                  <label>Quarter / Period Display Name *</label>
+                  <input
+                    value={editingQuarter.quarter_name}
+                    onChange={e => setEditingQuarter(eq => ({ ...eq, quarter_name: e.target.value }))}
+                    placeholder="e.g. 1st Quarter, Midterm Assessment, Finals"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Semester Track</label>
+                  <input
+                    value={editingQuarter.semester_name}
+                    onChange={e => setEditingQuarter(eq => ({ ...eq, semester_name: e.target.value }))}
+                    placeholder="e.g. 1st Semester, 2nd Semester, Summer Term"
+                    required
+                  />
+                  <small style={{ color: '#666', fontSize: '11px', marginTop: '4px', display: 'block' }}>
+                    Type any custom semester or academic period name (e.g. 1st Semester, Summer Term, Trimester 2).
+                  </small>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setEditQuarterModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={editQuarterSaving}>
+                  <IcoSave /> {editQuarterSaving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>
@@ -1036,8 +1239,20 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                     <option value="2nd Semester">2nd Semester</option>
                     <option value="Summer / Special Term">Summer / Special Term</option>
                     <option value="Full Year">Full Year</option>
+                    <option value="__custom__">+ Enter Custom Semester Name...</option>
                   </select>
                 </div>
+                {newPeriodSemester === '__custom__' && (
+                  <div className="form-group">
+                    <label>Custom Semester Label *</label>
+                    <input
+                      value={customSemesterText}
+                      onChange={e => setCustomSemesterText(e.target.value)}
+                      placeholder="e.g. 3rd Trimester, Mid-Year Term"
+                      required
+                    />
+                  </div>
+                )}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setPeriodModal(false)}>Cancel</button>
