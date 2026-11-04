@@ -12,8 +12,8 @@ function IcoGrades() {
   );
 }
 
-const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
-const Q_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
+const DEFAULT_QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
+const DEFAULT_Q_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
 export default function StudentGradesPage() {
   const { supabase, profile, activePolicy } = useAuth();
@@ -23,13 +23,15 @@ export default function StudentGradesPage() {
   const [strandCode, setStrandCode] = useState(null);
   const [loading, setLoading]       = useState(true);
   const [quarter, setQuarter]       = useState('1Q');
+  const [quarterList, setQuarterList] = useState(DEFAULT_QUARTERS);
+  const [quarterLabels, setQuarterLabels] = useState(DEFAULT_Q_LABELS);
 
   useEffect(() => {
     if (!profile?.student_record_id) return;
     async function fetch() {
       setLoading(true);
       try {
-        const [{ data: gData }, { data: sData }, { data: strData }] = await Promise.all([
+        const [{ data: gData }, { data: sData }, { data: strData }, { data: syData }] = await Promise.all([
           supabase
             .from('grades')
             .select('*')
@@ -45,7 +47,34 @@ export default function StudentGradesPage() {
                 .eq('id', profile.current_strand_id)
                 .maybeSingle()
             : Promise.resolve({ data: null }),
+          supabase
+            .from('school_years')
+            .select('id')
+            .eq('is_active', true)
+            .limit(1)
+            .maybeSingle(),
         ]);
+
+        if (syData) {
+          const { data: qData } = await supabase
+            .from('quarters')
+            .select('*')
+            .eq('school_year_id', syData.id)
+            .order('quarter_number', { ascending: true });
+
+          if (qData && qData.length > 0) {
+            const keys = qData.map(q => `${q.quarter_number}Q`);
+            const labels = {};
+            qData.forEach(q => {
+              labels[`${q.quarter_number}Q`] = q.quarter_name + (q.semester_name ? ` (${q.semester_name})` : '');
+            });
+            setQuarterList(keys);
+            setQuarterLabels(labels);
+            if (!keys.includes(quarter)) {
+              setQuarter(keys[0]);
+            }
+          }
+        }
 
         setGrades(gData ?? []);
         setDbSubjects(sData ?? []);
@@ -73,11 +102,11 @@ export default function StudentGradesPage() {
   // Group by subject across all quarters for summary
   const summary = subjects.map(subj => {
     const row = { subject: subj };
-    QUARTERS.forEach(q => {
+    quarterList.forEach(q => {
       const g = grades.find(x => x.subject === subj && x.quarter === q);
       row[q] = g?.quarter_grade ?? null;
     });
-    const vals = QUARTERS.map(q => row[q]).filter(v => v != null && !isNaN(v));
+    const vals = quarterList.map(q => row[q]).filter(v => v != null && !isNaN(v));
     row.avg = vals.length ? (vals.reduce((a, b) => a + Number(b), 0) / vals.length).toFixed(2) : null;
     return row;
   });
@@ -101,13 +130,13 @@ export default function StudentGradesPage() {
             <h2 className="card-title"><IcoGrades /> Grade Report</h2>
           </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {QUARTERS.map(q => (
+            {quarterList.map(q => (
               <button
                 key={q}
                 className={`btn ${quarter === q ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => setQuarter(q)}
               >
-                {Q_LABELS[q]}
+                {quarterLabels[q] || q}
               </button>
             ))}
           </div>
@@ -116,7 +145,7 @@ export default function StudentGradesPage() {
         {/* Quarter grades */}
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title">{Q_LABELS[quarter]} Grades</h2>
+            <h2 className="card-title">{quarterLabels[quarter] || quarter} Grades</h2>
           </div>
           <div className="table-container">
             <table className="data-table">
@@ -174,7 +203,7 @@ export default function StudentGradesPage() {
                 <thead>
                   <tr>
                     <th>Subject</th>
-                    {QUARTERS.map(q => <th key={q}>{Q_LABELS[q]}</th>)}
+                    {quarterList.map(q => <th key={q}>{quarterLabels[q] || q}</th>)}
                     <th>General Average</th>
                   </tr>
                 </thead>
@@ -182,7 +211,7 @@ export default function StudentGradesPage() {
                   {summary.map(row => (
                     <tr key={row.subject}>
                       <td style={{ fontWeight: '600' }}>{row.subject}</td>
-                      {QUARTERS.map(q => (
+                      {quarterList.map(q => (
                         <td key={q} style={{ textAlign: 'center' }}>
                           {row[q] != null ? (
                             <span style={{

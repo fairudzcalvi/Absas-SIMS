@@ -100,6 +100,12 @@ export default function TeacherGradesPage() {
   const [gradeFilter, setGrade]   = useState('');
   const [subject, setSubject]     = useState('');
   const [quarter, setQuarter]     = useState('1Q');
+  const [availableQuarters, setAvailableQuarters] = useState([
+    { key: '1Q', num: 1, label: '1st Quarter' },
+    { key: '2Q', num: 2, label: '2nd Quarter' },
+    { key: '3Q', num: 3, label: '3rd Quarter' },
+    { key: '4Q', num: 4, label: '4th Quarter' },
+  ]);
   const [students, setStudents]   = useState([]);
   const [gradeMap, setGradeMap]   = useState({}); // { student_record_id: { written_works, performance_tasks, quarterly_assessment, quarter_grade } }
   const [loading, setLoading]     = useState(false);
@@ -108,6 +114,41 @@ export default function TeacherGradesPage() {
   const [subjects, setSubjects]   = useState(DEFAULT_SUBJECTS);
   const [customSubjectMode, setCustomSubjectMode] = useState(false);
   const [gradingLocked, setGradingLocked] = useState(false);
+
+  // Fetch configured quarters for the active school year
+  useEffect(() => {
+    async function loadQuarters() {
+      const { data: syData } = await supabase
+        .from('school_years')
+        .select('id, semester_count, quarter_count')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+
+      if (syData) {
+        const { data: qData } = await supabase
+          .from('quarters')
+          .select('*')
+          .eq('school_year_id', syData.id)
+          .order('quarter_number', { ascending: true });
+
+        if (qData && qData.length > 0) {
+          const mapped = qData.map(q => ({
+            key: `${q.quarter_number}Q`,
+            num: q.quarter_number,
+            label: q.quarter_name,
+            semester: q.semester_name || (q.quarter_number <= 2 ? '1st Semester' : '2nd Semester'),
+          }));
+          setAvailableQuarters(mapped);
+          // If current selected quarter is not in active list, select first available
+          if (!mapped.some(m => m.key === quarter)) {
+            setQuarter(mapped[0].key);
+          }
+        }
+      }
+    }
+    loadQuarters();
+  }, [supabase]);
 
   // Check if grading is locked for the selected quarter
   useEffect(() => {
@@ -122,7 +163,7 @@ export default function TeacherGradesPage() {
         .select('id')
         .eq('is_active', true)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (!syData) {
         setGradingLocked(false);
@@ -136,7 +177,7 @@ export default function TeacherGradesPage() {
         .eq('school_year_id', syData.id)
         .eq('quarter_number', qNum)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       // If is_grading_open is false, grading is locked
       setGradingLocked(qData ? !qData.is_grading_open : false);
@@ -351,9 +392,13 @@ export default function TeacherGradesPage() {
               )}
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Quarter</label>
+              <label>Quarter / Period</label>
               <select className="filter-select" style={{ width: '100%' }} value={quarter} onChange={e => setQuarter(e.target.value)}>
-                {QUARTERS.map(q => <option key={q} value={q}>{QUARTER_LABELS[q]}</option>)}
+                {availableQuarters.map(q => (
+                  <option key={q.key} value={q.key}>
+                    {q.label} {q.semester ? `(${q.semester})` : ''}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -364,7 +409,7 @@ export default function TeacherGradesPage() {
           <div className="card">
             <div className="card-header">
               <h2 className="card-title">
-                Grade {gradeFilter} — {subject} — {QUARTER_LABELS[quarter]}
+                Grade {gradeFilter} — {subject} — {availableQuarters.find(q => q.key === quarter)?.label || quarter}
               </h2>
             </div>
 

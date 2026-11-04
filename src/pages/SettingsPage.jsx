@@ -276,8 +276,24 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   const [newSyLabel, setNewSyLabel] = useState('');
   const [newSyStart, setNewSyStart] = useState('');
   const [newSyEnd, setNewSyEnd] = useState('');
+  const [newSySemesters, setNewSySemesters] = useState(2); // 0, 1, 2, or 3
+  const [newSyQuarters, setNewSyQuarters] = useState(4);   // 2, 3, or 4
   const [syFormError, setSyFormError] = useState('');
   const [sySaving, setSySaving] = useState(false);
+
+  // Edit Academic Structure Modal
+  const [structureModal, setStructureModal] = useState(false);
+  const [structureSaving, setStructureSaving] = useState(false);
+  const [structureError, setStructureError] = useState('');
+  const [editSemesters, setEditSemesters] = useState(2);
+  const [editQuartersCount, setEditQuartersCount] = useState(4);
+
+  // Add Custom Period Modal
+  const [periodModal, setPeriodModal] = useState(false);
+  const [newPeriodName, setNewPeriodName] = useState('');
+  const [newPeriodSemester, setNewPeriodSemester] = useState('1st Semester');
+  const [periodSaving, setPeriodSaving] = useState(false);
+  const [periodError, setPeriodError] = useState('');
 
   // New Strand Modal
   const [strandModal, setStrandModal] = useState(false);
@@ -347,38 +363,212 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
     setSyFormError('');
 
     try {
-      const { data: createdSy, error } = await supabase.from('school_years').insert([{
+      // 1. Insert school year record with semester_count and quarter_count
+      const syPayload = {
         year_label: newSyLabel,
         start_date: newSyStart || null,
         end_date:   newSyEnd || null,
         is_active:  years.length === 0,
-      }]).select().single();
+        semester_count: Number(newSySemesters),
+        quarter_count:  Number(newSyQuarters),
+      };
 
+      // Try inserting with semester/quarter count columns; fallback gracefully if columns not present yet
+      let createdSy = null;
+      const { data: insertedSy, error } = await supabase.from('school_years').insert([syPayload]).select().single();
       if (error) {
-        setSyFormError(error.message);
-        setSySaving(false);
-        return;
+        // If columns don't exist yet, retry with base columns
+        if (error.message && (error.message.includes('semester_count') || error.message.includes('quarter_count') || error.code === '42703')) {
+          const { data: baseSy, error: baseErr } = await supabase.from('school_years').insert([{
+            year_label: newSyLabel,
+            start_date: newSyStart || null,
+            end_date:   newSyEnd || null,
+            is_active:  years.length === 0,
+          }]).select().single();
+          if (baseErr) throw baseErr;
+          createdSy = baseSy;
+        } else {
+          throw error;
+        }
+      } else {
+        createdSy = insertedSy;
       }
 
       if (createdSy) {
-        // Auto create 4 quarters
-        await supabase.from('quarters').insert([
-          { school_year_id: createdSy.id, quarter_number: 1, quarter_name: '1st Quarter', is_active: true, is_grading_open: true },
-          { school_year_id: createdSy.id, quarter_number: 2, quarter_name: '2nd Quarter', is_active: false, is_grading_open: true },
-          { school_year_id: createdSy.id, quarter_number: 3, quarter_name: '3rd Quarter', is_active: false, is_grading_open: false },
-          { school_year_id: createdSy.id, quarter_number: 4, quarter_name: '4th Quarter', is_active: false, is_grading_open: false },
-        ]);
+        const numQ = Number(newSyQuarters);
+        const numSem = Number(newSySemesters);
+        const quarterRows = [];
+
+        for (let i = 1; i <= numQ; i++) {
+          let semName = null;
+          if (numSem === 2) {
+            semName = (numQ === 4 && i > 2) ? '2nd Semester' : (numQ === 2 && i === 2) ? '2nd Semester' : '1st Semester';
+          } else if (numSem === 1) {
+            semName = 'Full Year';
+          }
+
+          const qOrdinal = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`;
+          quarterRows.push({
+            school_year_id: createdSy.id,
+            quarter_number: i,
+            quarter_name: `${qOrdinal} Quarter`,
+            semester_name: semName,
+            is_active: i === 1,
+            is_grading_open: i <= 2,
+          });
+        }
+
+        // Try inserting with semester_name, fallback if column doesn't exist
+        const { error: qErr } = await supabase.from('quarters').insert(quarterRows);
+        if (qErr && (qErr.message.includes('semester_name') || qErr.code === '42703')) {
+          const fallbackRows = quarterRows.map(({ semester_name, ...rest }) => rest);
+          await supabase.from('quarters').insert(fallbackRows);
+        }
       }
 
       setSyModal(false);
       setNewSyLabel('');
       setNewSyStart('');
       setNewSyEnd('');
+      setNewSySemesters(2);
+      setNewSyQuarters(4);
       fetchData();
+      if (refreshAcademicYear) refreshAcademicYear();
     } catch (err) {
-      setSyFormError(err.message);
+      setSyFormError(err.message || 'Failed to save school year');
     } finally {
       setSySaving(false);
+    }
+  }
+
+  function openStructureModal() {
+    if (!activeYear) return;
+    setStructureError('');
+    setEditSemesters(activeYear.semester_count != null ? activeYear.semester_count : 2);
+    setEditQuartersCount(activeYear.quarter_count != null ? activeYear.quarter_count : (quarters.length || 4));
+    setStructureModal(true);
+  }
+
+  async function handleSaveStructure(e) {
+    e.preventDefault();
+    if (!activeYear) return;
+    setStructureSaving(true);
+    setStructureError('');
+
+    try {
+      const targetQ = Number(editQuartersCount);
+      const targetSem = Number(editSemesters);
+
+      // 1. Update school_years table
+      const syUpdate = {
+        semester_count: targetSem,
+        quarter_count: targetQ,
+      };
+      const { error: syErr } = await supabase.from('school_years').update(syUpdate).eq('id', activeYear.id);
+      if (syErr && !syErr.message.includes('semester_count')) {
+        throw syErr;
+      }
+
+      // 2. Adjust quarters table: add missing or update semester associations
+      const currentCount = quarters.length;
+      if (targetQ > currentCount) {
+        // Add additional quarters
+        const toAdd = [];
+        for (let i = currentCount + 1; i <= targetQ; i++) {
+          const qOrdinal = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`;
+          let semName = null;
+          if (targetSem === 2) {
+            semName = (targetQ === 4 && i > 2) ? '2nd Semester' : (targetQ === 2 && i === 2) ? '2nd Semester' : '1st Semester';
+          }
+          toAdd.push({
+            school_year_id: activeYear.id,
+            quarter_number: i,
+            quarter_name: `${qOrdinal} Quarter`,
+            semester_name: semName,
+            is_active: false,
+            is_grading_open: false,
+          });
+        }
+        const { error: insErr } = await supabase.from('quarters').insert(toAdd);
+        if (insErr && (insErr.message.includes('semester_name') || insErr.code === '42703')) {
+          await supabase.from('quarters').insert(toAdd.map(({ semester_name, ...r }) => r));
+        }
+      } else if (targetQ < currentCount) {
+        // If shrinking quarters, remove excess higher numbered quarters if no grades depend on them
+        const toRemove = quarters.filter(q => q.quarter_number > targetQ);
+        for (const q of toRemove) {
+          await supabase.from('quarters').delete().eq('id', q.id);
+        }
+      }
+
+      // Update semester_name tags on existing quarters if column exists
+      if (targetSem === 2) {
+        for (let i = 1; i <= targetQ; i++) {
+          const semName = (targetQ === 4 && i > 2) ? '2nd Semester' : (targetQ === 2 && i === 2) ? '2nd Semester' : '1st Semester';
+          await supabase.from('quarters').update({ semester_name: semName }).eq('school_year_id', activeYear.id).eq('quarter_number', i);
+        }
+      }
+
+      setStructureModal(false);
+      fetchData();
+      if (refreshAcademicYear) refreshAcademicYear();
+    } catch (err) {
+      setStructureError(err.message || 'Failed to update academic structure');
+    } finally {
+      setStructureSaving(false);
+    }
+  }
+
+  async function handleAddCustomPeriod(e) {
+    e.preventDefault();
+    if (!activeYear || !newPeriodName.trim()) return;
+    setPeriodSaving(true);
+    setPeriodError('');
+
+    try {
+      const nextNum = quarters.length ? Math.max(...quarters.map(q => q.quarter_number)) + 1 : 1;
+      const row = {
+        school_year_id: activeYear.id,
+        quarter_number: nextNum,
+        quarter_name: newPeriodName.trim(),
+        semester_name: newPeriodSemester,
+        is_active: false,
+        is_grading_open: true,
+      };
+
+      const { error } = await supabase.from('quarters').insert([row]);
+      if (error && (error.message.includes('semester_name') || error.code === '42703')) {
+        const { semester_name, ...fallback } = row;
+        await supabase.from('quarters').insert([fallback]);
+      } else if (error) {
+        throw error;
+      }
+
+      // Update school year quarter_count
+      await supabase.from('school_years').update({ quarter_count: quarters.length + 1 }).eq('id', activeYear.id);
+
+      setPeriodModal(false);
+      setNewPeriodName('');
+      fetchData();
+      if (refreshAcademicYear) refreshAcademicYear();
+    } catch (err) {
+      setPeriodError(err.message || 'Failed to add period');
+    } finally {
+      setPeriodSaving(false);
+    }
+  }
+
+  async function handleDeleteQuarter(qId, qName) {
+    if (!window.confirm(`Are you sure you want to remove ${qName}? Any grading rules tied to this period will be unlinked.`)) return;
+    try {
+      await supabase.from('quarters').delete().eq('id', qId);
+      if (activeYear) {
+        await supabase.from('school_years').update({ quarter_count: Math.max(1, quarters.length - 1) }).eq('id', activeYear.id);
+      }
+      fetchData();
+      if (refreshAcademicYear) refreshAcademicYear();
+    } catch (err) {
+      alert('Error removing quarter: ' + err.message);
     }
   }
 
@@ -468,6 +658,28 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                 <div style={{ fontSize: '13px', color: '#555', lineHeight: '1.6' }}>
                   <div><strong>Start Date:</strong> {sy.start_date || 'Not set'}</div>
                   <div><strong>End Date:</strong> {sy.end_date || 'Not set'}</div>
+                  <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{
+                      background: '#f0f4f8',
+                      color: '#334155',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                    }}>
+                      {sy.semester_count != null ? sy.semester_count : 2} Semesters
+                    </span>
+                    <span style={{
+                      background: '#fef3c7',
+                      color: '#92400e',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                    }}>
+                      {sy.quarter_count != null ? sy.quarter_count : 4} Quarters
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
@@ -477,55 +689,113 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
         {/* Quarters for the active school year */}
         {activeYear && (
           <div style={{ marginTop: '20px', borderTop: '1px solid #eee', paddingTop: '16px' }}>
-            <h3 style={{ fontSize: '15px', color: '#8B0000', marginBottom: '12px', fontWeight: '600' }}>
-              Quarterly Periods for S.Y. {activeYear.year_label}
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h3 style={{ fontSize: '16px', color: '#8B0000', margin: 0, fontWeight: '700' }}>
+                  Academic Structure & Periods for S.Y. {activeYear.year_label}
+                </h3>
+                <div style={{ fontSize: '13px', color: '#666', marginTop: '3px' }}>
+                  System Configuration: <strong>{activeYear.semester_count != null ? activeYear.semester_count : 2} Semester{activeYear.semester_count === 1 ? '' : 's'}</strong> &bull; <strong>{quarters.length} Grading Period{quarters.length === 1 ? '' : 's'}</strong>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={openStructureModal}
+                >
+                  <IcoEdit /> Configure Semesters & Quarters
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => { setPeriodError(''); setPeriodModal(true); }}
+                >
+                  <IcoAdd /> Add Period
+                </button>
+              </div>
+            </div>
+
             <div className="table-container">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Quarter</th>
+                    <th>Quarter / Period Name</th>
+                    <th>Semester Track</th>
                     <th>Current Status</th>
                     <th>Teacher Grade Encoding</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {quarters.map(q => (
-                    <tr key={q.id}>
-                      <td style={{ fontWeight: '600' }}>{q.quarter_name}</td>
-                      <td>
-                        {q.is_active ? (
-                          <span style={styles.badgeActive}>● Currently Active Quarter</span>
-                        ) : (
-                          <span style={styles.badgeInactive}>Inactive</span>
-                        )}
-                      </td>
-                      <td>
-                        {q.is_grading_open ? (
-                          <span style={{ color: '#28a745', fontWeight: '600' }}>🔓 Open (Encoding Allowed)</span>
-                        ) : (
-                          <span style={{ color: '#dc3545', fontWeight: '600' }}>🔒 Closed / Locked</span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            className={`btn btn-sm ${q.is_active ? 'btn-secondary' : 'btn-primary'}`}
-                            onClick={() => handleToggleQuarter(q.id, q.is_active)}
-                          >
-                            {q.is_active ? 'Deactivate' : 'Set as Current Quarter'}
-                          </button>
-                          <button
-                            className={`btn btn-sm ${q.is_grading_open ? 'btn-danger' : 'btn-secondary'}`}
-                            onClick={() => handleToggleGrading(q.id, q.is_grading_open)}
-                          >
-                            {q.is_grading_open ? 'Lock Grades' : 'Open Grading'}
-                          </button>
-                        </div>
-                      </td>
+                  {quarters.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="empty-message">No quarters/periods found. Click "Configure Semesters & Quarters" or "Add Period" to create them.</td>
                     </tr>
-                  ))}
+                  ) : (
+                    quarters.map(q => {
+                      const semTag = q.semester_name || (
+                        q.quarter_number <= 2 ? '1st Semester' : '2nd Semester'
+                      );
+                      return (
+                        <tr key={q.id}>
+                          <td style={{ fontWeight: '600' }}>{q.quarter_name}</td>
+                          <td>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '3px 8px',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              background: semTag.includes('1st') ? '#e8f0fe' : '#fef7e0',
+                              color: semTag.includes('1st') ? '#1a73e8' : '#b06000',
+                            }}>
+                              {semTag}
+                            </span>
+                          </td>
+                          <td>
+                            {q.is_active ? (
+                              <span style={styles.badgeActive}>● Currently Active Quarter</span>
+                            ) : (
+                              <span style={styles.badgeInactive}>Inactive</span>
+                            )}
+                          </td>
+                          <td>
+                            {q.is_grading_open ? (
+                              <span style={{ color: '#28a745', fontWeight: '600' }}>🔓 Open (Encoding Allowed)</span>
+                            ) : (
+                              <span style={{ color: '#dc3545', fontWeight: '600' }}>🔒 Closed / Locked</span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <button
+                                className={`btn btn-sm ${q.is_active ? 'btn-secondary' : 'btn-primary'}`}
+                                onClick={() => handleToggleQuarter(q.id, q.is_active)}
+                              >
+                                {q.is_active ? 'Deactivate' : 'Set as Current'}
+                              </button>
+                              <button
+                                className={`btn btn-sm ${q.is_grading_open ? 'btn-danger' : 'btn-secondary'}`}
+                                onClick={() => handleToggleGrading(q.id, q.is_grading_open)}
+                              >
+                                {q.is_grading_open ? 'Lock Grades' : 'Open Grading'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                style={{ background: '#f8d7da', color: '#721c24', padding: '6px 8px' }}
+                                title="Remove this period"
+                                onClick={() => handleDeleteQuarter(q.id, q.quarter_name)}
+                              >
+                                <IcoTrash />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -611,11 +881,168 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                     <input type="date" value={newSyEnd} onChange={e => setNewSyEnd(e.target.value)} />
                   </div>
                 </div>
+
+                <div style={{ background: '#fdfbf7', border: '1px solid #eedcbf', borderRadius: '8px', padding: '14px', marginTop: '8px' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#8B0000', fontWeight: '600' }}>
+                    Academic Structure Setup
+                  </h4>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Number of Semesters</label>
+                      <select
+                        className="filter-select"
+                        style={{ width: '100%' }}
+                        value={newSySemesters}
+                        onChange={e => setNewSySemesters(Number(e.target.value))}
+                      >
+                        <option value={2}>2 Semesters (Standard DepEd / SHS)</option>
+                        <option value={1}>1 Full Year Academic Term</option>
+                        <option value={3}>3 Trimesters</option>
+                      </select>
+                      <small style={{ color: '#666', fontSize: '11px', marginTop: '4px', display: 'block' }}>
+                        Used for Junior & Senior High semester categorization.
+                      </small>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Number of Quarters / Periods</label>
+                      <select
+                        className="filter-select"
+                        style={{ width: '100%' }}
+                        value={newSyQuarters}
+                        onChange={e => setNewSyQuarters(Number(e.target.value))}
+                      >
+                        <option value={4}>4 Quarters (Standard K to 12: Q1, Q2, Q3, Q4)</option>
+                        <option value={2}>2 Semestral Periods (Sem 1 & Sem 2)</option>
+                        <option value={3}>3 Trimester Periods</option>
+                      </select>
+                      <small style={{ color: '#666', fontSize: '11px', marginTop: '4px', display: 'block' }}>
+                        Auto-generates quarterly grading periods for this school year.
+                      </small>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setSyModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={sySaving}>
                   <IcoSave /> {sySaving ? 'Saving...' : 'Create S.Y.'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Configure Academic Structure (Semesters & Quarters) */}
+      {structureModal && activeYear && (
+        <div className="modal active">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoEdit /> Configure Academic Structure (S.Y. {activeYear.year_label})</h3>
+              <button className="modal-close" onClick={() => setStructureModal(false)}><IcoClose /></button>
+            </div>
+            <form onSubmit={handleSaveStructure}>
+              <div className="modal-body">
+                {structureError && (
+                  <div style={{ color: '#dc3545', background: '#f8d7da', padding: '10px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
+                    {structureError}
+                  </div>
+                )}
+                <p style={{ fontSize: '13px', color: '#555', marginBottom: '16px' }}>
+                  Adjust the number of semesters and grading quarters for this school year. Existing quarter records will be preserved or adjusted to match.
+                </p>
+
+                <div className="form-group">
+                  <label>Number of Semesters *</label>
+                  <select
+                    className="filter-select"
+                    style={{ width: '100%' }}
+                    value={editSemesters}
+                    onChange={e => setEditSemesters(Number(e.target.value))}
+                    required
+                  >
+                    <option value={2}>2 Semesters (Standard: 1st Semester & 2nd Semester)</option>
+                    <option value={1}>1 Full-Year Term</option>
+                    <option value={3}>3 Trimesters</option>
+                  </select>
+                  <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                    SHS subjects and report cards will be mapped according to these semesters.
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label>Number of Quarters / Grading Periods *</label>
+                  <select
+                    className="filter-select"
+                    style={{ width: '100%' }}
+                    value={editQuartersCount}
+                    onChange={e => setEditQuartersCount(Number(e.target.value))}
+                    required
+                  >
+                    <option value={4}>4 Quarters (Standard DepEd K to 12)</option>
+                    <option value={2}>2 Semestral Periods (Midterms / Finals)</option>
+                    <option value={3}>3 Trimester Periods</option>
+                  </select>
+                  <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                    If changed, missing quarters will be auto-generated with default open/locked statuses.
+                  </small>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setStructureModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={structureSaving}>
+                  <IcoSave /> {structureSaving ? 'Saving...' : 'Save Structure'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add Custom Period */}
+      {periodModal && activeYear && (
+        <div className="modal active">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoAdd /> Add Period (S.Y. {activeYear.year_label})</h3>
+              <button className="modal-close" onClick={() => setPeriodModal(false)}><IcoClose /></button>
+            </div>
+            <form onSubmit={handleAddCustomPeriod}>
+              <div className="modal-body">
+                {periodError && (
+                  <div style={{ color: '#dc3545', background: '#f8d7da', padding: '10px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
+                    {periodError}
+                  </div>
+                )}
+                <div className="form-group">
+                  <label>Quarter / Period Name *</label>
+                  <input
+                    value={newPeriodName}
+                    onChange={e => setNewPeriodName(e.target.value)}
+                    placeholder="e.g. 5th Quarter, Summer Term, Remedial Period"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Semester Track</label>
+                  <select
+                    className="filter-select"
+                    style={{ width: '100%' }}
+                    value={newPeriodSemester}
+                    onChange={e => setNewPeriodSemester(e.target.value)}
+                  >
+                    <option value="1st Semester">1st Semester</option>
+                    <option value="2nd Semester">2nd Semester</option>
+                    <option value="Summer / Special Term">Summer / Special Term</option>
+                    <option value="Full Year">Full Year</option>
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setPeriodModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={periodSaving}>
+                  <IcoSave /> {periodSaving ? 'Saving...' : 'Add Period'}
                 </button>
               </div>
             </form>

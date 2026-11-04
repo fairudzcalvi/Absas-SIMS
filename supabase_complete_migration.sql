@@ -19,15 +19,29 @@ CREATE TABLE IF NOT EXISTS school_years (
     start_date DATE,
     end_date DATE,
     is_active BOOLEAN DEFAULT FALSE,
+    semester_count INT DEFAULT 2, -- e.g. 2 semesters, 1 full year, 3 trimesters
+    quarter_count INT DEFAULT 4,  -- e.g. 4 quarters, 2 semestral periods
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Migration support for existing school_years table
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='school_years' AND column_name='semester_count') THEN
+        ALTER TABLE school_years ADD COLUMN semester_count INT DEFAULT 2;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='school_years' AND column_name='quarter_count') THEN
+        ALTER TABLE school_years ADD COLUMN quarter_count INT DEFAULT 4;
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS quarters (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     school_year_id UUID REFERENCES school_years(id) ON DELETE CASCADE,
-    quarter_number INT NOT NULL CHECK (quarter_number BETWEEN 1 AND 4),
-    quarter_name VARCHAR(50) NOT NULL, -- "1st Quarter", "2nd Quarter", etc.
+    quarter_number INT NOT NULL,
+    quarter_name VARCHAR(100) NOT NULL, -- "1st Quarter", "2nd Quarter", etc.
+    semester_name VARCHAR(100) DEFAULT '1st Semester', -- "1st Semester", "2nd Semester", etc.
     is_active BOOLEAN DEFAULT FALSE,
     is_grading_open BOOLEAN DEFAULT TRUE,
     start_date DATE,
@@ -35,6 +49,14 @@ CREATE TABLE IF NOT EXISTS quarters (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT unique_sy_quarter UNIQUE (school_year_id, quarter_number)
 );
+
+-- Migration support for existing quarters table
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='quarters' AND column_name='semester_name') THEN
+        ALTER TABLE quarters ADD COLUMN semester_name VARCHAR(100) DEFAULT '1st Semester';
+    END IF;
+END $$;
 
 -- ==============================================================================
 -- 3. SENIOR HIGH SCHOOL (SHS) STRANDS & TRACKS
