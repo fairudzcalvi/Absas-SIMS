@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 /* ── Icons ─────────────────────────────────────────────── */
@@ -95,29 +96,60 @@ const EMPTY_FORM = {
 /* ── Page ──────────────────────────────────────────────── */
 export default function SchedulesPage() {
   const { supabase } = useAuth();
+  const [searchParams] = useSearchParams();
+  const teacherParam = searchParams.get('teacher');
 
   const [teachers, setTeachers]     = useState([]);
-  const [selectedTeacher, setSelectedTeacher] = useState('');
+  const [selectedTeacher, setSelectedTeacher] = useState(teacherParam || '');
   const [schedules, setSchedules]   = useState([]);
   const [loading, setLoading]       = useState(false);
+
+  // Catalogs for connecting schedule to school subjects, sections & active school year
+  const [allSubjects, setAllSubjects] = useState([]);
+  const [allSections, setAllSections] = useState([]);
+  const [activeSy, setActiveSy]       = useState(null);
 
   const [modalOpen, setModalOpen]   = useState(false);
   const [editItem, setEditItem]     = useState(null);
   const [form, setForm]             = useState(EMPTY_FORM);
+  const [customSubjectMode, setCustomSubjectMode] = useState(false);
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  /* fetch schedules when teacher changes */
+  /* fetch teachers, subjects, sections and active school year */
   useEffect(() => {
     let ignore = false;
     async function load() {
-      const { data } = await supabase
+      // 1. Teachers
+      const { data: fac } = await supabase
         .from('faculty')
         .select('*')
         .order('last_name', { ascending: true });
-      if (!ignore) {
-        setTeachers(data ?? []);
+      if (!ignore) setTeachers(fac ?? []);
+
+      // 2. Subjects Catalog
+      const { data: subjs } = await supabase
+        .from('subjects')
+        .select('subject_id, subject_name, subject_code, grade_level, department')
+        .order('subject_name', { ascending: true });
+      if (!ignore) setAllSubjects(subjs ?? []);
+
+      // 3. Sections Catalog
+      const { data: secs } = await supabase
+        .from('sections')
+        .select('id, section_name, grade_level, room_number, status')
+        .order('grade_level', { ascending: true });
+      if (!ignore) setAllSections(secs ?? []);
+
+      // 4. Active School Year
+      const { data: sy } = await supabase
+        .from('school_years')
+        .select('*')
+        .eq('is_active', true)
+        .maybeSingle();
+      if (!ignore && sy) {
+        setActiveSy(sy);
       }
     }
     load();
@@ -216,7 +248,12 @@ export default function SchedulesPage() {
   /* open modals */
   function openAdd() {
     setEditItem(null);
-    setForm({ ...EMPTY_FORM, teacher: selectedTeacher });
+    setForm({
+      ...EMPTY_FORM,
+      teacher: selectedTeacher,
+      school_year: activeSy?.year_label || '2025-2026',
+    });
+    setCustomSubjectMode(false);
     setFormError('');
     setModalOpen(true);
   }
@@ -231,8 +268,12 @@ export default function SchedulesPage() {
       time_start:   item.time_start   ?? '',
       time_end:     item.time_end     ?? '',
       room:         item.room         ?? '',
-      school_year:  item.school_year  ?? '2025-2026',
+      school_year:  item.school_year  ?? (activeSy?.year_label || '2025-2026'),
     });
+    const existsInCatalog = allSubjects.some(
+      s => s.subject_name.toLowerCase() === (item.subject || '').toLowerCase()
+    );
+    setCustomSubjectMode(!existsInCatalog && Boolean(item.subject));
     setFormError('');
     setModalOpen(true);
   }
@@ -252,6 +293,13 @@ export default function SchedulesPage() {
     const teacherId = teacherObj?.faculty_id || teacherObj?.faculty_record_id;
     const teacherName = teacherObj ? `${teacherObj.first_name || ''} ${teacherObj.last_name || ''}`.trim() : selectedTeacher;
 
+    const selectedSec = allSections.find(s => 
+      s.section_name === form.section_name && 
+      (!form.grade_level || Number(s.grade_level) === Number(form.grade_level))
+    );
+    const secId = selectedSec?.id || null;
+    const syId = activeSy?.id || null;
+
     const basePayload = {
       subject: form.subject,
       section_name: form.section_name || null,
@@ -260,13 +308,14 @@ export default function SchedulesPage() {
       time_start: form.time_start,
       time_end: form.time_end,
       room: form.room || null,
-      school_year: form.school_year || '2025-2026',
+      school_year: form.school_year || activeSy?.year_label || '2025-2026',
     };
 
     // Construct adaptive payload prioritizing 'teacher' with fallbacks
     const candidatePayloads = [
+      { ...basePayload, teacher: teacherEmail, faculty_id: teacherId, section_id: secId, school_year_id: syId },
+      { ...basePayload, teacher: teacherEmail, section_id: secId },
       { ...basePayload, teacher: teacherEmail },
-      { ...basePayload, teacher: teacherEmail, faculty_id: teacherId },
       { ...basePayload, faculty_id: teacherId },
       { ...basePayload, teacher_id: teacherId },
       { ...basePayload, teacher_name: teacherName },
@@ -457,31 +506,109 @@ export default function SchedulesPage() {
               <div className="modal-body">
                 {formError && <p style={{ color: '#dc3545', marginBottom: '12px', fontSize: '14px' }}>{formError}</p>}
                 <div className="form-grid">
-                  <div className="form-group">
-                    <label>Subject *</label>
-                    <input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="e.g. Mathematics" />
-                  </div>
-                  <div className="form-group">
-                    <label>Section</label>
-                    <input value={form.section_name} onChange={e => setForm(f => ({ ...f, section_name: e.target.value }))} placeholder="e.g. Section A" />
-                  </div>
+                  {/* Grade Level First */}
                   <div className="form-group">
                     <label>Grade Level</label>
-                    <select value={form.grade_level || ''} onChange={e => setForm(f => ({ ...f, grade_level: e.target.value }))}>
-                      <option value="">Select grade level</option>
-                      {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                    <select
+                      value={form.grade_level || ''}
+                      onChange={e => {
+                        const newGrade = e.target.value;
+                        setForm(f => ({ ...f, grade_level: newGrade }));
+                      }}
+                    >
+                      <option value="">Select Grade Level</option>
+                      {GRADE_OPTIONS.map(g => (
+                        <option key={g.value} value={g.value}>{g.label}</option>
+                      ))}
                     </select>
                   </div>
+
+                  {/* Section: Linked to database Sections catalog */}
+                  <div className="form-group">
+                    <label>Section</label>
+                    <select
+                      value={form.section_name || ''}
+                      onChange={e => {
+                        const secName = e.target.value;
+                        const matchingSec = allSections.find(s => s.section_name === secName);
+                        setForm(f => ({
+                          ...f,
+                          section_name: secName,
+                          room: (matchingSec?.room_number && !f.room) ? matchingSec.room_number : f.room,
+                        }));
+                      }}
+                    >
+                      <option value="">— Select Section —</option>
+                      {allSections
+                        .filter(s => !form.grade_level || Number(s.grade_level) === Number(form.grade_level))
+                        .map(s => (
+                          <option key={s.id} value={s.section_name}>
+                            {s.section_name} {s.room_number ? `(${s.room_number})` : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {/* Subject: Linked to database Subjects catalog */}
+                  <div className="form-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label style={{ margin: 0 }}>Subject *</label>
+                      <button
+                        type="button"
+                        onClick={() => setCustomSubjectMode(prev => !prev)}
+                        style={{ background: 'none', border: 'none', color: '#8B0000', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        {customSubjectMode ? 'Choose from Catalog' : '+ Custom Subject'}
+                      </button>
+                    </div>
+
+                    {customSubjectMode ? (
+                      <input
+                        value={form.subject}
+                        onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}
+                        placeholder="e.g. Mathematics"
+                        autoFocus
+                      />
+                    ) : (
+                      <select
+                        value={form.subject}
+                        onChange={e => {
+                          if (e.target.value === '__custom__') {
+                            setCustomSubjectMode(true);
+                            setForm(f => ({ ...f, subject: '' }));
+                          } else {
+                            setForm(f => ({ ...f, subject: e.target.value }));
+                          }
+                        }}
+                      >
+                        <option value="">— Select Subject —</option>
+                        {allSubjects
+                          .filter(s => !form.grade_level || !s.grade_level || Number(s.grade_level) === Number(form.grade_level))
+                          .map(s => (
+                            <option key={s.subject_id} value={s.subject_name}>
+                              {s.subject_name} {s.subject_code ? `(${s.subject_code})` : ''}
+                            </option>
+                          ))}
+                        <option value="__custom__">+ Enter Custom Subject...</option>
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Day of Week */}
                   <div className="form-group">
                     <label>Day *</label>
                     <select value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: e.target.value }))}>
                       {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
+
+                  {/* Room */}
                   <div className="form-group">
                     <label>Room</label>
                     <input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="e.g. Room 101" />
                   </div>
+
+                  {/* Start & End Time */}
                   <div className="form-group">
                     <label>Start Time *</label>
                     <input type="time" value={form.time_start} onChange={e => setForm(f => ({ ...f, time_start: e.target.value }))} />
@@ -490,6 +617,8 @@ export default function SchedulesPage() {
                     <label>End Time *</label>
                     <input type="time" value={form.time_end} onChange={e => setForm(f => ({ ...f, time_end: e.target.value }))} />
                   </div>
+
+                  {/* School Year */}
                   <div className="form-group">
                     <label>School Year</label>
                     <input value={form.school_year} onChange={e => setForm(f => ({ ...f, school_year: e.target.value }))} placeholder="e.g. 2025-2026" />

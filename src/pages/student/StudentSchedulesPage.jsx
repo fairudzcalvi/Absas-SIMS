@@ -36,7 +36,30 @@ export default function StudentSchedulesPage() {
         .eq('grade_level', profile.grade_level)
         .order('day_of_week')
         .order('time_start');
-      setSchedules(data ?? []);
+
+      let filtered = data ?? [];
+
+      // If student has a section_name, show their section's schedules plus grade-wide schedules
+      if (profile.section_name) {
+        const studentSec = profile.section_name.toLowerCase().trim();
+        const hasSectionMatches = filtered.some(s =>
+          s.section_name && (
+            s.section_name.toLowerCase().trim() === studentSec ||
+            studentSec.includes(s.section_name.toLowerCase().trim()) ||
+            s.section_name.toLowerCase().trim().includes(studentSec)
+          )
+        );
+
+        if (hasSectionMatches) {
+          filtered = filtered.filter(s => {
+            if (!s.section_name) return true; // Grade-wide class
+            const sec = s.section_name.toLowerCase().trim();
+            return sec === studentSec || studentSec.includes(sec) || sec.includes(studentSec);
+          });
+        }
+      }
+
+      setSchedules(filtered);
       setLoading(false);
     }
     fetch();

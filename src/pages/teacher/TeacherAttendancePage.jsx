@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 function IcoAttendance() {
@@ -16,6 +17,15 @@ function IcoSave() {
     </svg>
   );
 }
+function IcoCalendar() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
 
 const GRADE_OPTIONS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
 const STATUS_OPTIONS = ['Present', 'Absent', 'Late', 'Excused'];
@@ -27,26 +37,79 @@ const STATUS_COLORS = {
 function todayISO() { return new Date().toISOString().split('T')[0]; }
 
 export default function TeacherAttendancePage() {
-  const { supabase } = useAuth();
+  const { supabase, profile } = useAuth();
+  const location = useLocation();
 
   const [date, setDate]           = useState(todayISO());
-  const [gradeFilter, setGrade]   = useState('');
+  const [gradeFilter, setGrade]   = useState(location.state?.presetGrade ? String(location.state.presetGrade) : '');
+  const [sectionFilter, setSectionFilter] = useState(location.state?.presetSection || '');
+  const [availableSections, setAvailableSections] = useState([]);
+  const [teacherSchedules, setTeacherSchedules]   = useState([]);
   const [students, setStudents]   = useState([]);
   const [attendance, setAttendance] = useState({}); // { student_record_id: status }
   const [loading, setLoading]     = useState(false);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
 
+  // Load teacher's personal schedules
+  useEffect(() => {
+    async function loadTeacherSchedules() {
+      if (!profile) return;
+      const email = profile.email;
+      const facId = profile.faculty_id || profile.faculty_record_id;
+      const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+
+      const { data } = await supabase
+        .from('schedules')
+        .select('*')
+        .order('day_of_week')
+        .order('time_start');
+
+      if (data) {
+        const mySch = data.filter(s => {
+          const t = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
+          return t === email || t === facId || t === fullName;
+        });
+        setTeacherSchedules(mySch);
+      }
+    }
+    loadTeacherSchedules();
+  }, [supabase, profile]);
+
+  // Load sections for selected grade
+  useEffect(() => {
+    async function loadSections() {
+      if (!gradeFilter) {
+        setAvailableSections([]);
+        return;
+      }
+      const { data } = await supabase
+        .from('sections')
+        .select('id, section_name, grade_level')
+        .eq('grade_level', Number(gradeFilter))
+        .eq('status', 'Active')
+        .order('section_name');
+      setAvailableSections(data || []);
+    }
+    loadSections();
+  }, [supabase, gradeFilter]);
+
   useEffect(() => {
     let ignore = false;
     async function load() {
       if (!gradeFilter) return;
       setLoading(true);
-      const { data: studs } = await supabase
+
+      let q = supabase
         .from('students')
         .select('student_record_id, student_id, first_name, last_name, grade_level, section_name')
-        .eq('grade_level', Number(gradeFilter))
-        .order('last_name');
+        .eq('grade_level', Number(gradeFilter));
+
+      if (sectionFilter) {
+        q = q.eq('section_name', sectionFilter);
+      }
+
+      const { data: studs } = await q.order('last_name');
 
       const { data: existing } = await supabase
         .from('attendance')
@@ -67,7 +130,7 @@ export default function TeacherAttendancePage() {
     }
     load();
     return () => { ignore = true; };
-  }, [supabase, gradeFilter, date]);
+  }, [supabase, gradeFilter, sectionFilter, date]);
 
   async function handleSave() {
     if (students.length === 0) return;
@@ -104,6 +167,54 @@ export default function TeacherAttendancePage() {
           <div className="card-header">
             <h2 className="card-title"><IcoAttendance /> Record Attendance</h2>
           </div>
+
+          {/* Quick-Select from My Teaching Schedules */}
+          {teacherSchedules.length > 0 && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '12px 14px',
+              background: '#fff8f6',
+              border: '1px solid #f2dede',
+              borderRadius: '8px',
+            }}>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: '700',
+                color: '#8B0000',
+                marginBottom: '8px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}>
+                <IcoCalendar /> My Scheduled Classes (Click to quick-select):
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {teacherSchedules.map(sch => {
+                  const isSelected =
+                    String(gradeFilter) === String(sch.grade_level) &&
+                    (!sch.section_name || sectionFilter === sch.section_name);
+                  return (
+                    <button
+                      key={sch.schedule_id}
+                      type="button"
+                      onClick={() => {
+                        setGrade(String(sch.grade_level || ''));
+                        setSectionFilter(sch.section_name || '');
+                      }}
+                      className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ fontSize: '12px', padding: '4px 10px' }}
+                    >
+                      {sch.grade_level ? `Grade ${sch.grade_level}` : ''}
+                      {sch.section_name ? ` (${sch.section_name})` : ''} — {sch.subject}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '180px' }}>
               <label>Date</label>
@@ -111,9 +222,34 @@ export default function TeacherAttendancePage() {
             </div>
             <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '180px' }}>
               <label>Grade Level</label>
-              <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => setGrade(e.target.value)}>
+              <select
+                className="filter-select"
+                style={{ width: '100%' }}
+                value={gradeFilter}
+                onChange={e => {
+                  setGrade(e.target.value);
+                  setSectionFilter('');
+                }}
+              >
                 <option value="">Select Grade</option>
                 {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '180px' }}>
+              <label>Section</label>
+              <select
+                className="filter-select"
+                style={{ width: '100%' }}
+                value={sectionFilter}
+                onChange={e => setSectionFilter(e.target.value)}
+                disabled={!gradeFilter}
+              >
+                <option value="">All Sections</option>
+                {availableSections.map(sec => (
+                  <option key={sec.id} value={sec.section_name}>
+                    {sec.section_name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

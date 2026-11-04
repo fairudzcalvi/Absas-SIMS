@@ -1,5 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+
+function IcoCalendar() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoFaculty() {
@@ -175,6 +184,7 @@ const EMPTY_FORM = {
 /* ── Main Faculty Page ─────────────────────────────────── */
 export default function FacultyPage() {
   const { supabase, activeSchoolYear, activeQuarter } = useAuth();
+  const navigate = useNavigate();
 
   const [faculty, setFaculty]               = useState([]);
   const [sections, setSections]             = useState([]);
@@ -708,6 +718,13 @@ export default function FacultyPage() {
                             <button className="btn btn-secondary btn-sm" onClick={() => setViewFaculty(f)} title="View Profile">
                               <IcoView />
                             </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => navigate(`/dashboard/schedules?teacher=${encodeURIComponent(f.email || f.faculty_id || '')}`)}
+                              title="View Teaching Schedule"
+                            >
+                              <IcoCalendar />
+                            </button>
                             <button className="btn btn-secondary btn-sm" onClick={() => openEdit(f)} title="Edit Record">
                               <IcoEdit />
                             </button>
@@ -768,6 +785,16 @@ export default function FacultyPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewFaculty(null)}>Close</button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const target = viewFaculty;
+                  setViewFaculty(null);
+                  navigate(`/dashboard/schedules?teacher=${encodeURIComponent(target.email || target.faculty_id || '')}`);
+                }}
+              >
+                <IcoCalendar /> View Schedules
+              </button>
               <button className="btn btn-primary" onClick={() => { const target = viewFaculty; setViewFaculty(null); openEdit(target); }}>
                 <IcoEdit /> Edit Profile
               </button>

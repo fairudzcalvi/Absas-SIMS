@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCurriculumSubjects, sortSubjectsByCurriculum } from '../../utils/curriculum';
 
@@ -16,6 +17,15 @@ function IcoSave() {
     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
       <polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" />
+    </svg>
+  );
+}
+function IcoCalendar() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   );
 }
@@ -95,10 +105,12 @@ const DEFAULT_SUBJECTS = [
 ];
 
 export default function TeacherGradesPage() {
-  const { supabase, activePolicy } = useAuth();
+  const { supabase, profile, activePolicy } = useAuth();
+  const location = useLocation();
 
-  const [gradeFilter, setGrade]   = useState('');
-  const [subject, setSubject]     = useState('');
+  const [gradeFilter, setGrade]   = useState(location.state?.presetGrade ? String(location.state.presetGrade) : '');
+  const [subject, setSubject]     = useState(location.state?.presetSubject || '');
+  const [sectionFilter, setSectionFilter] = useState(location.state?.presetSection || '');
   const [quarter, setQuarter]     = useState('1Q');
   const [availableQuarters, setAvailableQuarters] = useState([
     { key: '1Q', num: 1, label: '1st Quarter' },
@@ -112,6 +124,8 @@ export default function TeacherGradesPage() {
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
   const [subjects, setSubjects]   = useState(DEFAULT_SUBJECTS);
+  const [availableSections, setAvailableSections] = useState([]);
+  const [teacherSchedules, setTeacherSchedules]   = useState([]);
   const [customSubjectMode, setCustomSubjectMode] = useState(false);
   const [gradingLocked, setGradingLocked] = useState(false);
 
@@ -212,17 +226,65 @@ export default function TeacherGradesPage() {
     loadSubjects();
   }, [supabase, gradeFilter]);
 
+  // Load teacher's personal schedules
+  useEffect(() => {
+    async function loadTeacherSchedules() {
+      if (!profile) return;
+      const email = profile.email;
+      const facId = profile.faculty_id || profile.faculty_record_id;
+      const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+
+      const { data } = await supabase
+        .from('schedules')
+        .select('*')
+        .order('day_of_week')
+        .order('time_start');
+
+      if (data) {
+        const mySch = data.filter(s => {
+          const t = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
+          return t === email || t === facId || t === fullName;
+        });
+        setTeacherSchedules(mySch);
+      }
+    }
+    loadTeacherSchedules();
+  }, [supabase, profile]);
+
+  // Load sections for selected grade level
+  useEffect(() => {
+    async function loadSections() {
+      if (!gradeFilter) {
+        setAvailableSections([]);
+        return;
+      }
+      const { data } = await supabase
+        .from('sections')
+        .select('id, section_name, grade_level')
+        .eq('grade_level', Number(gradeFilter))
+        .eq('status', 'Active')
+        .order('section_name');
+      setAvailableSections(data || []);
+    }
+    loadSections();
+  }, [supabase, gradeFilter]);
+
   useEffect(() => {
     let ignore = false;
     async function load() {
       if (!gradeFilter || !subject || !quarter) return;
       setLoading(true);
 
-      const { data: studs, error: studsError } = await supabase
+      let q = supabase
         .from('students')
         .select('student_record_id, student_id, first_name, last_name, section_name')
-        .eq('grade_level', Number(gradeFilter))
-        .order('last_name');
+        .eq('grade_level', Number(gradeFilter));
+
+      if (sectionFilter) {
+        q = q.eq('section_name', sectionFilter);
+      }
+
+      const { data: studs, error: studsError } = await q.order('last_name');
 
       if (studsError) {
         console.error("Error loading students:", studsError);
@@ -258,7 +320,7 @@ export default function TeacherGradesPage() {
     }
     load();
     return () => { ignore = true; };
-  }, [supabase, gradeFilter, subject, quarter]);
+  }, [supabase, gradeFilter, subject, quarter, sectionFilter]);
 
   const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
   const wwWeight = activePolicy?.written_work_pct != null ? Number(activePolicy.written_work_pct) / 100 : 0.30;
@@ -340,14 +402,86 @@ export default function TeacherGradesPage() {
           <div className="card-header">
             <h2 className="card-title"><IcoGrades /> Grade Entry</h2>
           </div>
+
+          {/* Quick-Select from My Teaching Schedules */}
+          {teacherSchedules.length > 0 && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '12px 14px',
+              background: '#fff8f6',
+              border: '1px solid #f2dede',
+              borderRadius: '8px',
+            }}>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: '700',
+                color: '#8B0000',
+                marginBottom: '8px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}>
+                <IcoCalendar /> My Scheduled Classes (Click to quick-select):
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {teacherSchedules.map(sch => {
+                  const isSelected =
+                    String(gradeFilter) === String(sch.grade_level) &&
+                    subject === sch.subject &&
+                    (!sch.section_name || sectionFilter === sch.section_name);
+                  return (
+                    <button
+                      key={sch.schedule_id}
+                      type="button"
+                      onClick={() => {
+                        setGrade(String(sch.grade_level || ''));
+                        setSubject(sch.subject || '');
+                        setSectionFilter(sch.section_name || '');
+                      }}
+                      className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ fontSize: '12px', padding: '4px 10px' }}
+                    >
+                      {sch.grade_level ? `Grade ${sch.grade_level}` : ''}
+                      {sch.section_name ? ` (${sch.section_name})` : ''} — {sch.subject}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'flex-end' }}>
+            {/* Grade Level */}
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Grade Level</label>
-              <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => { setGrade(e.target.value); setSubject(''); }}>
+              <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => { setGrade(e.target.value); setSubject(''); setSectionFilter(''); }}>
                 <option value="">Select Grade</option>
                 {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
+
+            {/* Section Filter */}
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Section</label>
+              <select
+                className="filter-select"
+                style={{ width: '100%' }}
+                value={sectionFilter}
+                onChange={e => setSectionFilter(e.target.value)}
+                disabled={!gradeFilter}
+              >
+                <option value="">All Sections</option>
+                {availableSections.map(sec => (
+                  <option key={sec.id} value={sec.section_name}>
+                    {sec.section_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Subject */}
             <div className="form-group" style={{ marginBottom: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                 <label style={{ margin: 0 }}>Subject</label>
@@ -391,6 +525,8 @@ export default function TeacherGradesPage() {
                 </select>
               )}
             </div>
+
+            {/* Quarter / Period */}
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Quarter / Period</label>
               <select className="filter-select" style={{ width: '100%' }} value={quarter} onChange={e => setQuarter(e.target.value)}>
