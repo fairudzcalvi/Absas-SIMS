@@ -862,9 +862,9 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                           </td>
                           <td>
                             {q.is_grading_open ? (
-                              <span style={{ color: '#28a745', fontWeight: '600' }}>🔓 Open (Encoding Allowed)</span>
+                              <span style={{ color: '#28a745', fontWeight: '600' }}>Open (Encoding Allowed)</span>
                             ) : (
-                              <span style={{ color: '#dc3545', fontWeight: '600' }}>🔒 Closed / Locked</span>
+                              <span style={{ color: '#dc3545', fontWeight: '600' }}>Closed / Locked</span>
                             )}
                           </td>
                           <td>

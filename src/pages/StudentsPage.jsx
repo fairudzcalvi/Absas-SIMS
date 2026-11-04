@@ -948,7 +948,6 @@ export default function StudentsPage() {
                     gap: '10px',
                     lineHeight: '1.4'
                   }}>
-                    <span style={{ fontSize: '18px' }}>📝</span>
                     <div>
                       <strong>Post-Enrollment Profile Completion:</strong> You can update the student's portrait photo, middle name, residential address, parent/guardian details, or academic section here anytime after initial enrollment intake.
                     </div>
@@ -1266,11 +1265,11 @@ export default function StudentsPage() {
               <div style={{ fontSize: '13px', color: '#555', marginTop: '12px', background: '#f8f9fa', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e9ecef', lineHeight: '1.5' }}>
                 {archiveTarget.shouldArchive ? (
                   <>
-                    📦 <strong>What happens when archived:</strong> The student is removed from active class lists, but their full academic history, past grades, and payment receipts are <strong>permanently preserved</strong>.
+                    <strong>What happens when archived:</strong> The student is removed from active class lists, but their full academic history, past grades, and payment receipts are <strong>permanently preserved</strong>.
                   </>
                 ) : (
                   <>
-                    🔄 <strong>What happens when restored:</strong> The student returns to the active enrollment roster.
+                    <strong>What happens when restored:</strong> The student returns to the active enrollment roster.
                   </>
                 )}
               </div>
@@ -1301,7 +1300,7 @@ export default function StudentsPage() {
                 Are you sure you want to permanently delete <strong>{deleteTarget.first_name} {deleteTarget.last_name}</strong>?
               </p>
               <p style={{ fontSize: '12px', color: '#dc3545', marginTop: '8px' }}>
-                💡 <em>Tip: If this student has graduated or transferred, use the <strong>Archive</strong> button instead to preserve their historical transcript.</em>
+                <em>Tip: If this student has graduated or transferred, use the <strong>Archive</strong> button instead to preserve their historical transcript.</em>
               </p>
             </div>
             <div className="modal-footer">

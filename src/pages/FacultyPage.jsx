@@ -1074,11 +1074,11 @@ export default function FacultyPage() {
               <div style={{ fontSize: '13px', color: '#555', marginTop: '12px', background: '#f8f9fa', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e9ecef', lineHeight: '1.5' }}>
                 {archiveTarget.shouldArchive ? (
                   <>
-                    📦 <strong>Historical Preservation:</strong> Archiving removes the faculty member from active teaching rosters while <strong>permanently preserving</strong> past schedules, student grades they submitted, and class records.
+                    <strong>Historical Preservation:</strong> Archiving removes the faculty member from active teaching rosters while <strong>permanently preserving</strong> past schedules, student grades they submitted, and class records.
                   </>
                 ) : (
                   <>
-                    🔄 <strong>Restoration:</strong> Restoring returns the faculty member back to active teaching assignments.
+                    <strong>Restoration:</strong> Restoring returns the faculty member back to active teaching assignments.
                   </>
                 )}
               </div>
@@ -1109,7 +1109,7 @@ export default function FacultyPage() {
                 Are you sure you want to permanently delete <strong>{deleteTarget.first_name} {deleteTarget.last_name}</strong>?
               </p>
               <p style={{ fontSize: '12px', color: '#dc3545', marginTop: '8px' }}>
-                💡 <em>Tip: If this teacher has retired or transferred, use the <strong>Archive</strong> button instead so historical student grades remain intact.</em>
+                <em>Tip: If this teacher has retired or transferred, use the <strong>Archive</strong> button instead so historical student grades remain intact.</em>
               </p>
             </div>
             <div className="modal-footer">

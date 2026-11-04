@@ -858,7 +858,7 @@ export default function FinancePage() {
                             title="Pay Tuition & Issue Official Receipt"
                             style={{ padding: '4px 8px', fontSize: '11px' }}
                           >
-                            💳 Pay Tuition
+                            Pay Tuition
                           </button>
                           <button
                             className="btn btn-sm"
@@ -866,7 +866,7 @@ export default function FinancePage() {
                             title="Pay Books, Uniforms, Lab & Other School Fees"
                             style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
                           >
-                            📦 Other Fees
+                            Other Fees
                           </button>
                           <button
                             className="btn btn-sm"
@@ -874,7 +874,7 @@ export default function FinancePage() {
                             title="View Q1–Q4 Quarterly Breakdown & Installments"
                             style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
                           >
-                            📊 Quarterly
+                            Quarterly
                           </button>
                           <button
                             className="btn btn-secondary btn-sm"
@@ -905,7 +905,7 @@ export default function FinancePage() {
         {/* Academic Fee Schedule Structure */}
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title">🏫 DepEd &amp; ABSAS Fee Matrix Schedule (S.Y. {activeSchoolYear?.year_label || '2026-2027'})</h2>
+            <h2 className="card-title">DepEd &amp; ABSAS Fee Matrix Schedule (S.Y. {activeSchoolYear?.year_label || '2026-2027'})</h2>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
             <div style={styles.feeBox}>
@@ -944,7 +944,7 @@ export default function FinancePage() {
         <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setPaymentModalOpen(false); }}>
           <div className="modal-content" style={{ maxWidth: '620px' }}>
             <div className="modal-header">
-              <h3 className="modal-title"><IcoTuition /> 💳 Pay Tuition &amp; Issue Official Receipt</h3>
+              <h3 className="modal-title"><IcoTuition /> Pay Tuition &amp; Issue Official Receipt</h3>
               <button className="modal-close" onClick={() => setPaymentModalOpen(false)}><IcoClose /></button>
             </div>
             <form onSubmit={handleSavePayment}>
@@ -1129,7 +1129,7 @@ export default function FinancePage() {
         <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setOtherFeesModalOpen(false); }}>
           <div className="modal-content" style={{ maxWidth: '620px' }}>
             <div className="modal-header">
-              <h3 className="modal-title"><IcoOtherFees /> 📦 Other School Fees &amp; Official Receipt</h3>
+              <h3 className="modal-title"><IcoOtherFees /> Other School Fees &amp; Official Receipt</h3>
               <button className="modal-close" onClick={() => setOtherFeesModalOpen(false)}><IcoClose /></button>
             </div>
             <form onSubmit={handleSaveOtherFees}>
@@ -1313,7 +1313,7 @@ export default function FinancePage() {
           <div className="modal-content" style={{ maxWidth: '850px' }}>
             <div className="modal-header">
               <h3 className="modal-title">
-                <IcoQuarterly /> 📊 Total Per Quarter Breakdown — {quarterlyAccount ? `${quarterlyAccount.student.first_name} ${quarterlyAccount.student.last_name}` : `School-Wide (S.Y. ${activeSchoolYear?.year_label || '2026-2027'})`}
+                <IcoQuarterly /> Total Per Quarter Breakdown — {quarterlyAccount ? `${quarterlyAccount.student.first_name} ${quarterlyAccount.student.last_name}` : `School-Wide (S.Y. ${activeSchoolYear?.year_label || '2026-2027'})`}
               </h3>
               <button className="modal-close" onClick={() => setQuarterlyModalOpen(false)}><IcoClose /></button>
             </div>
@@ -1392,7 +1392,7 @@ export default function FinancePage() {
                                 openPaymentModal(quarterlyAccount, q.balance, `${q.id} Tuition Installment`);
                               }}
                             >
-                              💳 Pay {q.id}
+                              Pay {q.id}
                             </button>
                           )}
                         </div>
