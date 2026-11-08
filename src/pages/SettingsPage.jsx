@@ -125,6 +125,14 @@ function IcoClose() {
     </svg>
   );
 }
+function IcoCopy() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
 
 /* ── Tabs Configuration ───────────────────────────────────── */
 const TABS = [
@@ -138,7 +146,8 @@ const TABS = [
 
 /* ── Main Settings Page ─────────────────────────────────── */
 export default function SettingsPage() {
-  const { supabase, session, refreshAcademicYear } = useAuth();
+  const { supabase, session, refreshAcademicYear, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const [activeTab, setActiveTab] = useState('school');
 
   const dateStr = new Date().toLocaleDateString('en-US', {
@@ -150,7 +159,28 @@ export default function SettingsPage() {
     <>
       <div className="top-header">
         <h1><IcoSettings /> System Settings</h1>
-        <span className="date-time">{dateStr}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            background: '#8B0000',
+            color: '#FFD700',
+            padding: '5px 12px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
+          }}>
+            <span>{currentSy?.year_label ? `S.Y. ${currentSy.year_label}` : activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+            {activeQuarter && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                {activeQuarter.quarter_name}
+              </span>
+            )}
+          </div>
+          <span className="date-time">{dateStr}</span>
+        </div>
       </div>
 
       <div className="content-area">
@@ -701,7 +731,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
       {/* Database Error Banner if SQL migration has not been run */}
       {dbError && (
         <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '14px 18px', borderRadius: '10px' }}>
-          <strong>⚠️ Database Notice:</strong> {dbError}
+          <strong>Notice:</strong> {dbError}
           <div style={{ marginTop: '6px', fontSize: '13px' }}>
             If the <code>school_years</code> table does not exist yet, please run the SQL script in <code>supabase_complete_migration.sql</code> inside your <strong>Supabase SQL Editor</strong>.
           </div>
@@ -1321,12 +1351,16 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
    TAB 3: Sections Management (Multiple per Grade Level)
    ══════════════════════════════════════════════════════════ */
 function SectionsManagerTab({ supabase }) {
+  const { selectedSchoolYear, activeSchoolYear } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
+
   const [sections, setSections] = useState([]);
   const [faculty, setFaculty] = useState([]);
   const [strands, setStrands] = useState([]);
-  const [activeSy, setActiveSy] = useState(null);
   const [filterGrade, setFilterGrade] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [cloning, setCloning] = useState(false);
+  const [cloneMsg, setCloneMsg] = useState('');
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -1344,15 +1378,6 @@ function SectionsManagerTab({ supabase }) {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    let sy = null;
-    try {
-      const { data } = await supabase.from('school_years').select('*').eq('is_active', true).maybeSingle();
-      sy = data;
-      setActiveSy(sy);
-    } catch {
-      setActiveSy(null);
-    }
-
     let facList = [];
     try {
       const { data: fac } = await supabase.from('faculty').select('faculty_record_id, faculty_id, first_name, last_name').order('last_name', { ascending: true });
@@ -1371,26 +1396,23 @@ function SectionsManagerTab({ supabase }) {
       setStrands([]);
     }
 
-    // Resilient sections fetch:
+    // Sections fetch strictly isolated to currentSy
     let rawSections = [];
-    
-    // First try: active school year or sections with null school_year_id
-    if (sy?.id) {
+    if (currentSy?.id) {
       const { data, error } = await supabase
         .from('sections')
         .select('*')
-        .or(`school_year_id.eq.${sy.id},school_year_id.is.null`)
+        .eq('school_year_id', currentSy.id)
         .order('grade_level', { ascending: true });
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         rawSections = data;
       }
-    }
-
-    // Second try / fallback: fetch all sections without SY filter if first try returned empty or had error
-    if (rawSections.length === 0) {
+    } else {
+      // Fallback only if no school year exists in system at all
       const { data, error } = await supabase
         .from('sections')
         .select('*')
+        .is('school_year_id', null)
         .order('grade_level', { ascending: true });
       if (!error && data) {
         rawSections = data;
@@ -1427,11 +1449,63 @@ function SectionsManagerTab({ supabase }) {
 
     setSections(uniqueSections);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, currentSy]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  async function handleCopyFromPreviousSy() {
+    if (!currentSy?.id) return;
+    setCloning(true);
+    setCloneMsg('');
+    try {
+      const { data: sourceSections, error: srcErr } = await supabase
+        .from('sections')
+        .select('*')
+        .neq('school_year_id', currentSy.id)
+        .order('created_at', { ascending: false });
+
+      if (srcErr || !sourceSections || sourceSections.length === 0) {
+        setCloneMsg('No sections found in previous school years to copy.');
+        setCloning(false);
+        return;
+      }
+
+      const seenNames = new Set();
+      const toClone = [];
+      for (const sec of sourceSections) {
+        const cleanName = cleanSectionName(sec.section_name, sec.grade_level);
+        const key = `${sec.grade_level}::${cleanName.toLowerCase().trim()}`;
+        if (!seenNames.has(key)) {
+          seenNames.add(key);
+          toClone.push({
+            grade_level: sec.grade_level,
+            section_name: cleanName,
+            strand_id: sec.strand_id || null,
+            room_number: sec.room_number || null,
+            max_capacity: sec.max_capacity || 45,
+            status: 'Active',
+            school_year_id: currentSy.id,
+          });
+        }
+      }
+
+      if (toClone.length > 0) {
+        const { error: insErr } = await supabase.from('sections').insert(toClone);
+        if (insErr) {
+          const fallback = toClone.map(({ strand_id: _st, ...rest }) => rest);
+          await supabase.from('sections').insert(fallback);
+        }
+      }
+
+      setCloning(false);
+      fetchData();
+    } catch (err) {
+      setCloneMsg('Failed to copy sections: ' + err.message);
+      setCloning(false);
+    }
+  }
 
   function openAddModal() {
     setEditSection(null);
@@ -1492,7 +1566,7 @@ function SectionsManagerTab({ supabase }) {
       room_number: form.room_number || null,
       max_capacity: Number(form.max_capacity) || 45,
       status: form.status,
-      school_year_id: activeSy?.id || null,
+      school_year_id: currentSy?.id || null,
     };
 
     if (editSection) {
@@ -1532,15 +1606,43 @@ function SectionsManagerTab({ supabase }) {
     <div className="card">
       <div className="card-header">
         <div>
-          <h2 className="card-title"><IcoSections /> Class Sections (Multiple per Grade Level)</h2>
+          <h2 className="card-title">
+            <IcoSections /> Class Sections {currentSy?.year_label ? `(S.Y. ${currentSy.year_label})` : ''}
+          </h2>
           <p style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>
-            Configure 2 or more sections per grade, assign room numbers, and designate class advisers.
+            Configure sections per grade, assign room numbers, and designate class advisers for the selected school year.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={openAddModal}>
-          <IcoAdd /> Add New Section
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {sections.length === 0 && (
+            <button
+              className="btn btn-secondary"
+              onClick={handleCopyFromPreviousSy}
+              disabled={cloning}
+              title="Copy section names and grades from previous school year"
+            >
+              <IcoCopy /> {cloning ? 'Copying...' : 'Copy Sections from Previous S.Y.'}
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={openAddModal}>
+            <IcoAdd /> Add New Section
+          </button>
+        </div>
       </div>
+
+      {cloneMsg && (
+        <div style={{
+          padding: '10px 14px',
+          margin: '0 0 16px 0',
+          background: '#fef3c7',
+          color: '#92400e',
+          borderRadius: '6px',
+          fontSize: '13px',
+          border: '1px solid #fde68a'
+        }}>
+          {cloneMsg}
+        </div>
+      )}
 
       {/* Grade Level Filter */}
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '16px' }}>
@@ -1578,7 +1680,25 @@ function SectionsManagerTab({ supabase }) {
             <tbody>
               {filteredSections.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="empty-message">No sections found for this grade level.</td>
+                  <td colSpan="8" className="empty-message" style={{ padding: '36px 20px', textAlign: 'center' }}>
+                    {sections.length === 0 ? (
+                      <div>
+                        <div style={{ color: '#666', marginBottom: '12px' }}>
+                          No class sections exist for S.Y. {currentSy?.year_label || 'this school year'}.
+                        </div>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleCopyFromPreviousSy}
+                          disabled={cloning}
+                          style={{ margin: '0 auto' }}
+                        >
+                          <IcoCopy /> {cloning ? 'Copying...' : 'Copy Sections from Previous School Year'}
+                        </button>
+                      </div>
+                    ) : (
+                      'No sections found for this grade level filter.'
+                    )}
+                  </td>
                 </tr>
               ) : (
                 filteredSections.map(sec => (

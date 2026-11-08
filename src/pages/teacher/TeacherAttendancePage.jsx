@@ -38,7 +38,8 @@ const STATUS_COLORS = {
 function todayISO() { return new Date().toISOString().split('T')[0]; }
 
 export default function TeacherAttendancePage() {
-  const { supabase, profile } = useAuth();
+  const { supabase, profile, selectedSchoolYear, activeSchoolYear } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const location = useLocation();
 
   const [date, setDate]           = useState(todayISO());
@@ -84,12 +85,18 @@ export default function TeacherAttendancePage() {
         setAvailableSections([]);
         return;
       }
-      const { data } = await supabase
+      let secQuery = supabase
         .from('sections')
         .select('id, section_name, grade_level')
         .eq('grade_level', Number(gradeFilter))
         .eq('status', 'Active')
         .order('section_name');
+
+      if (currentSy?.id) {
+        secQuery = secQuery.eq('school_year_id', currentSy.id);
+      }
+
+      const { data } = await secQuery;
 
       const seen = new Set();
       const unique = (data || []).filter(sec => {
@@ -101,7 +108,7 @@ export default function TeacherAttendancePage() {
       setAvailableSections(unique);
     }
     loadSections();
-  }, [supabase, gradeFilter]);
+  }, [supabase, gradeFilter, currentSy]);
 
   useEffect(() => {
     let ignore = false;

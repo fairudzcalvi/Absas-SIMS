@@ -138,10 +138,14 @@ export default function SchedulesPage() {
       if (!ignore) setAllSubjects(subjs ?? []);
 
       // 3. Sections Catalog
-      const { data: secs } = await supabase
+      let secQuery = supabase
         .from('sections')
         .select('id, section_name, grade_level, room_number, status')
         .order('grade_level', { ascending: true });
+      if (currentSy?.id) {
+        secQuery = secQuery.eq('school_year_id', currentSy.id);
+      }
+      const { data: secs } = await secQuery;
       if (!ignore) setAllSections(secs ?? []);
 
       // 4. Active School Year
@@ -156,7 +160,7 @@ export default function SchedulesPage() {
     }
     load();
     return () => { ignore = true; };
-  }, [supabase]);
+  }, [supabase, currentSy]);
 
   /* Helper to fetch schedules dynamically across possible column names (teacher, faculty_id, teacher_id, teacher_name) */
   const fetchSchedulesForTeacher = async (teacherRecord) => {

@@ -126,6 +126,28 @@ test('FinancePage isolates invoices, payments, and discounts by school year', ()
   assert.ok(code.includes('school_year_id'), 'Must query finances by school_year_id');
 });
 
+test('Class sections are strictly partitioned by school year with copy support across modules', () => {
+  const settingsCode = fs.readFileSync(path.join(rootDir, 'src', 'pages', 'SettingsPage.jsx'), 'utf8');
+  assert.ok(settingsCode.includes("school_year_id', currentSy.id"), 'SettingsPage must filter sections by currentSy.id');
+  assert.ok(settingsCode.includes('handleCopyFromPreviousSy'), 'SettingsPage must include handleCopyFromPreviousSy');
+  assert.ok(settingsCode.includes('IcoCopy'), 'SettingsPage must have copy SVG icon');
+
+  const schedCode = fs.readFileSync(path.join(rootDir, 'src', 'pages', 'SchedulesPage.jsx'), 'utf8');
+  assert.ok(schedCode.includes("school_year_id', currentSy.id"), 'SchedulesPage must filter sections by currentSy.id');
+
+  const enrCode = fs.readFileSync(path.join(rootDir, 'src', 'pages', 'EnrollmentPage.jsx'), 'utf8');
+  assert.ok(enrCode.includes("school_year_id', currentSy.id"), 'EnrollmentPage must filter sections by currentSy.id');
+
+  const stuCode = fs.readFileSync(path.join(rootDir, 'src', 'pages', 'StudentsPage.jsx'), 'utf8');
+  assert.ok(stuCode.includes("school_year_id', currentSy.id"), 'StudentsPage must filter sections by currentSy.id');
+
+  const facCode = fs.readFileSync(path.join(rootDir, 'src', 'pages', 'FacultyPage.jsx'), 'utf8');
+  assert.ok(facCode.includes("school_year_id', currentSy.id"), 'FacultyPage must filter sections by currentSy.id');
+
+  const classListCode = fs.readFileSync(path.join(rootDir, 'src', 'pages', 'teacher', 'ClassListPage.jsx'), 'utf8');
+  assert.ok(classListCode.includes("school_year_id', currentSy.id"), 'ClassListPage must filter sections by currentSy.id');
+});
+
 // ==========================================
 // TEST SUITE 3: DepEd Subject Codes & Batch Addition
 // ==========================================
@@ -268,6 +290,7 @@ test('supabase_complete_migration.sql contains multi-year partitioning columns a
   assert.ok(sql.includes('idx_grades_sy_student'), 'Missing idx_grades_sy_student index');
   assert.ok(sql.includes('idx_grades_sy_label'), 'Missing idx_grades_sy_label index');
   assert.ok(sql.includes('grades_student_subject_quarter_sy_unique'), 'Missing multi-year unique constraint on grades');
+  assert.ok(sql.includes('idx_sections_sy_grade_name_unique'), 'Missing multi-year unique index on sections');
 });
 
 // ==========================================
@@ -280,9 +303,16 @@ test('Codebase check: strictly zero emojis in UI labels, notices, and tooltips a
     path.join(rootDir, 'src', 'components', 'DashboardLayout.jsx'),
     path.join(rootDir, 'src', 'components', 'TeacherLayout.jsx'),
     path.join(rootDir, 'src', 'pages', 'SubjectsPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'SettingsPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'SchedulesPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'EnrollmentPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'StudentsPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'FacultyPage.jsx'),
     path.join(rootDir, 'src', 'pages', 'teacher', 'TeacherGradesPage.jsx'),
-    path.join(rootDir, 'src', 'pages', 'student', 'StudentGradesPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'teacher', 'TeacherAttendancePage.jsx'),
     path.join(rootDir, 'src', 'pages', 'teacher', 'TeacherSchedulesPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'teacher', 'ClassListPage.jsx'),
+    path.join(rootDir, 'src', 'pages', 'student', 'StudentGradesPage.jsx'),
   ];
 
   const emojiRegex = /[\u{1F300}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1F1E0}-\u{1F1FF}]/u;

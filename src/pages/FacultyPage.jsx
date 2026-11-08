@@ -183,7 +183,8 @@ const EMPTY_FORM = {
 
 /* ── Main Faculty Page ─────────────────────────────────── */
 export default function FacultyPage() {
-  const { supabase, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const navigate = useNavigate();
 
   const [faculty, setFaculty]               = useState([]);
@@ -230,10 +231,14 @@ export default function FacultyPage() {
       }
 
       // 2. Fetch Sections for advisory class lookup
-      const { data: secData } = await supabase
+      let secQuery = supabase
         .from('sections')
         .select('id, grade_level, section_name, adviser_id, room_number')
         .eq('status', 'Active');
+      if (currentSy?.id) {
+        secQuery = secQuery.eq('school_year_id', currentSy.id);
+      }
+      const { data: secData } = await secQuery;
       setSections(secData ?? []);
 
       // 3. Fetch Subjects catalog for multi-select dropdown
@@ -248,7 +253,7 @@ export default function FacultyPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, currentSy]);
 
   useEffect(() => {
     fetchData();
@@ -638,7 +643,7 @@ export default function FacultyPage() {
                     onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
                     title="Clear search"
                   >
-                    ✕
+                    x
                   </button>
                 )}
               </div>
@@ -964,7 +969,7 @@ export default function FacultyPage() {
                                 }}
                                 title={`Remove ${sub}`}
                               >
-                                ✕
+                                x
                               </button>
                             </span>
                           ))}
@@ -985,7 +990,7 @@ export default function FacultyPage() {
                             const isSelected = getSubjectList().includes(sub.subject_name);
                             return (
                               <option key={sub.subject_id} value={sub.subject_name} disabled={isSelected}>
-                                {isSelected ? '✓ ' : ''}{sub.subject_name} {sub.subject_code ? `(${sub.subject_code})` : ''} {sub.grade_level ? `• Gr ${sub.grade_level}` : ''}
+                                {isSelected ? '[Added] ' : ''}{sub.subject_name} {sub.subject_code ? `(${sub.subject_code})` : ''} {sub.grade_level ? `• Gr ${sub.grade_level}` : ''}
                               </option>
                             );
                           })}

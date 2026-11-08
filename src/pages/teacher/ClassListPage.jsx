@@ -89,7 +89,8 @@ const EMPTY_FORM = {
 };
 
 export default function ClassListPage() {
-  const { supabase } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [students, setStudents]     = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -111,14 +112,18 @@ export default function ClassListPage() {
   useEffect(() => {
     async function loadSections() {
       try {
-        const { data } = await supabase.from('sections').select('*').order('grade_level');
+        let secQuery = supabase.from('sections').select('*').order('grade_level');
+        if (currentSy?.id) {
+          secQuery = secQuery.eq('school_year_id', currentSy.id);
+        }
+        const { data } = await secQuery;
         setSectionsList(data ?? []);
       } catch (err) {
         console.error('Error fetching sections:', err);
       }
     }
     loadSections();
-  }, [supabase]);
+  }, [supabase, currentSy]);
 
   const fetchStudents = useCallback(async () => {
     setLoading(true);
@@ -358,7 +363,7 @@ export default function ClassListPage() {
                     onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
                     title="Clear search"
                   >
-                    ✕
+                    x
                   </button>
                 )}
               </div>
@@ -438,8 +443,8 @@ export default function ClassListPage() {
                       )}
                     </td>
                     <td>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
-                        {s.gender === 'Male' ? '♂' : s.gender === 'Female' ? '♀' : '—'} {s.gender ?? 'undefined'}
+                      <span style={{ fontSize: '13px' }}>
+                        {s.gender || '—'}
                       </span>
                     </td>
                     <td>{s.age ?? 'undefined'}</td>
@@ -609,7 +614,7 @@ export default function ClassListPage() {
                       </label>
                       {form.photo_url && (
                         <button type="button" className="btn btn-sm" style={{ background: '#dc3545', color: '#fff', border: 'none' }} onClick={() => setForm(f => ({ ...f, photo_url: '' }))}>
-                          ✕ Remove
+                          Remove
                         </button>
                       )}
                     </div>

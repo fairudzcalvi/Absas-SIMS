@@ -295,16 +295,25 @@ BEGIN
     SET section_name = TRIM(REGEXP_REPLACE(section_name, '^(Grade|Gr\.?)\s*\d+\s*[-–—:]*\s*', '', 'i'))
     WHERE section_name ~* '^(Grade|Gr\.?)\s*\d+\s*[-–—:]*\s*';
 
-    -- Remove duplicate section rows keeping the most recent record
+    -- Backfill school_year_id for legacy sections if NULL
+    UPDATE sections
+    SET school_year_id = (SELECT id FROM school_years WHERE is_active = true LIMIT 1)
+    WHERE school_year_id IS NULL;
+
+    -- Drop legacy index that restricted sections globally across all school years
+    DROP INDEX IF EXISTS idx_sections_grade_name_unique;
+
+    -- Remove duplicate section rows within the same school year keeping the most recent record
     DELETE FROM sections a USING sections b
     WHERE a.id < b.id
+      AND a.school_year_id IS NOT DISTINCT FROM b.school_year_id
       AND a.grade_level = b.grade_level
       AND LOWER(TRIM(a.section_name)) = LOWER(TRIM(b.section_name));
 
-    -- Create Unique Index so grade level sections can never be duplicated in the database
-    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sections_grade_name_unique') THEN
-        CREATE UNIQUE INDEX idx_sections_grade_name_unique 
-          ON sections (grade_level, LOWER(TRIM(section_name)));
+    -- Create Unique Index so grade level sections cannot be duplicated within the same school year
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sections_sy_grade_name_unique') THEN
+        CREATE UNIQUE INDEX idx_sections_sy_grade_name_unique 
+          ON sections (COALESCE(school_year_id, '00000000-0000-0000-0000-000000000000'::uuid), grade_level, LOWER(TRIM(section_name)));
     END IF;
 END $$;
 

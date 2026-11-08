@@ -176,10 +176,14 @@ export default function EnrollmentPage() {
       }
 
       // 3. Fetch Sections
-      const { data: secData } = await supabase
+      let secQuery = supabase
         .from('sections')
         .select('id, grade_level, section_name, room_number, strand_id, status')
         .eq('status', 'Active');
+      if (currentSy?.id) {
+        secQuery = secQuery.eq('school_year_id', currentSy.id);
+      }
+      const { data: secData } = await secQuery;
       setSections(secData ?? []);
 
       // 4. Fetch SHS Strands
@@ -577,7 +581,7 @@ export default function EnrollmentPage() {
                     onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
                     title="Clear search"
                   >
-                    ✕
+                    x
                   </button>
                 )}
               </div>
@@ -800,7 +804,6 @@ export default function EnrollmentPage() {
                     gap: '10px',
                     lineHeight: '1.4'
                   }}>
-                    <span style={{ fontSize: '18px' }}>⚡</span>
                     <div>
                       <strong>Fast Intake:</strong> Only Name and Grade Level are required to process admissions and assess fees. Additional demographic details, home address, and 2x2 portrait photo can be completed post-enrollment in <strong>Student Records</strong>.
                     </div>
@@ -1096,7 +1099,7 @@ export default function EnrollmentPage() {
                     disabled={saving}
                     onClick={handleSubmitIntake}
                   >
-                    {saving ? 'Confirming Enrollment...' : '✓ Confirm & Complete Enrollment'}
+                    {saving ? 'Confirming Enrollment...' : 'Confirm & Complete Enrollment'}
                   </button>
                 )}
               </div>

@@ -159,7 +159,8 @@ const EMPTY_FORM = {
 
 /* ── Main Students Page ─────────────────────────────────── */
 export default function StudentsPage() {
-  const { supabase, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const navigate = useNavigate();
 
   const [students, setStudents] = useState([]);
@@ -205,11 +206,15 @@ export default function StudentsPage() {
       }
 
       // 2. Fetch Sections
-      const { data: secData } = await supabase
+      let secQuery = supabase
         .from('sections')
         .select('id, grade_level, section_name, room_number, strand_id, status')
         .eq('status', 'Active')
         .order('section_name', { ascending: true });
+      if (currentSy?.id) {
+        secQuery = secQuery.eq('school_year_id', currentSy.id);
+      }
+      const { data: secData } = await secQuery;
       setSections(secData ?? []);
 
       // 3. Fetch SHS Strands
@@ -233,7 +238,7 @@ export default function StudentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, currentSy]);
 
   useEffect(() => {
     fetchData();
@@ -677,7 +682,7 @@ export default function StudentsPage() {
                     onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
                     title="Clear search"
                   >
-                    ✕
+                    x
                   </button>
                 )}
               </div>
@@ -757,7 +762,7 @@ export default function StudentsPage() {
                                   }}
                                   onClick={() => openEdit(s)}
                                 >
-                                  Incomplete Profile ✎
+                                  Incomplete Profile
                                 </span>
                               ) : (
                                 <span
@@ -773,7 +778,7 @@ export default function StudentsPage() {
                                     marginTop: '2px'
                                   }}
                                 >
-                                  ✓ Profile Complete
+                                  Profile Complete
                                 </span>
                               )}
                             </div>
@@ -1021,7 +1026,7 @@ export default function StudentsPage() {
                           style={{ background: '#dc3545', color: '#fff', border: 'none' }}
                           onClick={() => setForm(f => ({ ...f, photo_url: '' }))}
                         >
-                          ✕ Remove Photo
+                          Remove Photo
                         </button>
                       )}
                     </div>

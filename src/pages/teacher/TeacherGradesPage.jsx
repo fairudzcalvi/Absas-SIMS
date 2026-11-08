@@ -241,12 +241,18 @@ export default function TeacherGradesPage() {
         setAvailableSections([]);
         return;
       }
-      const { data } = await supabase
+      let secQuery = supabase
         .from('sections')
         .select('id, section_name, grade_level')
         .eq('grade_level', Number(gradeFilter))
         .eq('status', 'Active')
         .order('section_name');
+
+      if (currentSy?.id) {
+        secQuery = secQuery.eq('school_year_id', currentSy.id);
+      }
+
+      const { data } = await secQuery;
 
       const seen = new Set();
       const unique = (data || []).filter(sec => {
@@ -258,7 +264,7 @@ export default function TeacherGradesPage() {
       setAvailableSections(unique);
     }
     loadSections();
-  }, [supabase, gradeFilter]);
+  }, [supabase, gradeFilter, currentSy]);
 
   useEffect(() => {
     let ignore = false;

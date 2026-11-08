@@ -792,7 +792,7 @@ export default function FinancePage() {
                     onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
                     title="Clear search"
                   >
-                    ✕
+                    x
                   </button>
                 )}
               </div>
@@ -1120,7 +1120,7 @@ export default function FinancePage() {
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setPaymentModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={savingPayment}>
-                  {savingPayment ? 'Processing Payment...' : '✓ Confirm & Print Receipt'}
+                  {savingPayment ? 'Processing Payment...' : 'Confirm & Print Receipt'}
                 </button>
               </div>
             </form>
@@ -1303,7 +1303,7 @@ export default function FinancePage() {
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setOtherFeesModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={savingOtherFees} style={{ background: '#b45309', borderColor: '#b45309' }}>
-                  {savingOtherFees ? 'Processing...' : '✓ Confirm & Print Receipt'}
+                  {savingOtherFees ? 'Processing...' : 'Confirm & Print Receipt'}
                 </button>
               </div>
             </form>
@@ -1445,7 +1445,7 @@ export default function FinancePage() {
                                 Pay Installment
                               </button>
                             ) : (
-                              <span style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '12px' }}>✓ Cleared</span>
+                              <span style={{ color: '#22c55e', fontWeight: 'bold', fontSize: '12px' }}>Cleared</span>
                             )}
                           </td>
                         </tr>
