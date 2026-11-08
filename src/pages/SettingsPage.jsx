@@ -312,6 +312,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   const [deleteSy, setDeleteSy] = useState(null);
   const [deleteSySaving, setDeleteSySaving] = useState(false);
   const [deleteSyError, setDeleteSyError] = useState('');
+  const [deleteSyPhrase, setDeleteSyPhrase] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -357,6 +358,12 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
       setDeleteSyError('Cannot delete the active school year. Please set another school year as active first.');
       return;
     }
+    const targetPhrase = deleteSy.year_label;
+    const typed = deleteSyPhrase.trim();
+    if (typed !== 'DELETE' && typed !== targetPhrase) {
+      setDeleteSyError(`Please type DELETE or "${targetPhrase}" to confirm.`);
+      return;
+    }
     setDeleteSySaving(true);
     setDeleteSyError('');
     try {
@@ -376,6 +383,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
       }
 
       setDeleteSy(null);
+      setDeleteSyPhrase('');
       setDeleteSySaving(false);
       fetchData();
       if (refreshAcademicYear) refreshAcademicYear();
@@ -795,7 +803,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                       <button
                         type="button"
                         className="btn btn-danger btn-sm"
-                        onClick={() => { setDeleteSy(sy); setDeleteSyError(''); }}
+                        onClick={() => { setDeleteSy(sy); setDeleteSyError(''); setDeleteSyPhrase(''); }}
                         title="Delete School Year"
                         style={{ padding: '5px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >
@@ -1364,13 +1372,13 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
 
       {/* Modal: Delete School Year Confirmation */}
       {deleteSy && (
-        <div className="modal active" onClick={e => { if (e.target === e.currentTarget && !deleteSySaving) setDeleteSy(null); }}>
-          <div className="modal-content" style={{ maxWidth: '460px' }}>
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget && !deleteSySaving) { setDeleteSy(null); setDeleteSyPhrase(''); } }}>
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
               <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#dc3545' }}>
                 <IcoTrash /> Delete School Year
               </h3>
-              <button className="modal-close" onClick={() => setDeleteSy(null)} disabled={deleteSySaving}><IcoClose /></button>
+              <button className="modal-close" onClick={() => { setDeleteSy(null); setDeleteSyPhrase(''); }} disabled={deleteSySaving}><IcoClose /></button>
             </div>
             <div className="modal-body">
               {deleteSyError && (
@@ -1379,17 +1387,57 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                 </div>
               )}
               <p style={{ fontSize: '14px', color: '#333', lineHeight: '1.5', margin: 0 }}>
-                Are you sure you want to delete school year <strong>{deleteSy.year_label}</strong>?
+                Are you sure you want to permanently delete school year <strong>{deleteSy.year_label}</strong>?
               </p>
-              <p style={{ fontSize: '13px', color: '#666', marginTop: '10px', lineHeight: '1.5' }}>
-                This will permanently delete the school year and its defined quarters. School years with existing student enrollments, schedules, grades, or financial records cannot be deleted.
+              <p style={{ fontSize: '13px', color: '#666', marginTop: '8px', lineHeight: '1.5' }}>
+                This action cannot be undone and will delete the school year along with its defined quarters. School years with existing student enrollments, schedules, grades, or finances cannot be deleted.
               </p>
+
+              <div style={{ marginTop: '16px', background: '#f8f9fa', border: '1px solid #dee2e6', borderRadius: '6px', padding: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#495057', marginBottom: '6px' }}>
+                  To confirm permanent deletion, type <span style={{ color: '#dc3545', fontWeight: '700', userSelect: 'all' }}>DELETE</span> or <span style={{ color: '#dc3545', fontWeight: '700', userSelect: 'all' }}>{deleteSy.year_label}</span> below:
+                </label>
+                <input
+                  type="text"
+                  value={deleteSyPhrase}
+                  onChange={e => setDeleteSyPhrase(e.target.value)}
+                  placeholder="Type DELETE to confirm"
+                  disabled={deleteSySaving}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    fontSize: '13px',
+                    borderRadius: '4px',
+                    border: '1px solid #ced4da',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const typed = deleteSyPhrase.trim();
+                      if (typed === 'DELETE' || typed === deleteSy.year_label) {
+                        handleDeleteSchoolYear();
+                      }
+                    }
+                  }}
+                />
+              </div>
             </div>
             <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setDeleteSy(null)} disabled={deleteSySaving}>
+              <button type="button" className="btn btn-secondary" onClick={() => { setDeleteSy(null); setDeleteSyPhrase(''); }} disabled={deleteSySaving}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-danger" onClick={handleDeleteSchoolYear} disabled={deleteSySaving}>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleDeleteSchoolYear}
+                disabled={deleteSySaving || (deleteSyPhrase.trim() !== 'DELETE' && deleteSyPhrase.trim() !== deleteSy.year_label)}
+                style={{
+                  opacity: (deleteSyPhrase.trim() === 'DELETE' || deleteSyPhrase.trim() === deleteSy.year_label) && !deleteSySaving ? 1 : 0.5,
+                  cursor: (deleteSyPhrase.trim() === 'DELETE' || deleteSyPhrase.trim() === deleteSy.year_label) && !deleteSySaving ? 'pointer' : 'not-allowed',
+                }}
+              >
                 {deleteSySaving ? 'Deleting...' : 'Delete School Year'}
               </button>
             </div>
