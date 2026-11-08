@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCurriculumSubjects, sortSubjectsByCurriculum } from '../../utils/curriculum';
+import { cleanSectionName } from '../../utils/formatters';
 
 function IcoGrades() {
   return (
@@ -264,7 +265,15 @@ export default function TeacherGradesPage() {
         .eq('grade_level', Number(gradeFilter))
         .eq('status', 'Active')
         .order('section_name');
-      setAvailableSections(data || []);
+
+      const seen = new Set();
+      const unique = (data || []).filter(sec => {
+        const name = cleanSectionName(sec.section_name, sec.grade_level).toLowerCase().trim();
+        if (!name || seen.has(name)) return false;
+        seen.add(name);
+        return true;
+      });
+      setAvailableSections(unique);
     }
     loadSections();
   }, [supabase, gradeFilter]);
@@ -444,7 +453,7 @@ export default function TeacherGradesPage() {
                       style={{ fontSize: '12px', padding: '4px 10px' }}
                     >
                       {sch.grade_level ? `Grade ${sch.grade_level}` : ''}
-                      {sch.section_name ? ` (${sch.section_name})` : ''} — {sch.subject}
+                      {sch.section_name ? ` (${cleanSectionName(sch.section_name, sch.grade_level)})` : ''} — {sch.subject}
                     </button>
                   );
                 })}
@@ -473,11 +482,14 @@ export default function TeacherGradesPage() {
                 disabled={!gradeFilter}
               >
                 <option value="">All Sections</option>
-                {availableSections.map(sec => (
-                  <option key={sec.id} value={sec.section_name}>
-                    {sec.section_name}
-                  </option>
-                ))}
+                {availableSections.map(sec => {
+                  const displayName = cleanSectionName(sec.section_name, gradeFilter);
+                  return (
+                    <option key={sec.id} value={displayName}>
+                      {displayName}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 

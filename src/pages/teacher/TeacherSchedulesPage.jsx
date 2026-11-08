@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatGradeSection, cleanSectionName } from '../../utils/formatters';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoCalendar() {
@@ -341,7 +342,7 @@ export default function TeacherSchedulesPage() {
                             fontWeight: '600',
                             fontSize: '13px',
                           }}>
-                            {s.grade_level ? `Grade ${s.grade_level}` : ''} {s.section_name ? `— ${s.section_name}` : ''}
+                            {formatGradeSection(s.grade_level, s.section_name)}
                           </span>
                         </td>
                         <td>

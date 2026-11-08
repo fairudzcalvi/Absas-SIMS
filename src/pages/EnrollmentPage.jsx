@@ -391,7 +391,16 @@ export default function EnrollmentPage() {
     }
   }
 
-  const wizardSections = sections.filter(sec => Number(sec.grade_level) === Number(wizardForm.grade_level));
+  const wizardSections = (() => {
+    const list = sections.filter(sec => Number(sec.grade_level) === Number(wizardForm.grade_level));
+    const seen = new Set();
+    return list.filter(sec => {
+      const key = cleanSectionName(sec.section_name, sec.grade_level).toLowerCase().trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
 
   const studentLookupResults = wizardForm.existing_student_search
     ? students.filter(s => {

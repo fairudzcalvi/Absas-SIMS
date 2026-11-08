@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { cleanSectionName } from '../utils/formatters';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoCalendar({ size = 26 }) {
@@ -530,7 +531,7 @@ export default function SchedulesPage() {
                       value={form.section_name || ''}
                       onChange={e => {
                         const secName = e.target.value;
-                        const matchingSec = allSections.find(s => s.section_name === secName);
+                        const matchingSec = allSections.find(s => cleanSectionName(s.section_name, s.grade_level) === secName || s.section_name === secName);
                         setForm(f => ({
                           ...f,
                           section_name: secName,
@@ -539,13 +540,23 @@ export default function SchedulesPage() {
                       }}
                     >
                       <option value="">— Select Section —</option>
-                      {allSections
-                        .filter(s => !form.grade_level || Number(s.grade_level) === Number(form.grade_level))
-                        .map(s => (
-                          <option key={s.id} value={s.section_name}>
-                            {s.section_name} {s.room_number ? `(${s.room_number})` : ''}
-                          </option>
-                        ))}
+                      {(() => {
+                        const filtered = allSections.filter(s => !form.grade_level || Number(s.grade_level) === Number(form.grade_level));
+                        const seenSecs = new Set();
+                        return filtered.filter(s => {
+                          const name = cleanSectionName(s.section_name, s.grade_level);
+                          if (!name || seenSecs.has(name.toLowerCase())) return false;
+                          seenSecs.add(name.toLowerCase());
+                          return true;
+                        }).map(s => {
+                          const displayName = cleanSectionName(s.section_name, s.grade_level);
+                          return (
+                            <option key={s.id} value={displayName}>
+                              {displayName} {s.room_number ? `(${s.room_number})` : ''}
+                            </option>
+                          );
+                        });
+                      })()}
                     </select>
                   </div>
 

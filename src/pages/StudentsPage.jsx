@@ -509,8 +509,17 @@ export default function StudentsPage() {
     URL.revokeObjectURL(url);
   }
 
-  // Filter sections dynamically for the current selected grade level in the modal
-  const availableSections = sections.filter(sec => Number(sec.grade_level) === Number(form.grade_level));
+  // Filter and deduplicate sections dynamically for the current selected grade level in the modal
+  const availableSections = (() => {
+    const list = sections.filter(sec => Number(sec.grade_level) === Number(form.grade_level));
+    const seen = new Set();
+    return list.filter(sec => {
+      const key = cleanSectionName(sec.section_name, sec.grade_level).toLowerCase().trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
 
   return (
     <>

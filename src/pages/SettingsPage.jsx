@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchFeeMatrix, saveFeeMatrix, DEFAULT_FEES } from '../utils/feeMatrix';
+import { cleanSectionName } from '../utils/formatters';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoSettings() {
@@ -1330,6 +1331,7 @@ function SectionsManagerTab({ supabase }) {
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editSection, setEditSection] = useState(null);
+  const [modalError, setModalError] = useState('');
   const [form, setForm] = useState({
     grade_level: 7,
     section_name: '',
@@ -1370,7 +1372,6 @@ function SectionsManagerTab({ supabase }) {
     }
 
     // Resilient sections fetch:
-    // 1. Fetch raw sections without foreign-key joins to avoid PostgREST relationship cache errors
     let rawSections = [];
     
     // First try: active school year or sections with null school_year_id
@@ -1396,22 +1397,35 @@ function SectionsManagerTab({ supabase }) {
       }
     }
 
-    // Map relationships in JS using facList and strList
-    const joinedSections = (rawSections || []).map(sec => {
+    // Map relationships in JS, clean redundant grade prefixes, and deduplicate
+    const cleaned = (rawSections || []).map(sec => {
       const adviser = facList.find(f => 
         f.faculty_record_id === sec.adviser_id || 
         f.faculty_id === sec.adviser_id ||
         String(f.faculty_record_id) === String(sec.adviser_id)
       );
       const strand = strList.find(st => st.id === sec.strand_id);
+      const cleanName = cleanSectionName(sec.section_name, sec.grade_level);
       return {
         ...sec,
+        section_name: cleanName,
         faculty: adviser ? { first_name: adviser.first_name, last_name: adviser.last_name } : null,
         shs_strands: strand ? { strand_code: strand.strand_code } : null,
       };
     });
 
-    setSections(joinedSections);
+    // Deduplicate: prevent duplicate sections for the same grade level
+    const seen = new Set();
+    const uniqueSections = [];
+    for (const sec of cleaned) {
+      const key = `${sec.grade_level}___${(sec.section_name || '').toLowerCase().trim()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueSections.push(sec);
+      }
+    }
+
+    setSections(uniqueSections);
     setLoading(false);
   }, [supabase]);
 
@@ -1421,6 +1435,7 @@ function SectionsManagerTab({ supabase }) {
 
   function openAddModal() {
     setEditSection(null);
+    setModalError('');
     setForm({
       grade_level: 7,
       section_name: '',
@@ -1435,9 +1450,10 @@ function SectionsManagerTab({ supabase }) {
 
   function openEditModal(sec) {
     setEditSection(sec);
+    setModalError('');
     setForm({
       grade_level: sec.grade_level,
-      section_name: sec.section_name,
+      section_name: cleanSectionName(sec.section_name, sec.grade_level),
       strand_id: sec.strand_id || '',
       adviser_id: sec.adviser_id || '',
       room_number: sec.room_number || '',
@@ -1449,11 +1465,28 @@ function SectionsManagerTab({ supabase }) {
 
   async function handleSaveSection(e) {
     e.preventDefault();
-    if (!form.section_name) return;
+    setModalError('');
+    const cleanName = cleanSectionName(form.section_name, form.grade_level);
+    if (!cleanName) {
+      setModalError('Section name is required.');
+      return;
+    }
+
+    // Validation: prevent duplicate section names within the same grade level
+    const duplicateExists = sections.some(sec => 
+      (!editSection || sec.id !== editSection.id) &&
+      Number(sec.grade_level) === Number(form.grade_level) &&
+      cleanSectionName(sec.section_name, sec.grade_level).toLowerCase().trim() === cleanName.toLowerCase().trim()
+    );
+
+    if (duplicateExists) {
+      setModalError(`A section named "${cleanName}" already exists for Grade ${form.grade_level}. Grade level sections cannot be duplicated.`);
+      return;
+    }
 
     const payload = {
       grade_level: Number(form.grade_level),
-      section_name: form.section_name,
+      section_name: cleanName,
       strand_id: form.grade_level >= 11 && form.strand_id ? form.strand_id : null,
       adviser_id: form.adviser_id ? Number(form.adviser_id) : null,
       room_number: form.room_number || null,
@@ -1553,7 +1586,7 @@ function SectionsManagerTab({ supabase }) {
                     <td style={{ fontWeight: '700', color: '#8B0000' }}>
                       {sec.grade_level >= 11 ? `Grade ${sec.grade_level} (SHS)` : `Grade ${sec.grade_level}`}
                     </td>
-                    <td style={{ fontWeight: '600' }}>{sec.section_name}</td>
+                    <td style={{ fontWeight: '600' }}>{cleanSectionName(sec.section_name, sec.grade_level)}</td>
                     <td>
                       {sec.shs_strands?.strand_code ? (
                         <span style={styles.badgeNeutral}>{sec.shs_strands.strand_code}</span>
@@ -1599,6 +1632,20 @@ function SectionsManagerTab({ supabase }) {
             </div>
             <form onSubmit={handleSaveSection}>
               <div className="modal-body">
+                {modalError && (
+                  <div style={{
+                    padding: '10px 14px',
+                    background: '#f8d7da',
+                    color: '#721c24',
+                    border: '1px solid #f5c6cb',
+                    borderRadius: '6px',
+                    marginBottom: '16px',
+                    fontSize: '13px',
+                    fontWeight: '500'
+                  }}>
+                    {modalError}
+                  </div>
+                )}
                 <div className="form-grid">
                   <div className="form-group">
                     <label>Grade Level *</label>

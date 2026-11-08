@@ -268,7 +268,7 @@ BEGIN
     ALTER TABLE subjects ADD CONSTRAINT subjects_grade_level_check CHECK (grade_level BETWEEN 1 AND 12);
 END $$;
 
--- D. Sections Table Enhancements
+-- D. Sections Table Enhancements & Deduplication
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='strand_id') THEN
@@ -288,6 +288,23 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sections' AND column_name='status') THEN
         ALTER TABLE sections ADD COLUMN status VARCHAR(20) DEFAULT 'Active';
+    END IF;
+
+    -- Clean up duplicate grade level prefixes from existing section records
+    UPDATE sections 
+    SET section_name = TRIM(REGEXP_REPLACE(section_name, '^(Grade|Gr\.?)\s*\d+\s*[-–—:]*\s*', '', 'i'))
+    WHERE section_name ~* '^(Grade|Gr\.?)\s*\d+\s*[-–—:]*\s*';
+
+    -- Remove duplicate section rows keeping the most recent record
+    DELETE FROM sections a USING sections b
+    WHERE a.id < b.id
+      AND a.grade_level = b.grade_level
+      AND LOWER(TRIM(a.section_name)) = LOWER(TRIM(b.section_name));
+
+    -- Create Unique Index so grade level sections can never be duplicated in the database
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sections_grade_name_unique') THEN
+        CREATE UNIQUE INDEX idx_sections_grade_name_unique 
+          ON sections (grade_level, LOWER(TRIM(section_name)));
     END IF;
 END $$;
 
@@ -527,36 +544,36 @@ BEGIN
     IF sy_id IS NOT NULL THEN
         INSERT INTO sections (grade_level, section_name, school_year_id, max_capacity, status)
         VALUES 
-            (1, 'Grade 1 - St. Therese', sy_id, 40, 'Active'),
-            (2, 'Grade 2 - St. Jude', sy_id, 40, 'Active'),
-            (3, 'Grade 3 - St. Joseph', sy_id, 40, 'Active'),
-            (4, 'Grade 4 - St. Michael', sy_id, 40, 'Active'),
-            (5, 'Grade 5 - St. Gabriel', sy_id, 40, 'Active'),
-            (6, 'Grade 6 - St. Raphael', sy_id, 40, 'Active'),
-            (7, 'Grade 7 - Diamond', sy_id, 45, 'Active'),
-            (7, 'Grade 7 - Emerald', sy_id, 45, 'Active'),
-            (8, 'Grade 8 - Ruby', sy_id, 45, 'Active'),
-            (8, 'Grade 8 - Sapphire', sy_id, 45, 'Active'),
-            (9, 'Grade 9 - Pearl', sy_id, 45, 'Active'),
-            (9, 'Grade 9 - Opal', sy_id, 45, 'Active'),
-            (10, 'Grade 10 - Gold', sy_id, 45, 'Active'),
-            (10, 'Grade 10 - Silver', sy_id, 45, 'Active')
+            (1, 'St. Therese', sy_id, 40, 'Active'),
+            (2, 'St. Jude', sy_id, 40, 'Active'),
+            (3, 'St. Joseph', sy_id, 40, 'Active'),
+            (4, 'St. Michael', sy_id, 40, 'Active'),
+            (5, 'St. Gabriel', sy_id, 40, 'Active'),
+            (6, 'St. Raphael', sy_id, 40, 'Active'),
+            (7, 'Diamond', sy_id, 45, 'Active'),
+            (7, 'Emerald', sy_id, 45, 'Active'),
+            (8, 'Ruby', sy_id, 45, 'Active'),
+            (8, 'Sapphire', sy_id, 45, 'Active'),
+            (9, 'Pearl', sy_id, 45, 'Active'),
+            (9, 'Opal', sy_id, 45, 'Active'),
+            (10, 'Gold', sy_id, 45, 'Active'),
+            (10, 'Silver', sy_id, 45, 'Active')
         ON CONFLICT DO NOTHING;
 
         -- SHS Sections with Strands
         IF stem_id IS NOT NULL THEN
             INSERT INTO sections (grade_level, section_name, strand_id, school_year_id, max_capacity, status)
             VALUES 
-                (11, 'Grade 11 - STEM A', stem_id, sy_id, 45, 'Active'),
-                (12, 'Grade 12 - STEM A', stem_id, sy_id, 45, 'Active')
+                (11, 'STEM A', stem_id, sy_id, 45, 'Active'),
+                (12, 'STEM A', stem_id, sy_id, 45, 'Active')
             ON CONFLICT DO NOTHING;
         END IF;
 
         IF abm_id IS NOT NULL THEN
             INSERT INTO sections (grade_level, section_name, strand_id, school_year_id, max_capacity, status)
             VALUES 
-                (11, 'Grade 11 - ABM A', abm_id, sy_id, 45, 'Active'),
-                (12, 'Grade 12 - ABM A', abm_id, sy_id, 45, 'Active')
+                (11, 'ABM A', abm_id, sy_id, 45, 'Active'),
+                (12, 'ABM A', abm_id, sy_id, 45, 'Active')
             ON CONFLICT DO NOTHING;
         END IF;
     END IF;
