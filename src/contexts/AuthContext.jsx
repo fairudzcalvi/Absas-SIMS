@@ -13,26 +13,41 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined); // undefined = loading
   const [role, setRole]       = useState(null);       // null = not resolved yet, 'admin' | 'teacher' | 'student' | 'unknown'
   const [profile, setProfile] = useState(null);        // the matching admins/faculty/students row
-  const [activeSchoolYear, setActiveSchoolYear] = useState(null);
-  const [activeQuarter, setActiveQuarter]       = useState(null);
-  const [activePolicy, setActivePolicy]         = useState(null);
+  const [schoolYears, setSchoolYears]                   = useState([]);
+  const [activeSchoolYear, setActiveSchoolYear]         = useState(null);
+  const [selectedSchoolYear, setSelectedSchoolYear]     = useState(null);
+  const [activeQuarter, setActiveQuarter]               = useState(null);
+  const [selectedQuarter, setSelectedQuarter]           = useState(null);
+  const [availableQuarters, setAvailableQuarters]       = useState([]);
+  const [activePolicy, setActivePolicy]                 = useState(null);
 
   async function fetchAcademicInfo() {
     try {
-      // 1. Fetch active school year
-      const { data: syData } = await supabase
+      // 1. Fetch all school years
+      const { data: allYears } = await supabase
         .from('school_years')
         .select('*')
-        .eq('is_active', true)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
 
-      if (syData) {
-        setActiveSchoolYear(syData);
-        // 2. Fetch active quarter for this SY
+      const yearsList = allYears || [];
+      setSchoolYears(yearsList);
+
+      const activeSy = yearsList.find(y => y.is_active) || yearsList[0] || null;
+      setActiveSchoolYear(activeSy);
+
+      // Default selectedSchoolYear to active, or maintain user's current selection if valid
+      setSelectedSchoolYear(prev => {
+        if (!prev) return activeSy;
+        const stillExists = yearsList.find(y => y.id === prev.id);
+        return stillExists || activeSy;
+      });
+
+      // 2. Fetch active quarter for the active school year
+      if (activeSy) {
         const { data: qData } = await supabase
           .from('quarters')
           .select('*')
-          .eq('school_year_id', syData.id)
+          .eq('school_year_id', activeSy.id)
           .eq('is_active', true)
           .maybeSingle();
         setActiveQuarter(qData || null);
@@ -44,11 +59,13 @@ export function AuthProvider({ children }) {
           .limit(1)
           .maybeSingle();
         if (settings?.school_year) {
-          setActiveSchoolYear({ year_label: settings.school_year });
+          const fallback = { year_label: settings.school_year, is_active: true };
+          setActiveSchoolYear(fallback);
+          setSelectedSchoolYear(prev => prev || fallback);
         }
       }
 
-      // 3. Fetch active school policy (grading weights, passing mark, attendance threshold)
+      // 3. Fetch active school policy
       const { data: polData } = await supabase
         .from('school_policies')
         .select('*')
@@ -69,6 +86,32 @@ export function AuthProvider({ children }) {
       console.error('Error fetching academic info and policies:', err);
     }
   }
+
+  // Fetch quarters whenever selectedSchoolYear changes
+  useEffect(() => {
+    async function loadSelectedSyQuarters() {
+      if (!selectedSchoolYear?.id) {
+        setAvailableQuarters([]);
+        setSelectedQuarter(null);
+        return;
+      }
+      try {
+        const { data: qData } = await supabase
+          .from('quarters')
+          .select('*')
+          .eq('school_year_id', selectedSchoolYear.id)
+          .order('quarter_number', { ascending: true });
+
+        const qList = qData || [];
+        setAvailableQuarters(qList);
+        const activeQ = qList.find(q => q.is_active) || qList[0] || null;
+        setSelectedQuarter(activeQ);
+      } catch (err) {
+        console.error('Error loading quarters for selected school year:', err);
+      }
+    }
+    loadSelectedSyQuarters();
+  }, [selectedSchoolYear]);
 
   async function resolveRole(currentSession) {
     if (!currentSession) {
@@ -151,8 +194,15 @@ export function AuthProvider({ children }) {
       supabase,
       role,
       profile,
+      schoolYears,
       activeSchoolYear,
+      selectedSchoolYear,
+      setSelectedSchoolYear,
       activeQuarter,
+      selectedQuarter,
+      setSelectedQuarter,
+      availableQuarters,
+      isHistoricalYear: Boolean(selectedSchoolYear && !selectedSchoolYear.is_active),
       activePolicy,
       refreshAcademicInfo: fetchAcademicInfo,
       refreshAcademicYear: fetchAcademicInfo,
