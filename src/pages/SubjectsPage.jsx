@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { DEPED_CURRICULUM, SHS_STRAND_SUBJECTS } from '../utils/curriculum';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoBook() {
@@ -14,6 +15,14 @@ function IcoAdd() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+function IcoList() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
     </svg>
   );
 }
@@ -53,6 +62,69 @@ function IcoSettings() {
 
 /* ── Helpers ────────────────────────────────────────────── */
 const range = (start, end) => Array.from({ length: end - start + 1 }, (_, i) => start + i);
+const makeRowId = () => Math.random().toString(36).substring(2, 9);
+
+function getStandardSubjectCode(name, grade) {
+  const norm = (name || '').toLowerCase().trim();
+  let prefix = '';
+  if (norm.includes('math')) prefix = 'MATH';
+  else if (norm.includes('scien')) prefix = 'SCI';
+  else if (norm.includes('mother tongue')) prefix = 'MTB';
+  else if (norm.includes('filipino')) prefix = 'FIL';
+  else if (norm.includes('english')) prefix = 'ENG';
+  else if (norm.includes('araling panlipunan') || norm === 'ap') prefix = 'AP';
+  else if (norm.includes('edukasyon sa pagpapakatao') || norm.includes('esp')) prefix = 'ESP';
+  else if (norm.includes('edukasyong pantahanan') || norm.includes('epp')) prefix = 'EPP';
+  else if (norm.includes('technology and livelihood') || norm.includes('tle')) prefix = 'TLE';
+  else if (norm.includes('mapeh')) prefix = 'MAPEH';
+  else if (norm.includes('oral comm')) prefix = 'ORALCOMM';
+  else if (norm.includes('reading and writing')) prefix = 'READWRITE';
+  else if (norm.includes('komunikasyon')) prefix = 'KOM';
+  else if (norm.includes('pagbasa')) prefix = 'PAGBASA';
+  else if (norm.includes('21st century')) prefix = 'LIT21';
+  else if (norm.includes('contemporary philippine')) prefix = 'CPAR';
+  else if (norm.includes('statistics')) prefix = 'STAT';
+  else if (norm.includes('earth and life')) prefix = 'ELS';
+  else if (norm.includes('physical science')) prefix = 'PHYSCI';
+  else if (norm.includes('personal dev')) prefix = 'PERDEV';
+  else if (norm.includes('understanding culture') || norm.includes('ucsp')) prefix = 'UCSP';
+  else if (norm.includes('physical education') || norm.includes('pe')) prefix = 'PE';
+  else if (norm.includes('empowerment tech')) prefix = 'EMPOTECH';
+  else if (norm.includes('english for academic') || norm.includes('eapp')) prefix = 'EAPP';
+  else if (norm.includes('media and info') || norm.includes('mil')) prefix = 'MIL';
+  else if (norm.includes('philosophy')) prefix = 'PHIL';
+  else if (norm.includes('practical research 1')) prefix = 'PR1';
+  else if (norm.includes('practical research 2')) prefix = 'PR2';
+  else if (norm.includes('inquiries')) prefix = '3IS';
+  else if (norm.includes('entrepreneurship')) prefix = 'ENTREP';
+  else if (norm.includes('pre-calculus')) prefix = 'PRECALC';
+  else if (norm.includes('basic calculus')) prefix = 'BASCALC';
+  else if (norm.includes('biology 1')) prefix = 'BIO1';
+  else if (norm.includes('biology 2')) prefix = 'BIO2';
+  else if (norm.includes('physics 1')) prefix = 'PHYS1';
+  else if (norm.includes('physics 2')) prefix = 'PHYS2';
+  else if (norm.includes('chemistry 1')) prefix = 'CHEM1';
+  else if (norm.includes('chemistry 2')) prefix = 'CHEM2';
+  else {
+    const words = name.replace(/[^a-zA-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+    if (words.length === 1) {
+      prefix = words[0].substring(0, 4).toUpperCase();
+    } else {
+      prefix = words.map(w => w[0]).join('').substring(0, 5).toUpperCase();
+    }
+  }
+  return grade ? `${prefix}-${grade}` : prefix;
+}
+
+const createEmptyBatchRow = (grade = '', semester = '') => ({
+  id: makeRowId(),
+  subject_name: '',
+  subject_code: '',
+  grade_level: grade ? String(grade) : '',
+  semester: semester || '',
+  description: '',
+  status: 'Active',
+});
 
 const EMPTY_SUBJECT_FORM = {
   subject_name: '',
@@ -116,6 +188,16 @@ export default function SubjectsPage() {
   // Delete confirm
   const [deleteSubj, setDeleteSubj]         = useState(null);
   const [deleteCurr, setDeleteCurr]         = useState(null);
+
+  // Batch Add Subjects modal
+  const [batchModal, setBatchModal]         = useState(false);
+  const [batchCurrId, setBatchCurrId]       = useState('');
+  const [batchGrade, setBatchGrade]         = useState('7');
+  const [batchStrand, setBatchStrand]       = useState('');
+  const [batchRows, setBatchRows]           = useState([]);
+  const [batchSaving, setBatchSaving]       = useState(false);
+  const [batchError, setBatchError]         = useState('');
+  const [batchNotice, setBatchNotice]       = useState('');
 
   /* ── Fetch curriculums ── */
   const fetchCurriculums = useCallback(async () => {
@@ -240,6 +322,183 @@ export default function SubjectsPage() {
     await supabase.from('subjects').delete().eq('subject_id', deleteSubj.subject_id);
     setDeleteSubj(null);
     fetchSubjects();
+  }
+
+  /* ── Batch Add Subjects helpers ── */
+  const batchGradeOptions = useMemo(() => {
+    const selCurr = curriculums.find(c => c.id === batchCurrId);
+    if (!selCurr) return range(1, 12);
+    return range(selCurr.grade_level_start, selCurr.grade_level_end);
+  }, [curriculums, batchCurrId]);
+
+  function openBatchModal() {
+    const defaultCurr = activeCurrId || curriculums.find(c => c.is_active)?.id || (curriculums[0]?.id ?? '');
+    const currObj = curriculums.find(c => c.id === defaultCurr);
+    const defaultGrade = activeGrade ? String(activeGrade) : (currObj ? String(currObj.grade_level_start) : '7');
+
+    setBatchCurrId(defaultCurr);
+    setBatchGrade(defaultGrade);
+    setBatchStrand('');
+    setBatchError('');
+    setBatchNotice('');
+    setBatchRows([
+      createEmptyBatchRow(defaultGrade),
+      createEmptyBatchRow(defaultGrade),
+      createEmptyBatchRow(defaultGrade),
+    ]);
+    setBatchModal(true);
+  }
+
+  function handleBatchCurrChange(newCurrId) {
+    setBatchCurrId(newCurrId);
+    const currObj = curriculums.find(c => c.id === newCurrId);
+    const newGrade = currObj ? String(currObj.grade_level_start) : '7';
+    setBatchGrade(newGrade);
+    setBatchStrand('');
+  }
+
+  function handleLoadDepEdTemplate() {
+    const g = Number(batchGrade);
+    if (!g) {
+      setBatchError('Please select a valid grade level first.');
+      return;
+    }
+    const standardList = DEPED_CURRICULUM[g] || [];
+    let combined = [...standardList];
+
+    if (g >= 11 && batchStrand && SHS_STRAND_SUBJECTS[g]?.[batchStrand]) {
+      combined = [...combined, ...SHS_STRAND_SUBJECTS[g][batchStrand]];
+    }
+
+    if (combined.length === 0) {
+      setBatchError(`No standard DepEd subjects defined for Grade ${g}.`);
+      return;
+    }
+
+    const newRows = combined.map(name => ({
+      id: makeRowId(),
+      subject_name: name,
+      subject_code: getStandardSubjectCode(name, g),
+      grade_level: String(g),
+      semester: g >= 11 ? '1st Semester' : '',
+      description: '',
+      status: 'Active',
+    }));
+
+    setBatchRows(newRows);
+    setBatchError('');
+    setBatchNotice(`Loaded ${newRows.length} DepEd standard subjects for Grade ${g}${batchStrand ? ` (${batchStrand})` : ''}.`);
+  }
+
+  function handleAddBatchRow() {
+    setBatchRows(prev => [...prev, createEmptyBatchRow(batchGrade, Number(batchGrade) >= 11 ? '1st Semester' : '')]);
+  }
+
+  function handleRemoveBatchRow(id) {
+    setBatchRows(prev => prev.filter(r => r.id !== id));
+  }
+
+  function handleUpdateBatchRow(id, field, value) {
+    setBatchRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+
+  function handleClearBatchRows() {
+    setBatchRows([createEmptyBatchRow(batchGrade)]);
+    setBatchNotice('');
+    setBatchError('');
+  }
+
+  // Duplicate detection helper for row in batch
+  function isRowExistingInDb(row) {
+    if (!row.subject_name.trim() || !batchCurrId || !row.grade_level) return false;
+    const nameNorm = row.subject_name.trim().toLowerCase();
+    const gradeNum = Number(row.grade_level);
+    return subjects.some(s =>
+      s.curriculum_id === batchCurrId &&
+      s.grade_level === gradeNum &&
+      (s.subject_name ?? '').trim().toLowerCase() === nameNorm
+    );
+  }
+
+  async function handleBatchSave(e) {
+    if (e) e.preventDefault();
+    setBatchError('');
+    setBatchNotice('');
+
+    if (!batchCurrId) {
+      setBatchError('Please select a curriculum.');
+      return;
+    }
+
+    const validRows = batchRows.filter(r => r.subject_name.trim().length > 0);
+    if (validRows.length === 0) {
+      setBatchError('Please enter at least one subject with a valid name.');
+      return;
+    }
+
+    const missingGrade = validRows.find(r => !r.grade_level);
+    if (missingGrade) {
+      setBatchError(`Subject "${missingGrade.subject_name}" is missing a grade level.`);
+      return;
+    }
+
+    const seenInBatch = new Set();
+    const toInsert = [];
+    let skippedBatchDuplicates = 0;
+    let skippedDbDuplicates = 0;
+
+    for (const row of validRows) {
+      const key = `${row.grade_level}::${row.subject_name.trim().toLowerCase()}`;
+      if (seenInBatch.has(key)) {
+        skippedBatchDuplicates++;
+        continue;
+      }
+      seenInBatch.add(key);
+
+      const existsInDb = subjects.some(s =>
+        s.curriculum_id === batchCurrId &&
+        s.grade_level === Number(row.grade_level) &&
+        (s.subject_name ?? '').trim().toLowerCase() === row.subject_name.trim().toLowerCase()
+      );
+
+      if (existsInDb) {
+        skippedDbDuplicates++;
+        continue;
+      }
+
+      toInsert.push({
+        subject_name:  row.subject_name.trim(),
+        subject_code:  row.subject_code.trim() || null,
+        curriculum_id: batchCurrId,
+        grade_level:   Number(row.grade_level),
+        semester:      row.semester || null,
+        description:   row.description ? row.description.trim() || null : null,
+        status:        row.status || 'Active',
+      });
+    }
+
+    if (toInsert.length === 0) {
+      setBatchError(
+        `No new subjects to add. ${skippedDbDuplicates > 0 ? `${skippedDbDuplicates} subject(s) already exist in this curriculum and grade.` : ''}`
+      );
+      return;
+    }
+
+    setBatchSaving(true);
+    const { error } = await supabase.from('subjects').insert(toInsert);
+
+    if (error) {
+      setBatchError(error.message);
+      setBatchSaving(false);
+      return;
+    }
+
+    setBatchSaving(false);
+    setBatchModal(false);
+    fetchSubjects();
+    if (activeCurrId !== batchCurrId) {
+      setActiveCurrId(batchCurrId);
+    }
   }
 
   /* ── Curriculum management helpers ── */
@@ -648,6 +907,9 @@ export default function SubjectsPage() {
                   >✕</button>
                 )}
               </div>
+              <button className="btn btn-secondary" onClick={openBatchModal} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <IcoList /> Batch Add Subjects
+              </button>
               <button className="btn btn-primary" onClick={openAddSubject}>
                 <IcoAdd /> Add Subject
               </button>
@@ -846,6 +1108,279 @@ export default function SubjectsPage() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteCurr(null)}>Cancel</button>
               <button className="btn btn-danger" onClick={handleDeleteCurriculum}>Delete Curriculum</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Batch Add Subjects Modal ── */}
+      {batchModal && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setBatchModal(false); }}>
+          <div className="modal-content" style={{ maxWidth: '980px', width: '96vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header" style={{ paddingBottom: '12px' }}>
+              <div>
+                <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <IcoList /> Batch Add Subjects
+                </h3>
+                <span style={{ fontSize: '13px', color: '#666', marginTop: '2px', display: 'block' }}>
+                  Add multiple subjects in one take or pre-fill standard DepEd curriculum sequences.
+                </span>
+              </div>
+              <button className="modal-close" onClick={() => setBatchModal(false)}><IcoClose /></button>
+            </div>
+
+            <div className="modal-body" style={{ overflowY: 'auto', flex: 1, padding: '16px 20px' }}>
+              {/* Presets and Target Bar */}
+              <div style={{ background: '#f8f9fa', border: '1px solid #dee2e6', borderRadius: '8px', padding: '14px 16px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: '200px', flex: '1 1 200px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#495057', display: 'block', marginBottom: '4px' }}>
+                      Target Curriculum *
+                    </label>
+                    <select
+                      value={batchCurrId}
+                      onChange={e => handleBatchCurrChange(e.target.value)}
+                      style={{ width: '100%', padding: '7px 10px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                    >
+                      <option value="">Select curriculum</option>
+                      {curriculums.filter(c => c.is_active).map(c => (
+                        <option key={c.id} value={c.id}>{c.name} (Gr. {c.grade_level_start}–{c.grade_level_end})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ minWidth: '130px', flex: '0 1 140px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#495057', display: 'block', marginBottom: '4px' }}>
+                      Grade Level *
+                    </label>
+                    <select
+                      value={batchGrade}
+                      onChange={e => setBatchGrade(e.target.value)}
+                      disabled={!batchCurrId}
+                      style={{ width: '100%', padding: '7px 10px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                    >
+                      {batchGradeOptions.map(g => (
+                        <option key={g} value={g}>Grade {g}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {Number(batchGrade) >= 11 && (
+                    <div style={{ minWidth: '150px', flex: '0 1 160px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '700', color: '#495057', display: 'block', marginBottom: '4px' }}>
+                        SHS Strand (Optional)
+                      </label>
+                      <select
+                        value={batchStrand}
+                        onChange={e => setBatchStrand(e.target.value)}
+                        style={{ width: '100%', padding: '7px 10px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                      >
+                        <option value="">Core Subjects Only</option>
+                        <option value="STEM">STEM Specialized</option>
+                        <option value="ABM">ABM Specialized</option>
+                        <option value="HUMSS">HUMSS Specialized</option>
+                        <option value="GAS">GAS Specialized</option>
+                        <option value="TVL">TVL Specialized</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleLoadDepEdTemplate}
+                      disabled={!batchCurrId || !batchGrade}
+                      style={{
+                        padding: '8px 14px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title="Auto-fill the table with DepEd standard curriculum subjects for this grade"
+                    >
+                      <IcoList /> Load DepEd Standards for Grade {batchGrade}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notice or Error Banner */}
+              {batchNotice && (
+                <div style={{ padding: '8px 12px', background: '#d1e7dd', border: '1px solid #badbcc', borderRadius: '6px', color: '#0f5132', fontSize: '13px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{batchNotice}</span>
+                  <button type="button" onClick={() => setBatchNotice('')} style={{ background: 'none', border: 'none', color: '#0f5132', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                </div>
+              )}
+              {batchError && (
+                <div style={{ padding: '8px 12px', background: '#f8d7da', border: '1px solid #f5c2c7', borderRadius: '6px', color: '#842029', fontSize: '13px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{batchError}</span>
+                  <button type="button" onClick={() => setBatchError('')} style={{ background: 'none', border: 'none', color: '#842029', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                </div>
+              )}
+
+              {/* Multi-Row Spreadsheet Table */}
+              <div style={{ border: '1px solid #dee2e6', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                  <table className="data-table" style={{ margin: 0, fontSize: '13px' }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f8f9fa' }}>
+                      <tr>
+                        <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                        <th style={{ minWidth: '220px' }}>Subject Name *</th>
+                        <th style={{ minWidth: '120px' }}>Subject Code</th>
+                        <th style={{ minWidth: '110px' }}>Grade Level</th>
+                        {Number(batchGrade) >= 11 && <th style={{ minWidth: '130px' }}>Semester</th>}
+                        <th style={{ minWidth: '150px' }}>Description</th>
+                        <th style={{ width: '45px', textAlign: 'center' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batchRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={Number(batchGrade) >= 11 ? 7 : 6} className="empty-message" style={{ padding: '24px' }}>
+                            No rows in batch. Click "Add Row" or "Load DepEd Standards".
+                          </td>
+                        </tr>
+                      ) : (
+                        batchRows.map((row, index) => {
+                          const isDuplicate = isRowExistingInDb(row);
+                          const isDupeInBatch = batchRows.some(
+                            (r, idx) => idx !== index &&
+                            r.subject_name.trim().toLowerCase() === row.subject_name.trim().toLowerCase() &&
+                            r.grade_level === row.grade_level &&
+                            row.subject_name.trim().length > 0
+                          );
+
+                          return (
+                            <tr key={row.id} style={{ background: isDuplicate || isDupeInBatch ? '#fff8f8' : undefined }}>
+                              <td style={{ textAlign: 'center', color: '#888', fontWeight: '600' }}>{index + 1}</td>
+                              <td>
+                                <input
+                                  type="text"
+                                  value={row.subject_name}
+                                  onChange={e => handleUpdateBatchRow(row.id, 'subject_name', e.target.value)}
+                                  placeholder="e.g. Mathematics"
+                                  style={{
+                                    width: '100%',
+                                    padding: '6px 8px',
+                                    fontSize: '13px',
+                                    borderRadius: '4px',
+                                    border: isDuplicate || isDupeInBatch ? '1px solid #e74c3c' : '1px solid #ced4da',
+                                  }}
+                                />
+                                {isDuplicate && (
+                                  <span style={{ fontSize: '11px', color: '#c0392b', display: 'block', marginTop: '2px', fontWeight: '600' }}>
+                                    Already exists in Grade {row.grade_level} (will skip)
+                                  </span>
+                                )}
+                                {!isDuplicate && isDupeInBatch && (
+                                  <span style={{ fontSize: '11px', color: '#e67e22', display: 'block', marginTop: '2px', fontWeight: '600' }}>
+                                    Duplicate row in batch
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <input
+                                  type="text"
+                                  value={row.subject_code}
+                                  onChange={e => handleUpdateBatchRow(row.id, 'subject_code', e.target.value)}
+                                  placeholder="e.g. MATH-7"
+                                  style={{ width: '100%', padding: '6px 8px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                                />
+                              </td>
+                              <td>
+                                <select
+                                  value={row.grade_level}
+                                  onChange={e => handleUpdateBatchRow(row.id, 'grade_level', e.target.value)}
+                                  style={{ width: '100%', padding: '6px 8px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                                >
+                                  {batchGradeOptions.map(g => (
+                                    <option key={g} value={g}>Grade {g}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              {Number(batchGrade) >= 11 && (
+                                <td>
+                                  <select
+                                    value={row.semester}
+                                    onChange={e => handleUpdateBatchRow(row.id, 'semester', e.target.value)}
+                                    style={{ width: '100%', padding: '6px 8px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                                  >
+                                    <option value="">Any</option>
+                                    <option value="1st Semester">1st Semester</option>
+                                    <option value="2nd Semester">2nd Semester</option>
+                                  </select>
+                                </td>
+                              )}
+                              <td>
+                                <input
+                                  type="text"
+                                  value={row.description}
+                                  onChange={e => handleUpdateBatchRow(row.id, 'description', e.target.value)}
+                                  placeholder="Optional description"
+                                  style={{ width: '100%', padding: '6px 8px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                                />
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => handleRemoveBatchRow(row.id)}
+                                  title="Remove row"
+                                  style={{ padding: '4px 6px', lineHeight: 1 }}
+                                >
+                                  <IcoTrash />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Table Footer Controls */}
+                <div style={{ padding: '10px 14px', background: '#f8f9fa', borderTop: '1px solid #dee2e6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddBatchRow}>
+                      <IcoAdd /> Add Row
+                    </button>
+                    {batchRows.length > 0 && (
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={handleClearBatchRows}>
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#666' }}>
+                    Total: <strong>{batchRows.length}</strong> row(s) &bull; Valid: <strong style={{ color: '#27ae60' }}>{batchRows.filter(r => r.subject_name.trim().length > 0).length}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ borderTop: '1px solid #dee2e6', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: '#888' }}>
+                Duplicate subjects will be safely skipped to avoid duplicate entries.
+              </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setBatchModal(false)} disabled={batchSaving}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleBatchSave}
+                  disabled={batchSaving || batchRows.filter(r => r.subject_name.trim().length > 0).length === 0}
+                >
+                  {batchSaving
+                    ? 'Saving Subjects...'
+                    : `Save All Subjects (${batchRows.filter(r => r.subject_name.trim().length > 0).length})`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
