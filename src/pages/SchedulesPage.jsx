@@ -96,7 +96,8 @@ const EMPTY_FORM = {
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function SchedulesPage() {
-  const { supabase } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const [searchParams] = useSearchParams();
   const teacherParam = searchParams.get('teacher');
 
@@ -166,6 +167,13 @@ export default function SchedulesPage() {
     const facId = teacherRecord.faculty_id || teacherRecord.faculty_record_id;
     const fullName = `${teacherRecord.first_name || ''} ${teacherRecord.last_name || ''}`.trim();
 
+    const syMatches = (s) => {
+      if (!currentSy) return true;
+      if (s.school_year_id && currentSy.id) return s.school_year_id === currentSy.id;
+      if (s.school_year && currentSy.year_label) return s.school_year === currentSy.year_label;
+      return true;
+    };
+
     // 1. Try 'teacher' column first
     if (email) {
       const { data, error } = await supabase
@@ -174,7 +182,7 @@ export default function SchedulesPage() {
         .eq('teacher', email)
         .order('day_of_week')
         .order('time_start');
-      if (!error) return data ?? [];
+      if (!error && data) return data.filter(syMatches);
     }
 
     // 2. Try 'faculty_id'
@@ -185,7 +193,7 @@ export default function SchedulesPage() {
         .eq('faculty_id', facId)
         .order('day_of_week')
         .order('time_start');
-      if (!error) return data ?? [];
+      if (!error && data) return data.filter(syMatches);
     }
 
     // 3. Try 'teacher_id'
@@ -196,7 +204,7 @@ export default function SchedulesPage() {
         .eq('teacher_id', facId)
         .order('day_of_week')
         .order('time_start');
-      if (!error) return data ?? [];
+      if (!error && data) return data.filter(syMatches);
     }
 
     // 4. Try 'teacher_name'
@@ -207,7 +215,7 @@ export default function SchedulesPage() {
         .eq('teacher_name', fullName)
         .order('day_of_week')
         .order('time_start');
-      if (!error) return data ?? [];
+      if (!error && data) return data.filter(syMatches);
     }
 
     // 5. Fallback: select all and filter in JS if columns differ
@@ -220,7 +228,8 @@ export default function SchedulesPage() {
     if (!allErr && allData) {
       return allData.filter(s => {
         const tVal = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
-        return tVal === email || tVal === facId || tVal === fullName;
+        const matchesTeacher = tVal === email || tVal === facId || tVal === fullName;
+        return matchesTeacher && syMatches(s);
       });
     }
 
@@ -244,7 +253,7 @@ export default function SchedulesPage() {
     }
     fetchSchedules();
     return () => { ignore = true; };
-  }, [supabase, selectedTeacher, teachers]);
+  }, [supabase, selectedTeacher, teachers, currentSy]);
 
   /* open modals */
   function openAdd() {
@@ -252,7 +261,7 @@ export default function SchedulesPage() {
     setForm({
       ...EMPTY_FORM,
       teacher: selectedTeacher,
-      school_year: activeSy?.year_label || '2025-2026',
+      school_year: currentSy?.year_label || '2025-2026',
     });
     setCustomSubjectMode(false);
     setFormError('');
@@ -269,7 +278,7 @@ export default function SchedulesPage() {
       time_start:   item.time_start   ?? '',
       time_end:     item.time_end     ?? '',
       room:         item.room         ?? '',
-      school_year:  item.school_year  ?? (activeSy?.year_label || '2025-2026'),
+      school_year:  item.school_year  ?? (currentSy?.year_label || '2025-2026'),
     });
     const existsInCatalog = allSubjects.some(
       s => s.subject_name.toLowerCase() === (item.subject || '').toLowerCase()
@@ -299,7 +308,7 @@ export default function SchedulesPage() {
       (!form.grade_level || Number(s.grade_level) === Number(form.grade_level))
     );
     const secId = selectedSec?.id || null;
-    const syId = activeSy?.id || null;
+    const syId = currentSy?.id || activeSy?.id || null;
 
     const basePayload = {
       subject: form.subject,
@@ -309,7 +318,7 @@ export default function SchedulesPage() {
       time_start: form.time_start,
       time_end: form.time_end,
       room: form.room || null,
-      school_year: form.school_year || activeSy?.year_label || '2025-2026',
+      school_year: form.school_year || currentSy?.year_label || '2025-2026',
     };
 
     // Construct adaptive payload prioritizing 'teacher' with fallbacks

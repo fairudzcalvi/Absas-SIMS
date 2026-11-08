@@ -16,7 +16,8 @@ const DEFAULT_QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const DEFAULT_Q_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
 export default function StudentGradesPage() {
-  const { supabase, profile, activePolicy } = useAuth();
+  const { supabase, profile, activePolicy, selectedSchoolYear, activeSchoolYear } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
   const [grades, setGrades]         = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
@@ -31,11 +32,17 @@ export default function StudentGradesPage() {
     async function fetch() {
       setLoading(true);
       try {
-        const [{ data: gData }, { data: sData }, { data: strData }, { data: syData }] = await Promise.all([
-          supabase
-            .from('grades')
-            .select('*')
-            .eq('student_record_id', profile.student_record_id),
+        let gQuery = supabase
+          .from('grades')
+          .select('*')
+          .eq('student_record_id', profile.student_record_id);
+
+        if (currentSy?.id) {
+          gQuery = gQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+        }
+
+        const [{ data: gData }, { data: sData }, { data: strData }] = await Promise.all([
+          gQuery,
           supabase
             .from('subjects')
             .select('subject_name, grade_level, strand_id, status')
@@ -47,19 +54,13 @@ export default function StudentGradesPage() {
                 .eq('id', profile.current_strand_id)
                 .maybeSingle()
             : Promise.resolve({ data: null }),
-          supabase
-            .from('school_years')
-            .select('id')
-            .eq('is_active', true)
-            .limit(1)
-            .maybeSingle(),
         ]);
 
-        if (syData) {
+        if (currentSy?.id) {
           const { data: qData } = await supabase
             .from('quarters')
             .select('*')
-            .eq('school_year_id', syData.id)
+            .eq('school_year_id', currentSy.id)
             .order('quarter_number', { ascending: true });
 
           if (qData && qData.length > 0) {
@@ -88,7 +89,7 @@ export default function StudentGradesPage() {
       }
     }
     fetch();
-  }, [supabase, profile]);
+  }, [supabase, profile, currentSy]);
 
   // Derive complete subject list strictly ordered by DepEd curriculum
   const studentGrade = profile?.grade_level ? Number(profile.grade_level) : null;

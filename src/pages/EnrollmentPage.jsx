@@ -117,7 +117,8 @@ const INITIAL_WIZARD_FORM = {
 
 /* ── Main Enrollment Page ───────────────────────────────── */
 export default function EnrollmentPage() {
-  const { supabase, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [enrollments, setEnrollments]   = useState([]);
   const [students, setStudents]         = useState([]);
@@ -162,8 +163,8 @@ export default function EnrollmentPage() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (activeSchoolYear?.id) {
-        query = query.eq('school_year_id', activeSchoolYear.id);
+      if (currentSy?.id) {
+        query = query.eq('school_year_id', currentSy.id);
       }
 
       const { data: enrData, error: enrErr } = await query;
@@ -201,7 +202,7 @@ export default function EnrollmentPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, activeSchoolYear]);
+  }, [supabase, currentSy]);
 
   useEffect(() => {
     fetchData();

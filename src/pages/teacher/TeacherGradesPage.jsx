@@ -106,8 +106,10 @@ const DEFAULT_SUBJECTS = [
 ];
 
 export default function TeacherGradesPage() {
-  const { supabase, profile, activePolicy } = useAuth();
+  const { supabase, profile, activePolicy, selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
   const location = useLocation();
+
+  const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [gradeFilter, setGrade]   = useState(location.state?.presetGrade ? String(location.state.presetGrade) : '');
   const [subject, setSubject]     = useState(location.state?.presetSubject || '');
@@ -130,75 +132,56 @@ export default function TeacherGradesPage() {
   const [customSubjectMode, setCustomSubjectMode] = useState(false);
   const [gradingLocked, setGradingLocked] = useState(false);
 
-  // Fetch configured quarters for the active school year
+  // Fetch configured quarters for the selected/active school year
   useEffect(() => {
     async function loadQuarters() {
-      const { data: syData } = await supabase
-        .from('school_years')
-        .select('id, semester_count, quarter_count')
-        .eq('is_active', true)
-        .limit(1)
-        .maybeSingle();
+      if (!currentSy?.id) return;
 
-      if (syData) {
-        const { data: qData } = await supabase
-          .from('quarters')
-          .select('*')
-          .eq('school_year_id', syData.id)
-          .order('quarter_number', { ascending: true });
+      const { data: qData } = await supabase
+        .from('quarters')
+        .select('*')
+        .eq('school_year_id', currentSy.id)
+        .order('quarter_number', { ascending: true });
 
-        if (qData && qData.length > 0) {
-          const mapped = qData.map(q => ({
-            key: `${q.quarter_number}Q`,
-            num: q.quarter_number,
-            label: q.quarter_name,
-            semester: q.semester_name || (q.quarter_number <= 2 ? '1st Semester' : '2nd Semester'),
-          }));
-          setAvailableQuarters(mapped);
-          // If current selected quarter is not in active list, select first available
-          if (!mapped.some(m => m.key === quarter)) {
-            setQuarter(mapped[0].key);
-          }
+      if (qData && qData.length > 0) {
+        const mapped = qData.map(q => ({
+          key: `${q.quarter_number}Q`,
+          num: q.quarter_number,
+          label: q.quarter_name,
+          semester: q.semester_name || (q.quarter_number <= 2 ? '1st Semester' : '2nd Semester'),
+        }));
+        setAvailableQuarters(mapped);
+        if (!mapped.some(m => m.key === quarter)) {
+          setQuarter(mapped[0].key);
         }
       }
     }
     loadQuarters();
-  }, [supabase]);
+  }, [supabase, currentSy]);
 
-  // Check if grading is locked for the selected quarter
+  // Check if grading is locked for the selected quarter and school year
   useEffect(() => {
     async function checkGradingLock() {
-      // Map quarter filter (1Q, 2Q, 3Q, 4Q) to quarter_number (1, 2, 3, 4)
-      const qNum = parseInt(quarter?.replace('Q', ''));
-      if (!qNum) return;
-
-      // Get the active school year
-      const { data: syData } = await supabase
-        .from('school_years')
-        .select('id')
-        .eq('is_active', true)
-        .limit(1)
-        .maybeSingle();
-
-      if (!syData) {
-        setGradingLocked(false);
+      if (isHistoricalYear) {
+        setGradingLocked(true);
         return;
       }
 
-      // Get the quarter record for this school year and quarter number
+      const qNum = parseInt(quarter?.replace('Q', ''));
+      if (!qNum || !currentSy?.id) return;
+
       const { data: qData } = await supabase
         .from('quarters')
         .select('is_grading_open')
-        .eq('school_year_id', syData.id)
+        .eq('school_year_id', currentSy.id)
         .eq('quarter_number', qNum)
         .limit(1)
         .maybeSingle();
 
-      // If is_grading_open is false, grading is locked
       setGradingLocked(qData ? !qData.is_grading_open : false);
     }
     checkGradingLock();
-  }, [supabase, quarter]);
+  }, [supabase, quarter, currentSy, isHistoricalYear]);
 
   // Load subjects according to grade level curriculum + db subjects
   useEffect(() => {
@@ -302,12 +285,18 @@ export default function TeacherGradesPage() {
       }
 
       const ids = (studs ?? []).map(s => s.student_record_id);
-      const { data: existing, error: gradesError } = await supabase
+      let gQuery = supabase
         .from('grades')
-        .select('grade_id, student_record_id, written_works, performance_tasks, quarterly_assessment, participation, quarter_grade, remarks')
+        .select('grade_id, student_record_id, written_works, performance_tasks, quarterly_assessment, participation, quarter_grade, remarks, school_year, school_year_id')
         .eq('subject', subject)
         .eq('quarter', quarter)
         .in('student_record_id', ids);
+
+      if (currentSy?.id) {
+        gQuery = gQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+      }
+
+      const { data: existing, error: gradesError } = await gQuery;
 
       if (gradesError) {
         console.error("Error loading grades:", gradesError);
@@ -329,7 +318,7 @@ export default function TeacherGradesPage() {
     }
     load();
     return () => { ignore = true; };
-  }, [supabase, gradeFilter, subject, quarter, sectionFilter]);
+  }, [supabase, gradeFilter, subject, quarter, sectionFilter, currentSy]);
 
   const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
   const wwWeight = activePolicy?.written_work_pct != null ? Number(activePolicy.written_work_pct) / 100 : 0.30;
@@ -378,12 +367,18 @@ export default function TeacherGradesPage() {
 
   async function handleSave() {
     if (students.length === 0 || !subject) return;
+    if (isHistoricalYear) {
+      alert(`Cannot edit grades for archived S.Y. ${currentSy?.year_label}. Past school years are read-only.`);
+      return;
+    }
     setSaving(true);
 
     const rows = students.map(s => ({
       student_record_id:    s.student_record_id,
       subject,
       quarter,
+      school_year_id:       currentSy?.id || null,
+      school_year:          currentSy?.year_label || '2025-2026',
       written_works:        gradeMap[s.student_record_id]?.written_works        ? Number(gradeMap[s.student_record_id].written_works)        : 0,
       performance_tasks:    gradeMap[s.student_record_id]?.performance_tasks    ? Number(gradeMap[s.student_record_id].performance_tasks)    : 0,
       quarterly_assessment: gradeMap[s.student_record_id]?.quarterly_assessment ? Number(gradeMap[s.student_record_id].quarterly_assessment) : 0,
@@ -392,7 +387,20 @@ export default function TeacherGradesPage() {
       remarks:              gradeMap[s.student_record_id]?.remarks              ?? null,
     }));
 
-    await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter' });
+    try {
+      // 1. Try upserting with multi-year conflict resolution
+      const { error: err1 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter,school_year' });
+      if (err1) {
+        // Fallback to legacy constraint if multi-year constraint not active in db
+        const { error: err2 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter' });
+        if (err2 && (err2.message?.includes('school_year') || err2.code === '42703')) {
+          const fallbackRows = rows.map(({ school_year_id, school_year, ...rest }) => rest);
+          await supabase.from('grades').upsert(fallbackRows, { onConflict: 'student_record_id,subject,quarter' });
+        }
+      }
+    } catch (e) {
+      console.error('Error saving grades:', e);
+    }
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2500);
   }
 
@@ -408,8 +416,22 @@ export default function TeacherGradesPage() {
       <div className="content-area">
         {/* Filters */}
         <div className="card">
-          <div className="card-header">
-            <h2 className="card-title"><IcoGrades /> Grade Entry</h2>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <IcoGrades /> Grade Entry
+              {currentSy && (
+                <span style={{
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: currentSy.is_active ? '#e6f7ed' : '#fff3cd',
+                  color: currentSy.is_active ? '#0f5132' : '#856404',
+                }}>
+                  S.Y. {currentSy.year_label} {currentSy.is_active ? '(Active)' : '(Archived)'}
+                </span>
+              )}
+            </h2>
           </div>
 
           {/* Quick-Select from My Teaching Schedules */}

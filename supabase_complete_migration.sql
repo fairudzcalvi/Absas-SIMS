@@ -358,7 +358,23 @@ BEGIN
     END IF;
 END $$;
 
--- E. Student Finances Enhancements
+-- F. Grades Table Enhancements (Multi-Year Academic Partitioning)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='grades' AND column_name='school_year_id') THEN
+        ALTER TABLE grades ADD COLUMN school_year_id UUID REFERENCES school_years(id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='grades' AND column_name='school_year') THEN
+        ALTER TABLE grades ADD COLUMN school_year VARCHAR(50) DEFAULT '2025-2026';
+    END IF;
+
+    -- Create index for high-speed multi-year grade retrieval
+    CREATE INDEX IF NOT EXISTS idx_grades_sy_student ON grades(school_year_id, student_record_id);
+    CREATE INDEX IF NOT EXISTS idx_grades_sy_label ON grades(school_year, student_record_id);
+END $$;
+
+-- G. Student Finances Enhancements
 DO $$ 
 BEGIN
     -- Add scholarship_id

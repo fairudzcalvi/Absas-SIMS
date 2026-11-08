@@ -202,7 +202,8 @@ function computeQuarterlyBreakdown(netAssessment, amountPaid = 0) {
 
 /* ── Main Finance Page ─────────────────────────────────── */
 export default function FinancePage() {
-  const { supabase, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [students, setStudents]         = useState([]);
   const [finances, setFinances]         = useState([]);
@@ -285,14 +286,17 @@ export default function FinancePage() {
         .select('*');
       setStrands(strData ?? []);
 
-      // 4. Fetch Student Finances
-      const { data: finData, error: finErr } = await supabase
-        .from('student_finances')
-        .select('*');
+      // 4. Fetch Student Finances (filtered by current school year if available)
+      let finQuery = supabase.from('student_finances').select('*');
+      if (currentSy?.id) {
+        finQuery = finQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+      }
+      const { data: finData, error: finErr } = await finQuery;
 
       if (finErr) {
-        setDbNotice(finErr.message);
-        setFinances([]);
+        // Fallback to all finances if school_year column not present
+        const { data: baseFin } = await supabase.from('student_finances').select('*');
+        setFinances(baseFin ?? []);
       } else {
         setFinances(finData ?? []);
       }
@@ -306,7 +310,7 @@ export default function FinancePage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, currentSy]);
 
   useEffect(() => {
     fetchData();

@@ -64,8 +64,10 @@ function fmtTime(t) {
 }
 
 export default function TeacherSchedulesPage() {
-  const { supabase, profile, activeSchoolYear } = useAuth();
+  const { supabase, profile, activeSchoolYear, selectedSchoolYear } = useAuth();
   const navigate = useNavigate();
+
+  const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -81,6 +83,13 @@ export default function TeacherSchedulesPage() {
       const facId = profile.faculty_id || profile.faculty_record_id;
       const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
 
+      const syMatches = (s) => {
+        if (!currentSy) return true;
+        if (s.school_year_id && currentSy.id) return s.school_year_id === currentSy.id;
+        if (s.school_year && currentSy.year_label) return s.school_year === currentSy.year_label;
+        return true;
+      };
+
       // 1. Try 'teacher' column first
       if (email) {
         const { data, error } = await supabase
@@ -90,7 +99,8 @@ export default function TeacherSchedulesPage() {
           .order('day_of_week')
           .order('time_start');
         if (!error && data && data.length > 0) {
-          if (!ignore) { setSchedules(data); setLoading(false); return; }
+          const filtered = data.filter(syMatches);
+          if (!ignore) { setSchedules(filtered); setLoading(false); return; }
         }
       }
 
@@ -103,7 +113,8 @@ export default function TeacherSchedulesPage() {
           .order('day_of_week')
           .order('time_start');
         if (!error && data && data.length > 0) {
-          if (!ignore) { setSchedules(data); setLoading(false); return; }
+          const filtered = data.filter(syMatches);
+          if (!ignore) { setSchedules(filtered); setLoading(false); return; }
         }
       }
 
@@ -116,7 +127,8 @@ export default function TeacherSchedulesPage() {
           .order('day_of_week')
           .order('time_start');
         if (!error && data && data.length > 0) {
-          if (!ignore) { setSchedules(data); setLoading(false); return; }
+          const filtered = data.filter(syMatches);
+          if (!ignore) { setSchedules(filtered); setLoading(false); return; }
         }
       }
 
@@ -130,7 +142,8 @@ export default function TeacherSchedulesPage() {
       if (!allErr && allData) {
         const matched = allData.filter(s => {
           const tVal = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
-          return tVal === email || tVal === facId || tVal === fullName;
+          const isMe = tVal === email || tVal === facId || tVal === fullName;
+          return isMe && syMatches(s);
         });
         if (!ignore) { setSchedules(matched); setLoading(false); return; }
       }
@@ -140,7 +153,7 @@ export default function TeacherSchedulesPage() {
 
     loadSchedules();
     return () => { ignore = true; };
-  }, [supabase, profile]);
+  }, [supabase, profile, currentSy]);
 
   // Derived stats
   const totalClasses = schedules.length;
