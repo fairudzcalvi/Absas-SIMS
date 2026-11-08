@@ -96,7 +96,7 @@ const EMPTY_FORM = {
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function SchedulesPage() {
-  const { supabase, selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
   const [searchParams] = useSearchParams();
   const teacherParam = searchParams.get('teacher');
@@ -396,7 +396,28 @@ export default function SchedulesPage() {
       {/* Header */}
       <div className="top-header">
         <h1><IcoCalendar /> Teacher Schedules</h1>
-        <span className="date-time">{dateStr}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            background: '#8B0000',
+            color: '#FFD700',
+            padding: '5px 12px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
+          }}>
+            <span>{currentSy?.year_label ? `S.Y. ${currentSy.year_label}` : activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
+            {activeQuarter && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                {activeQuarter.quarter_name}
+              </span>
+            )}
+          </div>
+          <span className="date-time">{dateStr}</span>
+        </div>
       </div>
 
       <div className="content-area">
