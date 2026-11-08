@@ -308,7 +308,10 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   const [strandModal, setStrandModal] = useState(false);
   const [newStrand, setNewStrand] = useState({ strand_code: '', strand_name: '', track_type: 'Academic Track', description: '' });
   const [strandFormError, setStrandFormError] = useState('');
-  const [strandSaving, setStrandSaving] = useState(false);
+  // Delete School Year Modal
+  const [deleteSy, setDeleteSy] = useState(null);
+  const [deleteSySaving, setDeleteSySaving] = useState(false);
+  const [deleteSyError, setDeleteSyError] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -346,6 +349,40 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
     await supabase.from('school_years').update({ is_active: true }).eq('id', syId);
     fetchData();
     if (refreshAcademicYear) refreshAcademicYear();
+  }
+
+  async function handleDeleteSchoolYear() {
+    if (!deleteSy) return;
+    if (deleteSy.is_active) {
+      setDeleteSyError('Cannot delete the active school year. Please set another school year as active first.');
+      return;
+    }
+    setDeleteSySaving(true);
+    setDeleteSyError('');
+    try {
+      // 1. Delete associated quarters first
+      await supabase.from('quarters').delete().eq('school_year_id', deleteSy.id);
+
+      // 2. Delete school year
+      const { error } = await supabase.from('school_years').delete().eq('id', deleteSy.id);
+      if (error) {
+        if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('violates foreign key')) {
+          setDeleteSyError('Cannot delete this school year because existing student enrollments, schedules, grades, or finances are linked to it. Please reassign or remove linked records first.');
+        } else {
+          setDeleteSyError(error.message);
+        }
+        setDeleteSySaving(false);
+        return;
+      }
+
+      setDeleteSy(null);
+      setDeleteSySaving(false);
+      fetchData();
+      if (refreshAcademicYear) refreshAcademicYear();
+    } catch (err) {
+      setDeleteSyError(err.message);
+      setDeleteSySaving(false);
+    }
   }
 
   async function handleToggleQuarter(quarterId, isCurrentActive) {
@@ -751,9 +788,20 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                   {sy.is_active ? (
                     <span style={styles.badgeActive}><IcoCheck /> ACTIVE S.Y.</span>
                   ) : (
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleSetActiveSY(sy.id)}>
-                      Set as Active
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => handleSetActiveSY(sy.id)}>
+                        Set as Active
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => { setDeleteSy(sy); setDeleteSyError(''); }}
+                        title="Delete School Year"
+                        style={{ padding: '5px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <IcoTrash />
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div style={{ fontSize: '13px', color: '#555', lineHeight: '1.6' }}>
@@ -1310,6 +1358,41 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Delete School Year Confirmation */}
+      {deleteSy && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget && !deleteSySaving) setDeleteSy(null); }}>
+          <div className="modal-content" style={{ maxWidth: '460px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#dc3545' }}>
+                <IcoTrash /> Delete School Year
+              </h3>
+              <button className="modal-close" onClick={() => setDeleteSy(null)} disabled={deleteSySaving}><IcoClose /></button>
+            </div>
+            <div className="modal-body">
+              {deleteSyError && (
+                <div style={{ color: '#842029', background: '#f8d7da', border: '1px solid #f5c2c7', padding: '10px 12px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
+                  {deleteSyError}
+                </div>
+              )}
+              <p style={{ fontSize: '14px', color: '#333', lineHeight: '1.5', margin: 0 }}>
+                Are you sure you want to delete school year <strong>{deleteSy.year_label}</strong>?
+              </p>
+              <p style={{ fontSize: '13px', color: '#666', marginTop: '10px', lineHeight: '1.5' }}>
+                This will permanently delete the school year and its defined quarters. School years with existing student enrollments, schedules, grades, or financial records cannot be deleted.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteSy(null)} disabled={deleteSySaving}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-danger" onClick={handleDeleteSchoolYear} disabled={deleteSySaving}>
+                {deleteSySaving ? 'Deleting...' : 'Delete School Year'}
+              </button>
+            </div>
           </div>
         </div>
       )}
