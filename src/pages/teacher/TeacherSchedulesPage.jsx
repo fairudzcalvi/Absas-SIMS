@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatGradeSection, cleanSectionName } from '../../utils/formatters';
+import { formatGradeSection } from '../../utils/formatters';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoCalendar() {

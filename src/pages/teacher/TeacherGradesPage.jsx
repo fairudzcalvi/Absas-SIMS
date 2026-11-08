@@ -32,7 +32,6 @@ function IcoCalendar() {
 }
 
 const GRADE_OPTIONS  = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `Grade ${i + 1}` }));
-const QUARTERS       = ['1Q', '2Q', '3Q', '4Q'];
 const QUARTER_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
 // DepEd Transmutation Table (Initial Grade -> Transmuted Grade)
@@ -394,7 +393,7 @@ export default function TeacherGradesPage() {
         // Fallback to legacy constraint if multi-year constraint not active in db
         const { error: err2 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter' });
         if (err2 && (err2.message?.includes('school_year') || err2.code === '42703')) {
-          const fallbackRows = rows.map(({ school_year_id, school_year, ...rest }) => rest);
+          const fallbackRows = rows.map(({ school_year_id: _syId, school_year: _sy, ...rest }) => rest);
           await supabase.from('grades').upsert(fallbackRows, { onConflict: 'student_record_id,subject,quarter' });
         }
       }

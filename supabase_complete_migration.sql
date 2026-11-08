@@ -372,6 +372,20 @@ BEGIN
     -- Create index for high-speed multi-year grade retrieval
     CREATE INDEX IF NOT EXISTS idx_grades_sy_student ON grades(school_year_id, student_record_id);
     CREATE INDEX IF NOT EXISTS idx_grades_sy_label ON grades(school_year, student_record_id);
+
+    -- Ensure multi-year unique constraint allows grades per student, subject, quarter, and school year
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'grades_student_subject_quarter_sy_unique'
+    ) THEN
+        BEGIN
+            ALTER TABLE grades 
+            ADD CONSTRAINT grades_student_subject_quarter_sy_unique 
+            UNIQUE (student_record_id, subject, quarter, school_year);
+        EXCEPTION WHEN duplicate_table OR duplicate_object THEN
+            NULL;
+        END;
+    END IF;
 END $$;
 
 -- G. Student Finances Enhancements

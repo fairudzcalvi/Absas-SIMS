@@ -66,7 +66,7 @@ const makeRowId = () => Math.random().toString(36).substring(2, 9);
 
 function getStandardSubjectCode(name, grade) {
   const norm = (name || '').toLowerCase().trim();
-  let prefix = '';
+  let prefix;
   if (norm.includes('math')) prefix = 'MATH';
   else if (norm.includes('scien')) prefix = 'SCI';
   else if (norm.includes('mother tongue')) prefix = 'MTB';
@@ -478,8 +478,11 @@ export default function SubjectsPage() {
     }
 
     if (toInsert.length === 0) {
+      const parts = [];
+      if (skippedDbDuplicates > 0) parts.push(`${skippedDbDuplicates} subject(s) already exist in this curriculum and grade`);
+      if (skippedBatchDuplicates > 0) parts.push(`${skippedBatchDuplicates} duplicate(s) within the table`);
       setBatchError(
-        `No new subjects to add. ${skippedDbDuplicates > 0 ? `${skippedDbDuplicates} subject(s) already exist in this curriculum and grade.` : ''}`
+        `No new subjects to add. ${parts.length > 0 ? parts.join(', and ') + '.' : ''}`
       );
       return;
     }
@@ -792,7 +795,7 @@ export default function SubjectsPage() {
                       {currSaving ? 'Saving...' : editCurr ? 'Save Changes' : 'Add Curriculum'}
                     </button>
                     {editCurr && (
-                      <button type="button" className="btn btn-secondary" onClick={() => { setEditCurr(null); setCurrForm(EMPTY_CURRICULUM_FORM); }} style={{ fontSize: '13px' }}>
+                      <button type="button" className="btn btn-secondary" onClick={openAddCurriculum} style={{ fontSize: '13px' }}>
                         Cancel
                       </button>
                     )}
@@ -904,7 +907,7 @@ export default function SubjectsPage() {
                     }}
                     onMouseOver={e => { e.currentTarget.style.background = '#8B0000'; e.currentTarget.style.color = '#fff'; }}
                     onMouseOut={e => { e.currentTarget.style.background = '#e9ecef'; e.currentTarget.style.color = '#666'; }}
-                  >✕</button>
+                  >x</button>
                 )}
               </div>
               <button className="btn btn-secondary" onClick={openBatchModal} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1212,13 +1215,13 @@ export default function SubjectsPage() {
               {batchNotice && (
                 <div style={{ padding: '8px 12px', background: '#d1e7dd', border: '1px solid #badbcc', borderRadius: '6px', color: '#0f5132', fontSize: '13px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>{batchNotice}</span>
-                  <button type="button" onClick={() => setBatchNotice('')} style={{ background: 'none', border: 'none', color: '#0f5132', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                  <button type="button" onClick={() => setBatchNotice('')} style={{ background: 'none', border: 'none', color: '#0f5132', cursor: 'pointer', fontWeight: 'bold' }}>x</button>
                 </div>
               )}
               {batchError && (
                 <div style={{ padding: '8px 12px', background: '#f8d7da', border: '1px solid #f5c2c7', borderRadius: '6px', color: '#842029', fontSize: '13px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>{batchError}</span>
-                  <button type="button" onClick={() => setBatchError('')} style={{ background: 'none', border: 'none', color: '#842029', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                  <button type="button" onClick={() => setBatchError('')} style={{ background: 'none', border: 'none', color: '#842029', cursor: 'pointer', fontWeight: 'bold' }}>x</button>
                 </div>
               )}
 
