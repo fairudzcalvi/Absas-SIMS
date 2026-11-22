@@ -618,19 +618,20 @@ export default function FinancePage() {
   }
 
   /* ── Void / Reverse a Payment Transaction ─────────────── */
+  const [voidTarget, setVoidTarget]             = useState(null); // { payment, student, fromReceiptModal }
   const [voidingPaymentId, setVoidingPaymentId] = useState(null);
 
-  async function handleVoidPayment(payment, targetStudent = null, fromReceiptModal = false) {
+  function handleVoidPayment(payment, targetStudent = null, fromReceiptModal = false) {
     if (!payment) return;
     const stu = targetStudent || (viewHistory ? viewHistory.student : null);
+    setVoidTarget({ payment, student: stu, fromReceiptModal });
+  }
+
+  async function confirmExecuteVoid() {
+    if (!voidTarget || !voidTarget.payment) return;
+    const { payment, student: stu, fromReceiptModal } = voidTarget;
     const orLabel = payment.or_number ? `OR #${payment.or_number}` : 'this transaction';
     const amountStr = peso(payment.amount);
-
-    const isConfirmed = window.confirm(
-      `Are you sure you want to VOID and reverse payment ${orLabel} of ${amountStr}?\n\n` +
-      `This will remove the transaction record and restore the student's unpaid balance.`
-    );
-    if (!isConfirmed) return;
 
     const pId = payment.payment_id || payment.id;
     setVoidingPaymentId(pId);
@@ -688,10 +689,13 @@ export default function FinancePage() {
         setViewReceipt(null);
       }
 
-      // 4. Refresh global page data
+      // 4. Close the void confirmation modal
+      setVoidTarget(null);
+
+      // 5. Refresh global page data
       await fetchData();
 
-      // 5. If viewing payment history, update history state
+      // 6. If viewing payment history, update history state
       if (viewHistory && viewHistory.student) {
         const { data: updatedPayments } = await supabase
           .from('payments')
@@ -705,7 +709,9 @@ export default function FinancePage() {
         }));
       }
 
-      alert(`Payment ${orLabel} for ${amountStr} has been successfully voided and reversed.`);
+      setSuccessNotice({
+        text: `Payment ${orLabel} for ${amountStr} has been successfully voided and reversed. The student's balance has been restored.`,
+      });
     } catch (err) {
       alert(`Error voiding payment: ${err.message}`);
     } finally {
@@ -1982,6 +1988,93 @@ export default function FinancePage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewHistory(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Void / Reverse Transaction Confirmation Modal ── */}
+      {voidTarget && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget && !voidingPaymentId) setVoidTarget(null); }}>
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <IcoVoid /> Void &amp; Reverse Transaction
+              </h3>
+              <button
+                className="modal-close"
+                onClick={() => { if (!voidingPaymentId) setVoidTarget(null); }}
+                disabled={Boolean(voidingPaymentId)}
+              >
+                <IcoClose />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px', fontSize: '14px', lineHeight: '1.6' }}>
+              <p style={{ margin: '0 0 14px 0', color: '#222' }}>
+                Are you sure you want to <strong style={{ color: '#b91c1c' }}>VOID and reverse</strong> payment{' '}
+                <strong>{voidTarget.payment?.or_number || 'this transaction'}</strong>?
+              </p>
+
+              <div style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '8px',
+                padding: '12px 16px',
+                marginBottom: '16px',
+                fontSize: '13px',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' }}>
+                  <span style={{ color: '#666' }}>Amount to Reverse:</span>
+                  <strong style={{ color: '#b91c1c', fontSize: '17px' }}>{peso(voidTarget.payment?.amount)}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ color: '#666' }}>Payment For:</span>
+                  <span style={{ fontWeight: '600' }}>{voidTarget.payment?.payment_for || 'Tuition Fee'}</span>
+                </div>
+                {voidTarget.student && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ color: '#666' }}>Student:</span>
+                    <span style={{ fontWeight: '600' }}>
+                      {voidTarget.student.first_name} {voidTarget.student.last_name} (Gr {voidTarget.student.grade_level})
+                    </span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#666' }}>Payment Date:</span>
+                  <span>{voidTarget.payment?.payment_date}</span>
+                </div>
+              </div>
+
+              <div style={{
+                background: '#fffbeb',
+                border: '1px solid #fef3c7',
+                color: '#92400e',
+                borderRadius: '6px',
+                padding: '10px 14px',
+                fontSize: '12px',
+                lineHeight: '1.5',
+              }}>
+                <strong>Notice:</strong> This action permanently deletes the transaction from the cashier logs and automatically restores the student's unpaid balance.
+              </div>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setVoidTarget(null)}
+                disabled={Boolean(voidingPaymentId)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={confirmExecuteVoid}
+                disabled={Boolean(voidingPaymentId)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <IcoVoid /> {voidingPaymentId ? 'Voiding Transaction...' : 'Confirm Void & Reverse'}
+              </button>
             </div>
           </div>
         </div>
