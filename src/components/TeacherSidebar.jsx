@@ -49,11 +49,20 @@ function IcoCalendar() {
   );
 }
 
+function IcoUser() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+    </svg>
+  );
+}
+
 const NAV_ITEMS = [
   { label: 'Class List',          path: '/teacher',             Icon: IcoClassList,  end: true },
   { label: 'My Schedule',         path: '/teacher/schedules',   Icon: IcoCalendar,   end: false },
   { label: 'Students Attendance', path: '/teacher/attendance',  Icon: IcoAttendance, end: false },
   { label: 'Students Grades',     path: '/teacher/grades',      Icon: IcoGrades,     end: false },
+  { label: 'My Profile & Security', path: '/teacher/profile',   Icon: IcoUser,       end: false },
 ];
 
 export default function TeacherSidebar({ isOpen = false, onClose }) {

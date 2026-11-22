@@ -20,6 +20,7 @@ import ClassListPage         from './pages/teacher/ClassListPage';
 import TeacherSchedulesPage  from './pages/teacher/TeacherSchedulesPage';
 import TeacherAttendancePage from './pages/teacher/TeacherAttendancePage';
 import TeacherGradesPage     from './pages/teacher/TeacherGradesPage';
+import TeacherProfilePage    from './pages/teacher/TeacherProfilePage';
 
 // Student
 import StudentLayout          from './components/StudentLayout';
@@ -57,6 +58,7 @@ function App() {
             <Route path="schedules"  element={<TeacherSchedulesPage />} />
             <Route path="attendance" element={<TeacherAttendancePage />} />
             <Route path="grades"     element={<TeacherGradesPage />} />
+            <Route path="profile"    element={<TeacherProfilePage />} />
           </Route>
 
           {/* Student */}
