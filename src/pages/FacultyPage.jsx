@@ -378,7 +378,7 @@ export default function FacultyPage() {
     const cleanLastName = form.last_name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const finalEmail = form.email && form.email.trim()
       ? form.email.trim()
-      : `${cleanFirstName}.${cleanLastName}@absas.edu.ph`;
+      : `${cleanFirstName}.${cleanLastName}@absas.edu`;
 
     const payload = {
       faculty_id:          form.faculty_id          || null,
@@ -932,7 +932,7 @@ export default function FacultyPage() {
                         type="email"
                         value={form.email}
                         onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                        placeholder="e.g. maria.santos@absas.edu.ph"
+                        placeholder="e.g. maria.santos@absas.edu"
                       />
                     </div>
                     <div className="form-group">

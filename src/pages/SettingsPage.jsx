@@ -2563,7 +2563,7 @@ function AccountAndDataTab({ supabase, session }) {
           <h2 className="card-title"><IcoAccount /> Admin Account Security</h2>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', padding: '12px 0' }}>
-          <div><span style={{ color: '#8B0000', fontWeight: '600' }}>Email Address: </span>{session?.user?.email ?? 'admin@school.edu.ph'}</div>
+          <div><span style={{ color: '#8B0000', fontWeight: '600' }}>Email Address: </span>{session?.user?.email ?? 'admin@absas.edu'}</div>
           <div><span style={{ color: '#8B0000', fontWeight: '600' }}>System Role: </span>Super Administrator</div>
           <div><span style={{ color: '#8B0000', fontWeight: '600' }}>User ID: </span><span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{session?.user?.id || '—'}</span></div>
           <div><span style={{ color: '#8B0000', fontWeight: '600' }}>Database Status: </span><span style={styles.badgeActive}>Connected to Supabase</span></div>
