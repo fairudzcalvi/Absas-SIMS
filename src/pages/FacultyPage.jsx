@@ -138,8 +138,10 @@ const DEPARTMENTS = [
 const POSITIONS = [
   'Principal / School Head',
   'Department Head',
+  'Academic Coordinator / Coverage Lead',
   'Section Adviser',
   'Subject Teacher',
+  'Subject Teacher (Coverage Authorized)',
   'Registrar / Academic Head',
   'Finance / Cashier Officer',
   'Guidance Counselor',
@@ -677,6 +679,7 @@ export default function FacultyPage() {
                     const isArch = f.is_archived === true || (f.employment_status ?? '').toLowerCase() === 'archived';
                     const isPrincipal = (f.position ?? '').toLowerCase().includes('principal');
                     const isDeptHead = (f.position ?? '').toLowerCase().includes('head');
+                    const isCoverageAuth = (f.position ?? '').toLowerCase().includes('coverage') || (f.position ?? '').toLowerCase().includes('coordinator') || (f.role ?? '').toLowerCase() === 'administrator';
 
                     // Find assigned section
                     const advisedSection = sections.find(s => String(s.adviser_id) === String(f.faculty_record_id));
@@ -688,11 +691,26 @@ export default function FacultyPage() {
                           {f.first_name} {f.middle_name ? f.middle_name[0] + '. ' : ''}{f.last_name}
                         </td>
                         <td>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                             <span style={isPrincipal ? styles.badgePrincipal : isDeptHead ? styles.badgeDeptHead : styles.badgePosition}>
                               {f.position || 'Subject Teacher'}
                             </span>
-                            <span style={{ fontSize: '11px', color: '#666' }}>Role: {f.role || 'Teacher'}</span>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span style={{ fontSize: '11px', color: '#666' }}>Role: {f.role || 'Teacher'}</span>
+                              {isCoverageAuth && (
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: '700',
+                                  color: '#15803d',
+                                  background: '#dcfce7',
+                                  border: '1px solid #bbf7d0',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                }}>
+                                  Coverage Authorized
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td>
@@ -920,6 +938,43 @@ export default function FacultyPage() {
                         <option value="">No Advisory Class</option>
                         {GRADE_LEVELS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                       </select>
+                    </div>
+
+                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                      <div style={{
+                        background: '#f8fafc',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        padding: '12px 14px',
+                      }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0, fontWeight: '600', color: '#1e293b' }}>
+                          <input
+                            type="checkbox"
+                            checked={
+                              (form.position || '').toLowerCase().includes('coverage') ||
+                              (form.position || '').toLowerCase().includes('coordinator') ||
+                              form.role === 'Administrator'
+                            }
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              if (checked) {
+                                if (!form.position.toLowerCase().includes('principal') && !form.position.toLowerCase().includes('head')) {
+                                  setForm(f => ({ ...f, position: 'Subject Teacher (Coverage Authorized)' }));
+                                }
+                              } else {
+                                if (form.position === 'Subject Teacher (Coverage Authorized)') {
+                                  setForm(f => ({ ...f, position: 'Subject Teacher' }));
+                                }
+                              }
+                            }}
+                            style={{ width: '16px', height: '16px' }}
+                          />
+                          <span>Authorize for Administrative Grade Editing &amp; Coverage Duties</span>
+                        </label>
+                        <p style={{ margin: '6px 0 0 24px', fontSize: '12px', color: '#64748b', lineHeight: '1.4' }}>
+                          Explicitly authorizes this teacher to view and input grades for sections and subjects they are not normally assigned to, for substitute coverage or administrative oversight.
+                        </p>
+                      </div>
                     </div>
                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                       <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -214,6 +214,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='faculty' AND column_name='department') THEN
         ALTER TABLE faculty ADD COLUMN department VARCHAR(100) DEFAULT 'Junior High';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='faculty' AND column_name='coverage_authorized') THEN
+        ALTER TABLE faculty ADD COLUMN coverage_authorized BOOLEAN DEFAULT FALSE;
+    END IF;
 
     -- Update faculty constraints to allow Senior High School (Grades 11 & 12) and all department structures
     ALTER TABLE faculty DROP CONSTRAINT IF EXISTS faculty_employment_status_check;

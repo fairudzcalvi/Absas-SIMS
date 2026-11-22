@@ -370,6 +370,45 @@ export default function TeacherGradesPage() {
     }
   }, [gradeFilter, subject, sectionFilter, teacherSchedules, isLeadership]);
 
+  // Look up who the officially assigned teacher is for this section and subject (for informative notices)
+  const [assignedTeacherInfo, setAssignedTeacherInfo] = useState(null);
+
+  useEffect(() => {
+    async function checkAssignedTeacher() {
+      if (!gradeFilter || !subject || !sectionFilter) {
+        setAssignedTeacherInfo(null);
+        return;
+      }
+      const gl = Number(gradeFilter);
+      let q = supabase
+        .from('schedules')
+        .select('teacher, teacher_name, faculty_id, section_name')
+        .eq('grade_level', gl)
+        .eq('subject', subject);
+
+      if (currentSy?.id) {
+        q = q.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+      }
+
+      const { data } = await q;
+      if (data && data.length > 0) {
+        const secLower = cleanSectionName(sectionFilter, gl).toLowerCase().trim();
+        const match = data.find(s => {
+          if (!s.section_name) return true;
+          return cleanSectionName(s.section_name, gl).toLowerCase().trim() === secLower;
+        });
+        if (match) {
+          setAssignedTeacherInfo(match.teacher_name || match.teacher || match.faculty_id || 'Another Faculty Member');
+        } else {
+          setAssignedTeacherInfo(null);
+        }
+      } else {
+        setAssignedTeacherInfo(null);
+      }
+    }
+    checkAssignedTeacher();
+  }, [supabase, gradeFilter, subject, sectionFilter, currentSy]);
+
   useEffect(() => {
     let ignore = false;
     async function load() {
@@ -756,7 +795,15 @@ export default function TeacherGradesPage() {
                   <IcoLock />
                 </div>
                 <div>
-                  <strong>Read-Only Mode:</strong> You are not scheduled to teach {sectionFilter ? <strong>{sectionFilter}</strong> : 'all sections'} for <strong>{subject}</strong>. Grade editing is restricted to assigned teachers unless explicitly authorized by school leadership for specific administrative or coverage duties.
+                  <strong>Read-Only Mode:</strong> You are not scheduled to teach {sectionFilter ? <strong>{sectionFilter}</strong> : 'all sections'} for <strong>{subject}</strong>.
+                  {assignedTeacherInfo && (
+                    <div style={{ margin: '4px 0', fontSize: '12px', color: '#7f1d1d' }}>
+                      Officially Assigned Faculty: <strong>{assignedTeacherInfo}</strong>
+                    </div>
+                  )}
+                  <div style={{ marginTop: '4px', fontSize: '12px', color: '#991b1b' }}>
+                    Grade editing is restricted to assigned section teachers unless explicitly authorized by school leadership for specific administrative or coverage duties.
+                  </div>
                   {!sectionFilter && availableSections.length > 0 && (
                     <div style={{ marginTop: '4px', fontSize: '12px', color: '#b91c1c' }}>
                       Tip: Please select your assigned section from the Section dropdown above to enter grades.
