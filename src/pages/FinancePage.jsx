@@ -126,6 +126,14 @@ function IcoClose() {
     </svg>
   );
 }
+function IcoVoid() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+    </svg>
+  );
+}
 
 /* ── Standard DepEd & ABSAS Fee Matrix ──────────────────── */
 
@@ -587,6 +595,102 @@ export default function FinancePage() {
       setPaymentError(err.message || 'Error recording payment.');
     } finally {
       setSavingPayment(false);
+    }
+  }
+
+  /* ── Void / Reverse a Payment Transaction ─────────────── */
+  const [voidingPaymentId, setVoidingPaymentId] = useState(null);
+
+  async function handleVoidPayment(payment, targetStudent = null, fromReceiptModal = false) {
+    if (!payment) return;
+    const stu = targetStudent || (viewHistory ? viewHistory.student : null);
+    const orLabel = payment.or_number ? `OR #${payment.or_number}` : 'this transaction';
+    const amountStr = peso(payment.amount);
+
+    const isConfirmed = window.confirm(
+      `Are you sure you want to VOID and reverse payment ${orLabel} of ${amountStr}?\n\n` +
+      `This will remove the transaction record and restore the student's unpaid balance.`
+    );
+    if (!isConfirmed) return;
+
+    const pId = payment.payment_id || payment.id;
+    setVoidingPaymentId(pId);
+
+    try {
+      const studentId = payment.student_record_id || (stu ? stu.student_record_id : null);
+      const paymentAmount = Number(payment.amount) || 0;
+
+      // 1. Delete payment record from Supabase
+      let delQuery = supabase.from('payments').delete();
+      if (payment.payment_id) {
+        delQuery = delQuery.eq('payment_id', payment.payment_id);
+      } else if (payment.id) {
+        delQuery = delQuery.eq('id', payment.id);
+      } else if (payment.or_number) {
+        delQuery = delQuery.eq('or_number', payment.or_number);
+      }
+      const { error: delErr } = await delQuery;
+      if (delErr) throw delErr;
+
+      // 2. If it is a Tuition / Installment payment, deduct from student_finances
+      const isTuition = !payment.payment_for || 
+                        payment.payment_for.toLowerCase().includes('tuition') || 
+                        payment.payment_for.toLowerCase().includes('installment') || 
+                        payment.payment_for.toLowerCase().includes('quarter');
+
+      if (isTuition && studentId) {
+        const existingFin = finances.find(f => f.student_record_id === studentId);
+        if (existingFin) {
+          const acc = studentAccounts.find(a => a.student.student_record_id === studentId);
+          const newAmountPaid = Math.max(0, (Number(existingFin.amount_paid) || 0) - paymentAmount);
+          const netAssessment = acc ? acc.netAssessment : (Number(existingFin.tuition_fee || 0) + Number(existingFin.miscellaneous_fee || 0));
+          const newStatus = newAmountPaid >= netAssessment ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
+
+          let finQuery = supabase.from('student_finances').update({
+            amount_paid: newAmountPaid,
+            status:      newStatus,
+          });
+
+          if (existingFin.finance_id) {
+            finQuery = finQuery.eq('finance_id', existingFin.finance_id);
+          } else if (existingFin.id) {
+            finQuery = finQuery.eq('id', existingFin.id);
+          } else {
+            finQuery = finQuery.eq('student_record_id', studentId);
+          }
+
+          const { error: finErr } = await finQuery;
+          if (finErr) console.warn('Warning: could not update student_finances:', finErr.message);
+        }
+      }
+
+      // 3. If called from Receipt modal, close it
+      if (fromReceiptModal) {
+        setViewReceipt(null);
+      }
+
+      // 4. Refresh global page data
+      await fetchData();
+
+      // 5. If viewing payment history, update history state
+      if (viewHistory && viewHistory.student) {
+        const { data: updatedPayments } = await supabase
+          .from('payments')
+          .select('*')
+          .eq('student_record_id', viewHistory.student.student_record_id)
+          .order('payment_date', { ascending: false });
+
+        setViewHistory(prev => ({
+          ...prev,
+          payments: updatedPayments || [],
+        }));
+      }
+
+      alert(`Payment ${orLabel} for ${amountStr} has been successfully voided and reversed.`);
+    } catch (err) {
+      alert(`Error voiding payment: ${err.message}`);
+    } finally {
+      setVoidingPaymentId(null);
     }
   }
 
@@ -1564,7 +1668,7 @@ export default function FinancePage() {
             </div>
             <div className="modal-body" style={{ padding: '24px', background: '#fff', border: '2px solid #8B0000', borderRadius: '8px' }}>
               <div style={{ textAlign: 'center', borderBottom: '2px solid #8B0000', paddingBottom: '12px', marginBottom: '14px' }}>
-                <h3 style={{ color: '#8B0000', margin: '0 0 2px 0', fontSize: '18px' }}>ANGELICUM BIRMINGHAM SCHOOL OF ACADEMIC STUDIES</h3>
+                <h3 style={{ color: '#8B0000', margin: '0 0 2px 0', fontSize: '18px' }}>A.B SIMPSONS ALLIANCE SCHOOL</h3>
                 <div style={{ fontSize: '12px', color: '#555' }}>San Pedro, Laguna • Official Cashier Receipt</div>
                 <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#8B0000', marginTop: '6px' }}>
                   OFFICIAL RECEIPT NO: {viewReceipt.payment?.or_number}
@@ -1600,11 +1704,22 @@ export default function FinancePage() {
                 <div>Status: <strong style={{ color: '#137333' }}>CONFIRMED &amp; POSTED</strong></div>
               </div>
             </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setViewReceipt(null)}>Close</button>
-              <button className="btn btn-primary" onClick={() => window.print()}>
-                <IcoPrint /> Print Official Receipt
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={() => handleVoidPayment(viewReceipt.payment, viewReceipt.student, true)}
+                title="Void and undo this transaction"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              >
+                <IcoVoid /> Void Transaction
               </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-secondary" onClick={() => setViewReceipt(null)}>Close</button>
+                <button className="btn btn-primary" onClick={() => window.print()}>
+                  <IcoPrint /> Print Official Receipt
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1620,7 +1735,7 @@ export default function FinancePage() {
             </div>
             <div className="modal-body" style={{ padding: '24px', background: '#fff', border: '2px solid #8B0000', borderRadius: '8px' }}>
               <div style={{ textAlign: 'center', borderBottom: '2px solid #8B0000', paddingBottom: '12px', marginBottom: '16px' }}>
-                <h3 style={{ color: '#8B0000', margin: '0 0 2px 0', fontSize: '18px' }}>ANGELICUM BIRMINGHAM SCHOOL OF ACADEMIC STUDIES</h3>
+                <h3 style={{ color: '#8B0000', margin: '0 0 2px 0', fontSize: '18px' }}>A.B SIMPSONS ALLIANCE SCHOOL</h3>
                 <div style={{ fontSize: '12px', color: '#555' }}>OFFICIAL STATEMENT OF ACCOUNT</div>
                 <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#8B0000', marginTop: '4px' }}>
                   ACADEMIC YEAR {activeSchoolYear?.year_label || '2026-2027'}
@@ -1734,17 +1849,30 @@ export default function FinancePage() {
                       <th>Method</th>
                       <th>Payment For</th>
                       <th>Reference #</th>
+                      <th style={{ textAlign: 'center' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {viewHistory.payments.map(p => (
-                      <tr key={p.payment_id}>
+                      <tr key={p.payment_id || p.id || p.or_number}>
                         <td style={{ fontWeight: 'bold', color: '#8B0000' }}>{p.or_number || '—'}</td>
                         <td>{p.payment_date}</td>
                         <td style={{ color: '#137333', fontWeight: 'bold' }}>{peso(p.amount)}</td>
                         <td>{p.payment_method}</td>
                         <td>{p.payment_for}</td>
                         <td>{p.reference_number || '—'}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => handleVoidPayment(p, viewHistory.student, false)}
+                            disabled={voidingPaymentId === (p.payment_id || p.id)}
+                            title="Void and reverse this transaction"
+                          >
+                            <IcoVoid /> {voidingPaymentId === (p.payment_id || p.id) ? 'Voiding...' : 'Void'}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
