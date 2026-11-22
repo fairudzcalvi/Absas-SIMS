@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCurriculumSubjects, sortSubjectsByCurriculum } from '../../utils/curriculum';
@@ -27,6 +27,30 @@ function IcoCalendar() {
       <rect x="3" y="4" width="18" height="18" rx="2" />
       <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
       <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
+function IcoLock() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  );
+}
+function IcoShield() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  );
+}
+function IcoUserCheck() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="8.5" cy="7" r="4"/>
+      <polyline points="17 11 19 13 23 9"/>
     </svg>
   );
 }
@@ -209,13 +233,26 @@ export default function TeacherGradesPage() {
     loadSubjects();
   }, [supabase, gradeFilter]);
 
+  // Leadership & Coverage Authorization determination
+  const isLeadership = useMemo(() => {
+    if (!profile) return false;
+    if (profile.can_edit_all_grades || profile.coverage_authorized || profile.is_admin || profile.is_leadership) {
+      return true;
+    }
+    const role = (profile.role || '').toLowerCase();
+    const pos = (profile.position || '').toLowerCase();
+    const leadershipKeywords = ['principal', 'head', 'coordinator', 'admin', 'dean', 'director', 'lead'];
+    return leadershipKeywords.some(kw => role.includes(kw) || pos.includes(kw));
+  }, [profile]);
+
   // Load teacher's personal schedules
   useEffect(() => {
     async function loadTeacherSchedules() {
       if (!profile) return;
-      const email = profile.email;
-      const facId = profile.faculty_id || profile.faculty_record_id;
-      const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+      const email = (profile.email || '').toLowerCase().trim();
+      const facId = (profile.faculty_id || '').toLowerCase().trim();
+      const facRecId = profile.faculty_record_id ? String(profile.faculty_record_id) : '';
+      const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.toLowerCase().trim();
 
       const { data } = await supabase
         .from('schedules')
@@ -225,8 +262,17 @@ export default function TeacherGradesPage() {
 
       if (data) {
         const mySch = data.filter(s => {
-          const t = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
-          return t === email || t === facId || t === fullName;
+          const t = (s.teacher || '').toLowerCase().trim();
+          const fId = (s.faculty_id || '').toLowerCase().trim();
+          const fRecId = s.faculty_record_id ? String(s.faculty_record_id) : '';
+          const tn = (s.teacher_name || '').toLowerCase().trim();
+
+          return (
+            (email && (t === email || tn === email)) ||
+            (facId && (fId === facId || t === facId)) ||
+            (facRecId && fRecId === facRecId) ||
+            (fullName && (t === fullName || tn === fullName))
+          );
         });
         setTeacherSchedules(mySch);
       }
@@ -243,7 +289,7 @@ export default function TeacherGradesPage() {
       }
       let secQuery = supabase
         .from('sections')
-        .select('id, section_name, grade_level')
+        .select('id, section_name, grade_level, adviser_id')
         .eq('grade_level', Number(gradeFilter))
         .eq('status', 'Active')
         .order('section_name');
@@ -265,6 +311,64 @@ export default function TeacherGradesPage() {
     }
     loadSections();
   }, [supabase, gradeFilter, currentSy]);
+
+  // Check if current teacher is the designated class adviser for the selected section
+  const isAdvisoryForSection = useMemo(() => {
+    if (!profile || !sectionFilter || !availableSections.length) return false;
+    const currentSection = availableSections.find(sec =>
+      cleanSectionName(sec.section_name, gradeFilter).toLowerCase().trim() === cleanSectionName(sectionFilter, gradeFilter).toLowerCase().trim()
+    );
+    if (!currentSection) return false;
+
+    const facRecId = profile.faculty_record_id ? String(profile.faculty_record_id) : '';
+    const facId = (profile.faculty_id || '').toLowerCase().trim();
+    const secAdv = currentSection.adviser_id ? String(currentSection.adviser_id) : '';
+
+    return (
+      (facRecId && secAdv === facRecId) ||
+      (facId && secAdv.toLowerCase() === facId) ||
+      (profile.adviser_grade_level && Number(profile.adviser_grade_level) === Number(gradeFilter) && (profile.role === 'Adviser' || profile.role === 'Both'))
+    );
+  }, [profile, sectionFilter, availableSections, gradeFilter]);
+
+  // Check if current teacher is assigned in schedules for this grade, subject, and section
+  const isAssignedTeacher = useMemo(() => {
+    if (!teacherSchedules.length || !gradeFilter || !subject) return false;
+    const gl = Number(gradeFilter);
+    const cleanSubj = subject.toLowerCase().trim();
+
+    return teacherSchedules.some(sch => {
+      if (Number(sch.grade_level) !== gl) return false;
+      if ((sch.subject || '').toLowerCase().trim() !== cleanSubj) return false;
+
+      if (sectionFilter) {
+        if (!sch.section_name) return true; // grade-wide schedule assignment
+        return cleanSectionName(sch.section_name, gl).toLowerCase().trim() === cleanSectionName(sectionFilter, gl).toLowerCase().trim();
+      }
+
+      // If "All Sections" is chosen, teacher is only authorized if schedule has no section restriction (grade-wide)
+      return !sch.section_name;
+    });
+  }, [teacherSchedules, gradeFilter, subject, sectionFilter]);
+
+  // Combined authorization check
+  const isAuthorizedToGrade = Boolean(isLeadership || isAssignedTeacher || isAdvisoryForSection);
+
+  // Auto-select assigned section if teacher only has one assigned section for this grade and subject
+  useEffect(() => {
+    if (!gradeFilter || !subject || sectionFilter || isLeadership) return;
+    const gl = Number(gradeFilter);
+    const cleanSubj = subject.toLowerCase().trim();
+    const matchingSchedules = teacherSchedules.filter(sch =>
+      Number(sch.grade_level) === gl &&
+      (sch.subject || '').toLowerCase().trim() === cleanSubj &&
+      sch.section_name
+    );
+    if (matchingSchedules.length === 1) {
+      const targetSec = cleanSectionName(matchingSchedules[0].section_name, gl);
+      setSectionFilter(targetSec);
+    }
+  }, [gradeFilter, subject, sectionFilter, teacherSchedules, isLeadership]);
 
   useEffect(() => {
     let ignore = false;
@@ -374,6 +478,10 @@ export default function TeacherGradesPage() {
     if (students.length === 0 || !subject) return;
     if (isHistoricalYear) {
       alert(`Cannot edit grades for archived S.Y. ${currentSy?.year_label}. Past school years are read-only.`);
+      return;
+    }
+    if (!isAuthorizedToGrade) {
+      alert("Grade editing is restricted to assigned section teachers. Please contact school leadership for coverage or administrative authorization.");
       return;
     }
     setSaving(true);
@@ -508,12 +616,32 @@ export default function TeacherGradesPage() {
                 onChange={e => setSectionFilter(e.target.value)}
                 disabled={!gradeFilter}
               >
-                <option value="">All Sections</option>
+                <option value="">
+                  {isLeadership ? 'All Sections' : 'All Sections (Overview)'}
+                </option>
                 {availableSections.map(sec => {
                   const displayName = cleanSectionName(sec.section_name, gradeFilter);
+                  let tag = '';
+                  if (!isLeadership) {
+                    const secNameLower = displayName.toLowerCase().trim();
+                    const isSecAssigned = teacherSchedules.some(sch => {
+                      if (Number(sch.grade_level) !== Number(gradeFilter)) return false;
+                      if (subject && (sch.subject || '').toLowerCase().trim() !== subject.toLowerCase().trim()) return false;
+                      if (!sch.section_name) return true;
+                      return cleanSectionName(sch.section_name, gradeFilter).toLowerCase().trim() === secNameLower;
+                    });
+                    const facRecId = profile?.faculty_record_id ? String(profile.faculty_record_id) : '';
+                    const facId = (profile?.faculty_id || '').toLowerCase().trim();
+                    const secAdv = sec.adviser_id ? String(sec.adviser_id) : '';
+                    const isAdviser = (facRecId && secAdv === facRecId) || (facId && secAdv.toLowerCase() === facId);
+
+                    if (isSecAssigned) tag = ' (Assigned)';
+                    else if (isAdviser) tag = ' (Advisory)';
+                    else tag = ' (Read-Only)';
+                  }
                   return (
                     <option key={sec.id} value={displayName}>
-                      {displayName}
+                      {displayName}{tag}
                     </option>
                   );
                 })}
@@ -603,10 +731,82 @@ export default function TeacherGradesPage() {
                 color: '#856404',
                 fontWeight: '600',
               }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                </svg>
+                <IcoLock />
                 Grading for the {QUARTER_LABELS[quarter]} is locked by the administrator. Grade inputs are read-only.
+              </div>
+            )}
+
+            {/* Read-Only Authorization Warning Banner */}
+            {!gradingLocked && !isAuthorizedToGrade && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                padding: '14px 18px',
+                backgroundColor: '#fff8f6',
+                border: '1px solid #fecaca',
+                borderLeft: '5px solid #b91c1c',
+                borderRadius: '8px',
+                margin: '0 16px 14px 16px',
+                fontSize: '13px',
+                color: '#991b1b',
+                lineHeight: '1.5',
+              }}>
+                <div style={{ marginTop: '2px', flexShrink: 0 }}>
+                  <IcoLock />
+                </div>
+                <div>
+                  <strong>Read-Only Mode:</strong> You are not scheduled to teach {sectionFilter ? <strong>{sectionFilter}</strong> : 'all sections'} for <strong>{subject}</strong>. Grade editing is restricted to assigned teachers unless explicitly authorized by school leadership for specific administrative or coverage duties.
+                  {!sectionFilter && availableSections.length > 0 && (
+                    <div style={{ marginTop: '4px', fontSize: '12px', color: '#b91c1c' }}>
+                      Tip: Please select your assigned section from the Section dropdown above to enter grades.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Leadership Authorization Info Banner */}
+            {isLeadership && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 16px',
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderLeft: '4px solid #16a34a',
+                borderRadius: '8px',
+                margin: '0 16px 12px 16px',
+                fontSize: '12px',
+                color: '#166534',
+              }}>
+                <IcoShield />
+                <span>
+                  <strong>Leadership Authorization Active:</strong> You have administrative and coverage grade editing permissions ({profile?.position || profile?.role || 'School Leadership'}).
+                </span>
+              </div>
+            )}
+
+            {/* Advisory Class Notice */}
+            {!isLeadership && isAdvisoryForSection && !isAssignedTeacher && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 16px',
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderLeft: '4px solid #16a34a',
+                borderRadius: '8px',
+                margin: '0 16px 12px 16px',
+                fontSize: '12px',
+                color: '#166534',
+              }}>
+                <IcoUserCheck />
+                <span>
+                  <strong>Class Adviser Authorization:</strong> Grade editing enabled as designated Class Adviser for <strong>{sectionFilter}</strong>.
+                </span>
               </div>
             )}
             {loading ? (
@@ -668,10 +868,10 @@ export default function TeacherGradesPage() {
                                   type="number" min="0" max="100" step="0.01"
                                   value={g[field] ?? ''}
                                   onChange={e => updateGrade(s.student_record_id, field, e.target.value)}
-                                  disabled={gradingLocked}
+                                  disabled={gradingLocked || !isAuthorizedToGrade}
                                   style={{
                                     width: '70px', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', textAlign: 'center',
-                                    ...(gradingLocked ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed', opacity: 0.7 } : {}),
+                                    ...((gradingLocked || !isAuthorizedToGrade) ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed', opacity: 0.7 } : {}),
                                   }}
                                 />
                               </td>
@@ -692,10 +892,10 @@ export default function TeacherGradesPage() {
                                 value={g.remarks ?? ''}
                                 onChange={e => setGradeMap(prev => ({ ...prev, [s.student_record_id]: { ...prev[s.student_record_id], remarks: e.target.value } }))}
                                 placeholder="Optional"
-                                disabled={gradingLocked}
+                                disabled={gradingLocked || !isAuthorizedToGrade}
                                 style={{
                                   width: '110px', padding: '6px 8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px',
-                                  ...(gradingLocked ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed', opacity: 0.7 } : {}),
+                                  ...((gradingLocked || !isAuthorizedToGrade) ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed', opacity: 0.7 } : {}),
                                 }}
                               />
                             </td>
@@ -711,8 +911,17 @@ export default function TeacherGradesPage() {
                       Grading is locked
                     </span>
                   )}
-                  <button className="btn btn-primary" onClick={handleSave} disabled={saving || gradingLocked}>
-                    <IcoSave /> {gradingLocked ? 'Locked' : saving ? 'Saving...' : saved ? 'Saved!' : 'Save Grades'}
+                  {!gradingLocked && !isAuthorizedToGrade && (
+                    <span style={{ fontSize: '13px', color: '#b91c1c', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <IcoLock /> Read-Only: Not assigned to this section
+                    </span>
+                  )}
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSave}
+                    disabled={saving || gradingLocked || !isAuthorizedToGrade}
+                  >
+                    <IcoSave /> {gradingLocked ? 'Locked' : !isAuthorizedToGrade ? 'Read-Only (Unauthorized)' : saving ? 'Saving...' : saved ? 'Saved!' : 'Save Grades'}
                   </button>
                 </div>
               </>
