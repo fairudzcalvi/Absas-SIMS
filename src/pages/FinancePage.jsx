@@ -268,6 +268,7 @@ export default function FinancePage() {
   const [viewSOA, setViewSOA]         = useState(null);     // { student, finance, payments }
   const [viewHistory, setViewHistory] = useState(null); // { student, payments }
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [successNotice, setSuccessNotice] = useState(null); // { text, payment, student, finance }
 
   /* Fetch all financial and student records */
   const fetchData = useCallback(async () => {
@@ -498,12 +499,21 @@ export default function FinancePage() {
       setOtherFeesModalOpen(false);
       fetchData();
 
-      // Open Official Receipt Slip
-      setViewReceipt({
+      // Show confirmation notice with optional receipt viewer
+      setSuccessNotice({
+        text: `Fee payment of ${peso(amount)} for ${otherFeesStudent.first_name} ${otherFeesStudent.last_name} (${otherFeesForm.fee_name}) has been confirmed and posted.`,
         payment: createdPayment,
         student: otherFeesStudent,
         finance: acc,
       });
+
+      if (otherFeesForm.openReceiptNow) {
+        setViewReceipt({
+          payment: createdPayment,
+          student: otherFeesStudent,
+          finance: acc,
+        });
+      }
 
     } catch (err) {
       setOtherFeesError(err.message || 'Error recording other fee payment.');
@@ -584,12 +594,21 @@ export default function FinancePage() {
       setPaymentModalOpen(false);
       fetchData();
 
-      // Open Official Receipt Slip
-      setViewReceipt({
+      // Show confirmation notice with optional receipt viewer
+      setSuccessNotice({
+        text: `Tuition payment of ${peso(paymentAmount)} for ${selectedStudent.first_name} ${selectedStudent.last_name} (OR #${payForm.or_number}) has been confirmed and posted.`,
         payment: createdPayment,
         student: selectedStudent,
         finance: acc,
       });
+
+      if (payForm.openReceiptNow) {
+        setViewReceipt({
+          payment: createdPayment,
+          student: selectedStudent,
+          finance: acc,
+        });
+      }
 
     } catch (err) {
       setPaymentError(err.message || 'Error recording payment.');
@@ -780,6 +799,51 @@ export default function FinancePage() {
         {dbNotice && (
           <div style={{ background: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px' }}>
             <strong>Notice:</strong> {dbNotice}
+          </div>
+        )}
+
+        {/* Payment Confirmation Banner */}
+        {successNotice && (
+          <div style={{
+            background: '#d4edda',
+            color: '#155724',
+            border: '1px solid #c3e6cb',
+            padding: '12px 18px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: '13px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          }}>
+            <div>
+              <strong>Payment Confirmed:</strong> {successNotice.text}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                style={{ fontSize: '12px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                onClick={() => {
+                  setViewReceipt({
+                    payment: successNotice.payment,
+                    student: successNotice.student,
+                    finance: successNotice.finance,
+                  });
+                }}
+              >
+                <IcoReceipt /> View / Print Receipt
+              </button>
+              <button
+                type="button"
+                onClick={() => setSuccessNotice(null)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#155724', fontWeight: 'bold', fontSize: '16px', padding: '0 4px', lineHeight: 1 }}
+                title="Dismiss"
+              >
+                x
+              </button>
+            </div>
           </div>
         )}
 
@@ -1221,11 +1285,21 @@ export default function FinancePage() {
                   </div>
                 </div>
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setPaymentModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={savingPayment}>
-                  {savingPayment ? 'Processing Payment...' : 'Confirm & Print Receipt'}
-                </button>
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#555', margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(payForm.openReceiptNow)}
+                    onChange={e => setPayForm(f => ({ ...f, openReceiptNow: e.target.checked }))}
+                  />
+                  <span>Print receipt right after confirming</span>
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setPaymentModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary" disabled={savingPayment}>
+                    {savingPayment ? 'Processing Payment...' : 'Confirm Payment'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1404,11 +1478,21 @@ export default function FinancePage() {
                 </div>
 
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setOtherFeesModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={savingOtherFees} style={{ background: '#b45309', borderColor: '#b45309' }}>
-                  {savingOtherFees ? 'Processing...' : 'Confirm & Print Receipt'}
-                </button>
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#555', margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(otherFeesForm.openReceiptNow)}
+                    onChange={e => setOtherFeesForm(f => ({ ...f, openReceiptNow: e.target.checked }))}
+                  />
+                  <span>Print receipt right after confirming</span>
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setOtherFeesModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary" disabled={savingOtherFees} style={{ background: '#b45309', borderColor: '#b45309' }}>
+                    {savingOtherFees ? 'Processing...' : 'Confirm Payment'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1862,16 +1946,33 @@ export default function FinancePage() {
                         <td>{p.payment_for}</td>
                         <td>{p.reference_number || '—'}</td>
                         <td style={{ textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => handleVoidPayment(p, viewHistory.student, false)}
-                            disabled={voidingPaymentId === (p.payment_id || p.id)}
-                            title="Void and reverse this transaction"
-                          >
-                            <IcoVoid /> {voidingPaymentId === (p.payment_id || p.id) ? 'Voiding...' : 'Void'}
-                          </button>
+                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => {
+                                setViewReceipt({
+                                  payment: p,
+                                  student: viewHistory.student,
+                                  finance: viewHistory.finance,
+                                });
+                              }}
+                              title="View and print official receipt"
+                            >
+                              <IcoReceipt /> Receipt
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              style={{ padding: '3px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => handleVoidPayment(p, viewHistory.student, false)}
+                              disabled={voidingPaymentId === (p.payment_id || p.id)}
+                              title="Void and reverse this transaction"
+                            >
+                              <IcoVoid /> {voidingPaymentId === (p.payment_id || p.id) ? 'Voiding...' : 'Void'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
