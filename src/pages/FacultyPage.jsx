@@ -1,6 +1,15 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import CreateLoginModal from '../components/CreateLoginModal';
+
+function IcoKey() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2l-2 2m-1.5 1.5L14 9l-1.5-1.5-1.5 1.5 1.5 1.5-3 3a5.5 5.5 0 1 1-2-2l3-3 1.5 1.5 1.5-1.5L12 7l3.5-3.5z"/>
+    </svg>
+  );
+}
 
 function IcoCalendar() {
   return (
@@ -212,6 +221,7 @@ export default function FacultyPage() {
   const [formError, setFormError]         = useState('');
   const [deleteTarget, setDeleteTarget]   = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null); // { faculty, shouldArchive }
+  const [loginTarget, setLoginTarget]     = useState(null); // { name, email, role, id, type }
 
   /* Fetch faculty, sections & subjects */
   const fetchData = useCallback(async () => {
@@ -751,6 +761,19 @@ export default function FacultyPage() {
                             <button className="btn btn-secondary btn-sm" onClick={() => openEdit(f)} title="Edit Record">
                               <IcoEdit />
                             </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => setLoginTarget({
+                                name: `${f.first_name} ${f.last_name}`,
+                                email: f.email,
+                                role: f.role || 'Teacher',
+                                id: f.faculty_record_id,
+                                type: 'faculty',
+                              })}
+                              title="Create Portal Login"
+                            >
+                              <IcoKey />
+                            </button>
                             {isArch ? (
                               <button className="btn btn-secondary btn-sm" onClick={() => openArchiveModal(f, false)} title="Restore Faculty">
                                 <IcoRestore />
@@ -817,6 +840,21 @@ export default function FacultyPage() {
                 }}
               >
                 <IcoCalendar /> View Schedules
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const target = viewFaculty;
+                  setLoginTarget({
+                    name: `${target.first_name} ${target.last_name}`,
+                    email: target.email,
+                    role: target.role || 'Teacher',
+                    id: target.faculty_record_id,
+                    type: 'faculty',
+                  });
+                }}
+              >
+                <IcoKey /> Create Portal Login
               </button>
               <button className="btn btn-primary" onClick={() => { const target = viewFaculty; setViewFaculty(null); openEdit(target); }}>
                 <IcoEdit /> Edit Profile
@@ -1205,6 +1243,17 @@ export default function FacultyPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Create Portal Login Modal ── */}
+      {loginTarget && (
+        <CreateLoginModal
+          target={loginTarget}
+          onClose={() => setLoginTarget(null)}
+          onSuccess={() => {
+            fetchData();
+          }}
+        />
       )}
     </>
   );

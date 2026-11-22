@@ -2,6 +2,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName, formatGradeSection } from '../utils/formatters';
+import CreateLoginModal from '../components/CreateLoginModal';
+
+function IcoKey() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2l-2 2m-1.5 1.5L14 9l-1.5-1.5-1.5 1.5 1.5 1.5-3 3a5.5 5.5 0 1 1-2-2l3-3 1.5 1.5 1.5-1.5L12 7l3.5-3.5z"/>
+    </svg>
+  );
+}
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoStudents() {
@@ -185,6 +194,7 @@ export default function StudentsPage() {
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null); // { student, shouldArchive }
+  const [loginTarget, setLoginTarget]     = useState(null); // { name, email, role, id, type }
 
   /* Fetch all supporting masterdata & students */
   const fetchData = useCallback(async () => {
@@ -815,6 +825,19 @@ export default function StudentsPage() {
                             <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit Record">
                               <IcoEdit />
                             </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => setLoginTarget({
+                                name: `${s.first_name} ${s.last_name}`,
+                                email: s.email,
+                                role: 'student',
+                                id: s.student_record_id,
+                                type: 'student',
+                              })}
+                              title="Create Student Portal Login"
+                            >
+                              <IcoKey />
+                            </button>
                             {isArch ? (
                               <button className="btn btn-secondary btn-sm" onClick={() => openArchiveModal(s, false)} title="Restore Student">
                                 <IcoRestore />
@@ -922,6 +945,21 @@ export default function StudentsPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewStudent(null)}>Close</button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const target = viewStudent;
+                  setLoginTarget({
+                    name: `${target.first_name} ${target.last_name}`,
+                    email: target.email,
+                    role: 'student',
+                    id: target.student_record_id,
+                    type: 'student',
+                  });
+                }}
+              >
+                <IcoKey /> Create Portal Login
+              </button>
               <button className="btn btn-primary" onClick={() => { const target = viewStudent; setViewStudent(null); openEdit(target); }}>
                 <IcoEdit /> Edit Profile
               </button>
@@ -1323,6 +1361,17 @@ export default function StudentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Create Portal Login Modal ── */}
+      {loginTarget && (
+        <CreateLoginModal
+          target={loginTarget}
+          onClose={() => setLoginTarget(null)}
+          onSuccess={() => {
+            fetchData();
+          }}
+        />
       )}
     </>
   );

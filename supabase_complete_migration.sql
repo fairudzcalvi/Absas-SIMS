@@ -9,6 +9,10 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- Clean up any broken legacy trigger on auth.users that references obsolete profiles/users tables
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
 -- ==============================================================================
 -- 2. ACADEMIC STRUCTURE: SCHOOL YEARS & QUARTERS
 -- ==============================================================================
