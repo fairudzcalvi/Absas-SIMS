@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { emailPattern } from '../utils/email';
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -120,13 +121,15 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    const email = currentSession.user.email;
+    // Case-insensitive match so legacy mixed-case emails in the DB still resolve a role
+    const email = emailPattern(currentSession.user.email);
 
     // Check admins first
     const { data: admin } = await supabase
       .from('admins')
       .select('*')
-      .eq('email', email)
+      .ilike('email', email)
+      .limit(1)
       .maybeSingle();
 
     if (admin) {
@@ -139,7 +142,8 @@ export function AuthProvider({ children }) {
     const { data: faculty } = await supabase
       .from('faculty')
       .select('*')
-      .eq('email', email)
+      .ilike('email', email)
+      .limit(1)
       .maybeSingle();
 
     if (faculty) {
@@ -152,7 +156,8 @@ export function AuthProvider({ children }) {
     const { data: student } = await supabase
       .from('students')
       .select('*')
-      .eq('email', email)
+      .ilike('email', email)
+      .limit(1)
       .maybeSingle();
 
     if (student) {

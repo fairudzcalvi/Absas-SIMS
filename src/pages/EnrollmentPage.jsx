@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
+import { normalizeEmailOrNull } from '../utils/email';
+import { getNextStudentId, findStudentByStudentId, isStudentIdViolation, isLrnViolation, duplicateStudentIdMessage } from '../utils/studentId';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName, formatGradeSection } from '../utils/formatters';
@@ -131,7 +133,7 @@ export default function EnrollmentPage() {
   // Filters
   const [gradeFilter, setGradeFilter]   = useState('');
   const [typeFilter, setTypeFilter]     = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter] = useState('All');
   const [search, setSearch]             = useState('');
 
   // Intake Wizard Modal
@@ -209,6 +211,7 @@ export default function EnrollmentPage() {
   }, [supabase, currentSy]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchData();
   }, [fetchData]);
 
@@ -243,8 +246,14 @@ export default function EnrollmentPage() {
       ...INITIAL_WIZARD_FORM,
       mode,
       enrollment_type: mode === 'new' ? 'New Enrollee' : 'Continuing',
-      student_id: mode === 'new' ? `STU-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}` : '',
+      student_id: '',
+      student_id_auto: true,
     });
+    if (mode === 'new') {
+      getNextStudentId(supabase)
+        .then(id => setWizardForm(f => (f.student_id ? f : { ...f, student_id: id, student_id_auto: true })))
+        .catch(() => { /* ID will be generated on save instead */ });
+    }
     setWizardStep(mode === 'continuing' ? 1 : 2);
     setWizardError('');
     setWizardOpen(true);
@@ -256,12 +265,14 @@ export default function EnrollmentPage() {
     const isNew = searchParams.get('new');
     const isContinuing = searchParams.get('continuing');
     if (isNew === 'true') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
       openIntakeWizard('new');
       setSearchParams({}, { replace: true });
     } else if (isContinuing === 'true') {
       openIntakeWizard('continuing');
       setSearchParams({}, { replace: true });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when the query string changes
   }, [searchParams]);
 
   /* Handle Continuing Student Selection */
@@ -304,7 +315,9 @@ export default function EnrollmentPage() {
 
       // 1. If New Student, insert into students table
       if (wizardForm.mode === 'new' || !targetRecordId) {
-        const cleanId = wizardForm.student_id || (wizardForm.lrn_id ? wizardForm.lrn_id : `STU-${Date.now()}`);
+        const isAutoId = wizardForm.student_id_auto !== false;
+        let cleanId = (wizardForm.student_id || '').trim();
+        if (!cleanId) cleanId = await getNextStudentId(supabase);
         const studentPayload = {
           student_id:         cleanId,
           lrn_id:             wizardForm.lrn_id             || null,
@@ -314,7 +327,7 @@ export default function EnrollmentPage() {
           gender:             wizardForm.gender,
           birthdate:          wizardForm.birthdate          || null,
           age:                wizardForm.age                ? Number(wizardForm.age) : null,
-          email:              wizardForm.email              || null,
+          email:              normalizeEmailOrNull(wizardForm.email),
           contact_number:     wizardForm.contact_number     || null,
           address:            wizardForm.address            || null,
           guardian_name:      wizardForm.guardian_name      || null,
@@ -330,12 +343,34 @@ export default function EnrollmentPage() {
           is_archived:        false,
         };
 
-        const { data: createdStudent, error: stuErr } = await supabase
-          .from('students')
-          .insert([studentPayload])
-          .select()
-          .single();
+        // Manually typed ID that already exists: stop with a clear message
+        if (!isAutoId) {
+          const clash = await findStudentByStudentId(supabase, cleanId);
+          if (clash) throw new Error(duplicateStudentIdMessage(cleanId, clash));
+        }
 
+        // Insert; if an auto-generated ID collides, retry with the next free number
+        let createdStudent = null;
+        let stuErr = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          studentPayload.student_id = cleanId;
+          const res = await supabase.from('students').insert([studentPayload]).select().single();
+          createdStudent = res.data;
+          stuErr = res.error;
+          if (!stuErr) break;
+          if (isStudentIdViolation(stuErr)) {
+            if (!isAutoId) {
+              const clash = await findStudentByStudentId(supabase, cleanId).catch(() => null);
+              throw new Error(duplicateStudentIdMessage(cleanId, clash));
+            }
+            cleanId = await getNextStudentId(supabase, new Date().getFullYear(), attempt);
+            continue;
+          }
+          if (isLrnViolation(stuErr)) {
+            throw new Error(`A student with LRN "${studentPayload.lrn_id}" already exists. Use "Continuing Student" lookup instead of enrolling a duplicate.`);
+          }
+          break;
+        }
         if (stuErr) throw stuErr;
         targetRecordId = createdStudent.student_record_id;
       } else {
@@ -818,6 +853,19 @@ export default function EnrollmentPage() {
                         <option value="Returnee">Returnee</option>
                       </select>
                     </div>
+                    {wizardForm.mode === 'new' && (
+                      <div className="form-group">
+                        <label>Student ID *</label>
+                        <input
+                          value={wizardForm.student_id}
+                          onChange={e => { setWizardError(''); setWizardForm(f => ({ ...f, student_id: e.target.value, student_id_auto: false })); }}
+                          placeholder="Auto-generated (e.g. STU-2026-0001)"
+                        />
+                        <div style={{ fontSize: '11px', color: '#6c757d', marginTop: '4px' }}>
+                          Auto-assigned as the next free number. You may type your own; it must be unique.
+                        </div>
+                      </div>
+                    )}
                     <div className="form-group">
                       <label>DepEd LRN (12 Digits)</label>
                       <input
@@ -1069,11 +1117,20 @@ export default function EnrollmentPage() {
                   <button
                     type="button"
                     className="btn btn-primary"
-                    onClick={() => {
+                    onClick={async () => {
                       if (wizardStep === 2) {
                         if (!wizardForm.first_name || !wizardForm.last_name || !wizardForm.gender) {
                           setWizardError('First name, last name, and gender are required.');
                           return;
+                        }
+                        if (wizardForm.mode === 'new' && wizardForm.student_id?.trim()) {
+                          try {
+                            const clash = await findStudentByStudentId(supabase, wizardForm.student_id);
+                            if (clash) {
+                              setWizardError(duplicateStudentIdMessage(wizardForm.student_id.trim(), clash));
+                              return;
+                            }
+                          } catch { /* fall through; the save step re-checks */ }
                         }
                       }
                       if (wizardStep === 3) {

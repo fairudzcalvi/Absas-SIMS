@@ -69,6 +69,12 @@ export async function createPortalUser({ email, password, fullName, role }) {
     throw error;
   }
 
+  // With email confirmation enabled, Supabase returns a fake user (empty identities)
+  // instead of an error when the email is already registered.
+  if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    throw new Error(`An account with email "${cleanEmail}" is already registered in the login system.`);
+  }
+
   return {
     user: data?.user,
     email: cleanEmail,

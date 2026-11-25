@@ -226,8 +226,8 @@ function SchoolProfileTab({ supabase }) {
     principal:      'Dr. Evelyn R. Santos',
     registrar:      'Maria Clara De Leon',
   });
-  const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -368,6 +368,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   }, [supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchData();
   }, [fetchData]);
 
@@ -460,7 +461,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
         // Try inserting with semester_name, fallback if column doesn't exist
         const { error: qErr } = await supabase.from('quarters').insert(quarterRows);
         if (qErr && (qErr.message.includes('semester_name') || qErr.code === '42703')) {
-          const fallbackRows = quarterRows.map(({ semester_name, ...rest }) => rest);
+          const fallbackRows = quarterRows.map(r => { const rest = { ...r }; delete rest.semester_name; return rest; });
           await supabase.from('quarters').insert(fallbackRows);
         }
       }
@@ -574,7 +575,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
             is_grading_open: qNum <= 2,
           }]);
           if (insErr && (insErr.message.includes('semester_name') || insErr.code === '42703')) {
-            const { semester_name, ...baseRow } = row;
+            const baseRow = { ...row }; delete baseRow.semester_name;
             await supabase.from('quarters').insert([baseRow]);
           }
         }
@@ -668,7 +669,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
 
       const { error } = await supabase.from('quarters').insert([row]);
       if (error && (error.message.includes('semester_name') || error.code === '42703')) {
-        const { semester_name, ...fallback } = row;
+        const fallback = { ...row }; delete fallback.semester_name;
         await supabase.from('quarters').insert([fallback]);
       } else if (error) {
         throw error;
@@ -1452,6 +1453,7 @@ function SectionsManagerTab({ supabase }) {
   }, [supabase, currentSy]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchData();
   }, [fetchData]);
 
@@ -1494,7 +1496,7 @@ function SectionsManagerTab({ supabase }) {
       if (toClone.length > 0) {
         const { error: insErr } = await supabase.from('sections').insert(toClone);
         if (insErr) {
-          const fallback = toClone.map(({ strand_id: _st, ...rest }) => rest);
+          const fallback = toClone.map(r => { const rest = { ...r }; delete rest.strand_id; return rest; });
           await supabase.from('sections').insert(fallback);
         }
       }
@@ -1900,6 +1902,7 @@ function FeesScholarshipsTab({ supabase }) {
   }, [supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchScholarships();
   }, [fetchScholarships]);
 
@@ -2292,7 +2295,6 @@ function FeesScholarshipsTab({ supabase }) {
    ══════════════════════════════════════════════════════════ */
 function SchoolPoliciesTab({ supabase }) {
   const [policies, setPolicies] = useState([]);
-  const [saved, setSaved] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({
     policy_name: '',
@@ -2312,6 +2314,7 @@ function SchoolPoliciesTab({ supabase }) {
   }, [supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchPolicies();
   }, [fetchPolicies]);
 

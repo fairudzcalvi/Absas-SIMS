@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName, formatGradeSection } from '../utils/formatters';
 import CreateLoginModal from '../components/CreateLoginModal';
+import { normalizeEmailOrNull } from '../utils/email';
+import { isStudentIdViolation, isLrnViolation } from '../utils/studentId';
 
 function IcoKey() {
   return (
@@ -53,13 +55,6 @@ function IcoArchive() {
       <polyline points="21 8 21 21 3 21 3 8" />
       <rect x="1" y="3" width="22" height="5" />
       <line x1="10" y1="12" x2="14" y2="12" />
-    </svg>
-  );
-}
-function IcoFilter() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
   );
 }
@@ -251,6 +246,7 @@ export default function StudentsPage() {
   }, [supabase, currentSy]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchData();
   }, [fetchData]);
 
@@ -290,14 +286,6 @@ export default function StudentsPage() {
 
     return true;
   });
-
-  /* Open Add Modal */
-  function openAdd() {
-    setEditStudent(null);
-    setForm(EMPTY_FORM);
-    setFormError('');
-    setModalOpen(true);
-  }
 
   /* Open Edit Modal */
   function openEdit(student) {
@@ -416,7 +404,7 @@ export default function StudentsPage() {
       gender:             form.gender,
       birthdate:          form.birthdate          || null,
       age:                form.age                ? Number(form.age) : null,
-      email:              form.email              ? form.email.trim() : null,
+      email:              normalizeEmailOrNull(form.email),
       contact_number:     form.contact_number     ? form.contact_number.trim() : null,
       address:            form.address            ? form.address.trim() : null,
       guardian_name:      form.guardian_name      ? form.guardian_name.trim() : null,
@@ -460,7 +448,7 @@ export default function StudentsPage() {
       setModalOpen(false);
       fetchData();
     } catch (err) {
-      setFormError(err.message || 'Error saving student record.');
+      setFormError(isStudentIdViolation(err) ? 'That Student ID already exists. Please use a different Student ID.' : isLrnViolation(err) ? 'That LRN is already registered to another student.' : (err.message || 'Error saving student record.'));
     } finally {
       setSaving(false);
     }

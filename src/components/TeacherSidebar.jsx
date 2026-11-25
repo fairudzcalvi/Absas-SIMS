@@ -66,7 +66,7 @@ const NAV_ITEMS = [
 ];
 
 export default function TeacherSidebar({ isOpen = false, onClose }) {
-  const { profile, logout, activeSchoolYear, activeQuarter } = useAuth();
+  const { profile, logout } = useAuth();
   const name = profile
     ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim()
     : 'Teacher';

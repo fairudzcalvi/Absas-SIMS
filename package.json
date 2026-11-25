@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node src/__tests__/verify-system.mjs"
+    "test": "node src/__tests__/verify-system.mjs",
+    "test:schema": "node src/__tests__/verify-schema.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

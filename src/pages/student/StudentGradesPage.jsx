@@ -71,9 +71,7 @@ export default function StudentGradesPage() {
             });
             setQuarterList(keys);
             setQuarterLabels(labels);
-            if (!keys.includes(quarter)) {
-              setQuarter(keys[0]);
-            }
+            setQuarter(q => (keys.includes(q) ? q : keys[0]));
           }
         }
 

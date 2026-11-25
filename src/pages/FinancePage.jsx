@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { cleanSectionName, formatGradeSection } from '../utils/formatters';
+import { formatGradeSection } from '../utils/formatters';
 import { getBaseFees, fetchFeeMatrix } from '../utils/feeMatrix';
 
 /* ── SVG Icons ─────────────────────────────────────────── */
@@ -62,15 +62,6 @@ function IcoPaid() {
     <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
       <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  );
-}
-function IcoRecordPayment() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="16" />
-      <line x1="8" y1="12" x2="16" y2="12" />
     </svg>
   );
 }
@@ -228,7 +219,7 @@ export default function FinancePage() {
   // Record Payment Modal
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent]   = useState(null);
-  const [payForm, setPayForm] = useState({
+  const [payForm, setPayForm] = useState(() => ({
     amount:           '',
     payment_date:     new Date().toISOString().split('T')[0],
     payment_method:   'Cash',
@@ -236,14 +227,14 @@ export default function FinancePage() {
     or_number:        `OR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
     reference_number: '',
     remarks:          '',
-  });
+  }));
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentError, setPaymentError]   = useState('');
 
   // ── Button 2: Other School Fees State ───────────────────────
   const [otherFeesModalOpen, setOtherFeesModalOpen] = useState(false);
   const [otherFeesStudent, setOtherFeesStudent]     = useState(null);
-  const [otherFeesForm, setOtherFeesForm]           = useState({
+  const [otherFeesForm, setOtherFeesForm]           = useState(() => ({
     fee_catalog_id:   'books',
     fee_name:         'Books & Learning Materials',
     unit_price:       3500,
@@ -254,7 +245,7 @@ export default function FinancePage() {
     or_number:        `OR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
     reference_number: '',
     remarks:          '',
-  });
+  }));
   const [savingOtherFees, setSavingOtherFees]       = useState(false);
   const [otherFeesError, setOtherFeesError]         = useState('');
 
@@ -322,6 +313,7 @@ export default function FinancePage() {
   }, [supabase, currentSy]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchData();
   }, [fetchData]);
 
@@ -548,31 +540,8 @@ export default function FinancePage() {
       const netAssessment = acc ? acc.netAssessment : paymentAmount;
       const newStatus = newAmountPaid >= netAssessment ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
 
-      // 1. Update or insert into student_finances
-      const existingFin = finances.find(f => f.student_record_id === studentId);
-      if (existingFin) {
-        await supabase
-          .from('student_finances')
-          .update({
-            amount_paid: newAmountPaid,
-            status:      newStatus,
-          })
-          .eq('finance_id', existingFin.finance_id);
-      } else {
-        const base = getBaseFees(selectedStudent.grade_level, feeMatrix);
-        await supabase
-          .from('student_finances')
-          .insert([{
-            student_record_id: studentId,
-            tuition_fee:       base.tuition,
-            miscellaneous_fee: base.misc,
-            amount_paid:       paymentAmount,
-            status:            newStatus,
-            school_year:       activeSchoolYear?.year_label || '2026-2027',
-          }]);
-      }
-
-      // 2. Insert into payments transaction log
+      // 1. Insert into payments transaction log FIRST so a DB validation error
+      //    never leaves student_finances credited without a matching receipt.
       const { data: createdPayment, error: payErr } = await supabase
         .from('payments')
         .insert([{
@@ -590,6 +559,32 @@ export default function FinancePage() {
         .single();
 
       if (payErr) throw payErr;
+
+      // 2. Update or insert into student_finances after payment is recorded
+      const existingFin = finances.find(f => f.student_record_id === studentId);
+      if (existingFin) {
+        const { error: finErr } = await supabase
+          .from('student_finances')
+          .update({
+            amount_paid: newAmountPaid,
+            status:      newStatus,
+          })
+          .eq('finance_id', existingFin.finance_id);
+        if (finErr) throw finErr;
+      } else {
+        const base = getBaseFees(selectedStudent.grade_level, feeMatrix);
+        const { error: finErr } = await supabase
+          .from('student_finances')
+          .insert([{
+            student_record_id: studentId,
+            tuition_fee:       base.tuition,
+            miscellaneous_fee: base.misc,
+            amount_paid:       paymentAmount,
+            status:            newStatus,
+            school_year:       activeSchoolYear?.year_label || '2026-2027',
+          }]);
+        if (finErr) throw finErr;
+      }
 
       setPaymentModalOpen(false);
       fetchData();

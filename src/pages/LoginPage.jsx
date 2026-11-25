@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { normalizeEmail } from '../utils/email';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import schoolLogo from '../assets/logo.png';
@@ -61,7 +62,7 @@ export default function LoginPage() {
     setLoading(true);
 
     const input = email.trim();
-    let loginEmail = input;
+    let loginEmail = input.includes('@') ? normalizeEmail(input) : input;
 
     // If the input doesn't look like an email, treat it as a username
     if (!input.includes('@')) {
@@ -73,7 +74,7 @@ export default function LoginPage() {
         .maybeSingle();
 
       if (adminRow) {
-        loginEmail = adminRow.email;
+        loginEmail = normalizeEmail(adminRow.email);
       } else {
         // Look up in faculty table by username
         const { data: facultyRow } = await supabase
@@ -83,7 +84,7 @@ export default function LoginPage() {
           .maybeSingle();
 
         if (facultyRow) {
-          loginEmail = facultyRow.email;
+          loginEmail = normalizeEmail(facultyRow.email);
         } else {
           // Look up in students table by username
           const { data: studentRow } = await supabase
@@ -93,7 +94,7 @@ export default function LoginPage() {
             .maybeSingle();
 
           if (studentRow) {
-            loginEmail = studentRow.email;
+            loginEmail = normalizeEmail(studentRow.email);
           } else {
             setError('No account found with that username.');
             setLoading(false);

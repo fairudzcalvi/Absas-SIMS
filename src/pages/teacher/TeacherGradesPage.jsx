@@ -174,9 +174,7 @@ export default function TeacherGradesPage() {
           semester: q.semester_name || (q.quarter_number <= 2 ? '1st Semester' : '2nd Semester'),
         }));
         setAvailableQuarters(mapped);
-        if (!mapped.some(m => m.key === quarter)) {
-          setQuarter(mapped[0].key);
-        }
+        setQuarter(q => (mapped.some(m => m.key === q) ? q : mapped[0].key));
       }
     }
     loadQuarters();
@@ -366,6 +364,7 @@ export default function TeacherGradesPage() {
     );
     if (matchingSchedules.length === 1) {
       const targetSec = cleanSectionName(matchingSchedules[0].section_name, gl);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
       setSectionFilter(targetSec);
     }
   }, [gradeFilter, subject, sectionFilter, teacherSchedules, isLeadership]);
@@ -546,7 +545,7 @@ export default function TeacherGradesPage() {
         // Fallback to legacy constraint if multi-year constraint not active in db
         const { error: err2 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter' });
         if (err2 && (err2.message?.includes('school_year') || err2.code === '42703')) {
-          const fallbackRows = rows.map(({ school_year_id: _syId, school_year: _sy, ...rest }) => rest);
+          const fallbackRows = rows.map(r => { const rest = { ...r }; delete rest.school_year_id; delete rest.school_year; return rest; });
           await supabase.from('grades').upsert(fallbackRows, { onConflict: 'student_record_id,subject,quarter' });
         }
       }

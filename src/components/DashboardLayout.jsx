@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Sidebar from './Sidebar';
@@ -6,13 +6,16 @@ import MobileNavbar from './MobileNavbar';
 
 export default function DashboardLayout() {
   const { session, role, selectedSchoolYear, activeSchoolYear, setSelectedSchoolYear, isHistoricalYear } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-
-  // Automatically close sidebar when navigating to a new route
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [location.pathname]);
+  // Sidebar is open only for the route it was opened on, so navigating closes it
+  // automatically without resetting state inside an effect.
+  const [openPath, setOpenPath] = useState(null);
+  const sidebarOpen = openPath === location.pathname;
+  const setSidebarOpen = (v) => setOpenPath(prev => {
+    const cur = prev === location.pathname;
+    const next = typeof v === 'function' ? v(cur) : v;
+    return next ? location.pathname : null;
+  });
 
   if (session === undefined || (session && role === null)) {
     return <div style={styles.loading}>Loading...</div>;

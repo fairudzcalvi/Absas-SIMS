@@ -18,4 +18,8 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    files: ['check_subjects.js'],
+    languageOptions: { globals: globals.node },
+  },
 ])

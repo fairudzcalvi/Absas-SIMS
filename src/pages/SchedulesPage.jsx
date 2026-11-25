@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { emailPattern } from '../utils/email';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName } from '../utils/formatters';
@@ -96,7 +97,7 @@ const EMPTY_FORM = {
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function SchedulesPage() {
-  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter, isHistoricalYear } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
   const [searchParams] = useSearchParams();
   const teacherParam = searchParams.get('teacher');
@@ -183,7 +184,7 @@ export default function SchedulesPage() {
       const { data, error } = await supabase
         .from('schedules')
         .select('*')
-        .eq('teacher', email)
+        .ilike('teacher', emailPattern(email))
         .order('day_of_week')
         .order('time_start');
       if (!error && data) return data.filter(syMatches);
@@ -232,7 +233,7 @@ export default function SchedulesPage() {
     if (!allErr && allData) {
       return allData.filter(s => {
         const tVal = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
-        const matchesTeacher = tVal === email || tVal === facId || tVal === fullName;
+        const matchesTeacher = (email && String(tVal ?? '').toLowerCase() === String(email).trim().toLowerCase()) || tVal === facId || tVal === fullName;
         return matchesTeacher && syMatches(s);
       });
     }
@@ -257,6 +258,7 @@ export default function SchedulesPage() {
     }
     fetchSchedules();
     return () => { ignore = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSchedulesForTeacher is re-created each render; adding it would loop
   }, [supabase, selectedTeacher, teachers, currentSy]);
 
   /* open modals */

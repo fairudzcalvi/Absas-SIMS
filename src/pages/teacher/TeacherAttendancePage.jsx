@@ -70,7 +70,7 @@ export default function TeacherAttendancePage() {
       if (data) {
         const mySch = data.filter(s => {
           const t = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
-          return t === email || t === facId || t === fullName;
+          return (email && String(t ?? '').toLowerCase() === String(email).trim().toLowerCase()) || t === facId || t === fullName;
         });
         setTeacherSchedules(mySch);
       }

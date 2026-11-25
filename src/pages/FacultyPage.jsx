@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import CreateLoginModal from '../components/CreateLoginModal';
+import { normalizeEmail } from '../utils/email';
+import { getNextFacultyId, findFacultyByFacultyId, isFacultyIdViolation, duplicateFacultyIdMessage } from '../utils/facultyId';
 
 function IcoKey() {
   return (
@@ -54,15 +56,6 @@ function IcoAdviser() {
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
       <circle cx="12" cy="7" r="4" />
       <polyline points="16 11 18 13 22 9" />
-    </svg>
-  );
-}
-function IcoTeacher() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <line x1="8" y1="21" x2="16" y2="21" />
-      <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   );
 }
@@ -219,6 +212,7 @@ export default function FacultyPage() {
   const [showCustomInput, setShowCustomInput]       = useState(false);
   const [saving, setSaving]               = useState(false);
   const [formError, setFormError]         = useState('');
+  const [facultyIdAuto, setFacultyIdAuto] = useState(true);
   const [deleteTarget, setDeleteTarget]   = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null); // { faculty, shouldArchive }
   const [loginTarget, setLoginTarget]     = useState(null); // { name, email, role, id, type }
@@ -268,6 +262,7 @@ export default function FacultyPage() {
   }, [supabase, currentSy]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
     fetchData();
   }, [fetchData]);
 
@@ -312,13 +307,18 @@ export default function FacultyPage() {
   function openAdd() {
     setEditItem(null);
     setForm(EMPTY_FORM);
+    setFacultyIdAuto(true);
     setFormError('');
     setModalOpen(true);
+    getNextFacultyId(supabase)
+      .then(id => setForm(f => (f.faculty_id ? f : { ...f, faculty_id: id })))
+      .catch(() => { /* ID will be generated on save instead */ });
   }
 
   /* Open Edit Modal */
   function openEdit(item) {
     setEditItem(item);
+    setFacultyIdAuto(false);
     setForm({
       faculty_id:          item.faculty_id          ?? '',
       first_name:          item.first_name          ?? '',
@@ -373,15 +373,36 @@ export default function FacultyPage() {
     setSaving(true);
     setFormError('');
 
+    // Resolve Faculty ID: auto-generate if blank; reject manual duplicates clearly
+    let facultyIdFinal = (form.faculty_id || '').trim();
+    const autoId = !editItem && facultyIdAuto;
+    try {
+      if (!facultyIdFinal) facultyIdFinal = await getNextFacultyId(supabase);
+      const clash = await findFacultyByFacultyId(supabase, facultyIdFinal, editItem?.faculty_record_id);
+      if (clash) {
+        if (autoId) {
+          facultyIdFinal = await getNextFacultyId(supabase);
+        } else {
+          setFormError(duplicateFacultyIdMessage(facultyIdFinal, clash));
+          setSaving(false);
+          return;
+        }
+      }
+    } catch (idErr) {
+      setFormError(idErr.message || 'Could not verify the Faculty ID.');
+      setSaving(false);
+      return;
+    }
+
     // Fallback email if empty so NOT NULL constraint doesn't fail
     const cleanFirstName = form.first_name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanLastName = form.last_name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const finalEmail = form.email && form.email.trim()
-      ? form.email.trim()
+      ? normalizeEmail(form.email)
       : `${cleanFirstName}.${cleanLastName}@absas.edu`;
 
     const payload = {
-      faculty_id:          form.faculty_id          || null,
+      faculty_id:          facultyIdFinal || null,
       first_name:          form.first_name.trim(),
       last_name:           form.last_name.trim(),
       middle_name:         form.middle_name         ? form.middle_name.trim() : null,
@@ -412,6 +433,14 @@ export default function FacultyPage() {
 
     try {
       let res = await executeSave(payload);
+
+      // Another admin may have taken the ID between check and save: retry with the next free one
+      for (let attempt = 0; res.error && isFacultyIdViolation(res.error) && attempt < 5; attempt++) {
+        if (!autoId) throw new Error(duplicateFacultyIdMessage(facultyIdFinal, await findFacultyByFacultyId(supabase, facultyIdFinal, editItem?.faculty_record_id).catch(() => null)));
+        facultyIdFinal = await getNextFacultyId(supabase, new Date().getFullYear(), attempt);
+        payload.faculty_id = facultyIdFinal;
+        res = await executeSave(payload);
+      }
 
       // Resilient fallback if schema cache lacks optional columns or old check constraint is present
       if (res.error && res.error.message) {
@@ -892,8 +921,8 @@ export default function FacultyPage() {
                       <label>Faculty ID (Permanent) *</label>
                       <input
                         value={form.faculty_id}
-                        onChange={e => setForm(f => ({ ...f, faculty_id: e.target.value }))}
-                        placeholder="e.g. FAC-2025-001"
+                        onChange={e => { setFormError(''); setFacultyIdAuto(false); setForm(f => ({ ...f, faculty_id: e.target.value })); }}
+                        placeholder="Auto-generated (e.g. FAC-2026-025)"
                         required
                       />
                     </div>

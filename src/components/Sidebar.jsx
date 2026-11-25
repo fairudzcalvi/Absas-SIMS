@@ -116,7 +116,7 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar({ isOpen = false, onClose }) {
-  const { logout, activeSchoolYear, activeQuarter } = useAuth();
+  const { logout } = useAuth();
 
   return (
     <aside className={`sidebar ${isOpen ? 'active' : ''}`}>

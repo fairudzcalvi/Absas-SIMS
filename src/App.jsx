@@ -42,7 +42,7 @@ function App() {
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path="students"     element={<StudentsPage />} />
-            <Route path="students/new" element={<StudentsPage />} />
+            <Route path="students/new" element={<Navigate to="/dashboard/enrollment?new=true" replace />} />
             <Route path="faculty"      element={<FacultyPage />} />
             <Route path="subjects"     element={<SubjectsPage />} />
             <Route path="schedules"    element={<SchedulesPage />} />

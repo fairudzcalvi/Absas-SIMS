@@ -224,7 +224,9 @@ export default function SubjectsPage() {
     setLoadingSubj(false);
   }, [supabase]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch on mount/dependency change
   useEffect(() => { fetchCurriculums(); }, [fetchCurriculums]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch on mount/dependency change
   useEffect(() => { fetchSubjects(); }, [fetchSubjects]);
 
   /* ── Derived: active curriculum object ── */
