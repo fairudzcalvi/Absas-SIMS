@@ -123,6 +123,7 @@ export default function LoginPage() {
 
         {/* Title */}
         <h1 style={styles.title}>A.B. Simpson Alliance School</h1>
+        <p style={styles.subtitle}></p>
 
         {/* Form */}
         <form onSubmit={handleLogin} style={styles.form}>
