@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { emailPattern } from '../utils/email';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName } from '../utils/formatters';
@@ -106,7 +105,7 @@ const EMPTY_FORM = {
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function SchedulesPage() {
-  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter, selectedQuarter, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
   const [searchParams] = useSearchParams();
   const teacherParam = searchParams.get('teacher');
@@ -178,82 +177,44 @@ export default function SchedulesPage() {
     return () => { ignore = true; };
   }, [supabase, currentSy]);
 
-  /* Helper to fetch schedules dynamically across possible column names (teacher, faculty_id, teacher_id, teacher_name) */
+  /* Helper to fetch schedules dynamically across teacher, faculty_id, faculty_record_id, or teacher_name */
   const fetchSchedulesForTeacher = async (teacherRecord) => {
     if (!teacherRecord) return [];
-    
-    // Build array of candidate queries to handle different column names in Supabase schema
-    const email = teacherRecord.email;
-    const facId = teacherRecord.faculty_id || teacherRecord.faculty_record_id;
-    const fullName = `${teacherRecord.first_name || ''} ${teacherRecord.last_name || ''}`.trim();
+
+    const email = (teacherRecord.email || '').toLowerCase().trim();
+    const facCode = (teacherRecord.faculty_id || '').toLowerCase().trim();
+    const facRecId = teacherRecord.faculty_record_id ? String(teacherRecord.faculty_record_id).trim() : '';
+    const fullName = `${teacherRecord.first_name || ''} ${teacherRecord.last_name || ''}`.toLowerCase().trim();
 
     const syMatches = (s) => {
       if (!currentSy) return true;
-      if (s.school_year_id && currentSy.id) return s.school_year_id === currentSy.id;
+      if (s.school_year_id && currentSy.id) return String(s.school_year_id) === String(currentSy.id);
       if (s.school_year && currentSy.year_label) return s.school_year === currentSy.year_label;
       return true;
     };
 
-    // 1. Try 'teacher' column first
-    if (email) {
-      const { data, error } = await supabase
-        .from('schedules')
-        .select('*')
-        .ilike('teacher', emailPattern(email))
-        .order('day_of_week')
-        .order('time_start');
-      if (!error && data) return data.filter(syMatches);
-    }
-
-    // 2. Try 'faculty_id'
-    if (facId) {
-      const { data, error } = await supabase
-        .from('schedules')
-        .select('*')
-        .eq('faculty_id', facId)
-        .order('day_of_week')
-        .order('time_start');
-      if (!error && data) return data.filter(syMatches);
-    }
-
-    // 3. Try 'teacher_id'
-    if (facId) {
-      const { data, error } = await supabase
-        .from('schedules')
-        .select('*')
-        .eq('teacher_id', facId)
-        .order('day_of_week')
-        .order('time_start');
-      if (!error && data) return data.filter(syMatches);
-    }
-
-    // 4. Try 'teacher_name'
-    if (fullName) {
-      const { data, error } = await supabase
-        .from('schedules')
-        .select('*')
-        .eq('teacher_name', fullName)
-        .order('day_of_week')
-        .order('time_start');
-      if (!error && data) return data.filter(syMatches);
-    }
-
-    // 5. Fallback: select all and filter in JS if columns differ
     const { data: allData, error: allErr } = await supabase
       .from('schedules')
       .select('*')
       .order('day_of_week')
       .order('time_start');
 
-    if (!allErr && allData) {
-      return allData.filter(s => {
-        const tVal = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
-        const matchesTeacher = (email && String(tVal ?? '').toLowerCase() === String(email).trim().toLowerCase()) || tVal === facId || tVal === fullName;
-        return matchesTeacher && syMatches(s);
-      });
-    }
+    if (allErr || !allData) return [];
 
-    return [];
+    return allData.filter(s => {
+      const sTeacher = String(s.teacher || '').toLowerCase().trim();
+      const sFacId = String(s.faculty_id ?? '').toLowerCase().trim();
+      const sFacRecId = s.faculty_record_id ? String(s.faculty_record_id).trim() : '';
+      const sTeacherName = String(s.teacher_name || '').toLowerCase().trim();
+
+      const matchesTeacher = (
+        (email && (sTeacher === email || sTeacherName === email)) ||
+        (facCode && (sFacId === facCode || sTeacher === facCode)) ||
+        (facRecId && (sFacRecId === facRecId || sFacId === facRecId)) ||
+        (fullName && (sTeacherName === fullName || sTeacher === fullName))
+      );
+      return matchesTeacher && syMatches(s);
+    });
   };
 
   useEffect(() => {
@@ -278,6 +239,10 @@ export default function SchedulesPage() {
 
   /* open modals */
   function openAdd() {
+    if (isHistoricalYear) {
+      alert(`Cannot add schedules while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     setEditItem(null);
     setForm({
       ...EMPTY_FORM,
@@ -289,17 +254,21 @@ export default function SchedulesPage() {
     setModalOpen(true);
   }
   function openEdit(item) {
+    if (isHistoricalYear) {
+      alert(`Cannot edit schedules while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     setEditItem(item);
     setForm({
       subject:      item.subject      ?? '',
       teacher:      item.teacher || item.faculty_id || item.teacher_name || selectedTeacher,
       day_of_week:  serializeScheduleDays(item.day_of_week) || item.day_of_week || 'Monday',
-      section_name: item.section_name ?? '',
+      section_name: item.grade_level && item.section_name ? cleanSectionName(item.section_name, item.grade_level) : (item.section_name ?? ''),
       grade_level:  item.grade_level  ?? '',
-      time_start:   item.time_start   ?? '',
-      time_end:     item.time_end     ?? '',
+      time_start:   item.time_start ? String(item.time_start).slice(0, 5) : '',
+      time_end:     item.time_end   ? String(item.time_end).slice(0, 5) : '',
       room:         item.room         ?? '',
-      school_year:  item.school_year  ?? (currentSy?.year_label || '2025-2026'),
+      school_year:  currentSy?.year_label || item.school_year || '2025-2026',
     });
     const existsInCatalog = allSubjects.some(
       s => s.subject_name.toLowerCase() === (item.subject || '').toLowerCase()
@@ -312,69 +281,144 @@ export default function SchedulesPage() {
   /* save */
   async function handleSave(e) {
     e.preventDefault();
+    if (isHistoricalYear) {
+      setFormError(`Cannot modify schedules for archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     const normalizedDays = serializeScheduleDays(form.day_of_week);
-    if (!form.subject || !normalizedDays || !form.time_start || !form.time_end) {
+    const normStart = String(form.time_start || '').slice(0, 5);
+    const normEnd = String(form.time_end || '').slice(0, 5);
+    if (!form.subject || !normalizedDays || !normStart || !normEnd) {
       setFormError('Subject, at least one weekday, start time, and end time are required.');
       return;
     }
-    if (form.time_end <= form.time_start) {
+    if (normEnd <= normStart) {
       setFormError('End time must be later than start time.');
+      return;
+    }
+    if (form.section_name && !form.grade_level) {
+      setFormError('Please select a Grade Level when assigning a specific section.');
       return;
     }
     setSaving(true);
     setFormError('');
 
-    const teacherObj = teachers.find(t => t.email === selectedTeacher || t.faculty_id === selectedTeacher);
+    const teacherObj = teachers.find(
+      t => (t.email && t.email.toLowerCase() === selectedTeacher.toLowerCase()) ||
+           (t.faculty_id && t.faculty_id.toLowerCase() === selectedTeacher.toLowerCase())
+    );
     const teacherEmail = teacherObj?.email || selectedTeacher;
-    const teacherId = teacherObj?.faculty_id || teacherObj?.faculty_record_id;
+    const facRecId = teacherObj?.faculty_record_id ? Number(teacherObj.faculty_record_id) : null;
+    const facCode = teacherObj?.faculty_id || '';
     const teacherName = teacherObj ? `${teacherObj.first_name || ''} ${teacherObj.last_name || ''}`.trim() : selectedTeacher;
 
-    const selectedSec = allSections.find(s => 
-      s.section_name === form.section_name && 
+    const selectedSec = allSections.find(s =>
+      cleanSectionName(s.section_name, s.grade_level).toLowerCase().trim() === cleanSectionName(form.section_name, form.grade_level).toLowerCase().trim() &&
       (!form.grade_level || Number(s.grade_level) === Number(form.grade_level))
     );
     const secId = selectedSec?.id || null;
     const syId = currentSy?.id || activeSy?.id || null;
+
+    // Conflict detection across Teacher, Grade+Section, and Room for overlapping days & times
+    const { data: allExisting, error: existingErr } = await supabase.from('schedules').select('*');
+    if (existingErr) {
+      setFormError(existingErr.message || 'Could not verify schedule conflicts.');
+      setSaving(false);
+      return;
+    }
+    const newDays = parseScheduleDays(normalizedDays);
+    const normNewSec = form.section_name
+      ? cleanSectionName(form.section_name, form.grade_level).toLowerCase().trim()
+      : '';
+    const newRoomNorm = (form.room || '').trim().toLowerCase();
+
+    const conflict = (allExisting ?? []).find(s => {
+      if (editItem && String(s.schedule_id) === String(editItem.schedule_id)) return false;
+      const sameSy =
+        (!s.school_year_id && !s.school_year) ||
+        (syId && s.school_year_id && String(s.school_year_id) === String(syId)) ||
+        (currentSy?.year_label && s.school_year === currentSy.year_label);
+      if (!sameSy) return false;
+
+      const sDays = parseScheduleDays(s.day_of_week);
+      const overlapDays = newDays.filter(d => sDays.includes(d));
+      if (overlapDays.length === 0) return false;
+
+      const sStart = String(s.time_start || '').slice(0, 5);
+      const sEnd = String(s.time_end || '').slice(0, 5);
+      if (!sStart || !sEnd) return false;
+      if (!(normStart < sEnd && sStart < normEnd)) return false;
+
+      const sameTeacher =
+        (teacherEmail && String(s.teacher || '').toLowerCase().trim() === String(teacherEmail).toLowerCase().trim()) ||
+        (facRecId && String(s.faculty_id ?? '') === String(facRecId)) ||
+        (facCode && String(s.faculty_id ?? '').toLowerCase().trim() === facCode.toLowerCase().trim()) ||
+        (teacherName && String(s.teacher_name || '').toLowerCase().trim() === teacherName.toLowerCase().trim());
+
+      const sameSection =
+        Boolean(form.grade_level && normNewSec) &&
+        Number(s.grade_level) === Number(form.grade_level) &&
+        cleanSectionName(s.section_name, s.grade_level).toLowerCase().trim() === normNewSec;
+
+      const sameRoom =
+        Boolean(newRoomNorm) &&
+        String(s.room || '').trim().toLowerCase() === newRoomNorm;
+
+      return sameTeacher || sameSection || sameRoom;
+    });
+
+    if (conflict) {
+      const sDays = parseScheduleDays(conflict.day_of_week);
+      const overlapDays = newDays.filter(d => sDays.includes(d)).join(', ');
+      const timeRange = `${String(conflict.time_start).slice(0, 5)}–${String(conflict.time_end).slice(0, 5)}`;
+      const sameTeacher =
+        (teacherEmail && String(conflict.teacher || '').toLowerCase().trim() === String(teacherEmail).toLowerCase().trim()) ||
+        (facRecId && String(conflict.faculty_id ?? '') === String(facRecId)) ||
+        (facCode && String(conflict.faculty_id ?? '').toLowerCase().trim() === facCode.toLowerCase().trim()) ||
+        (teacherName && String(conflict.teacher_name || '').toLowerCase().trim() === teacherName.toLowerCase().trim());
+      const reason = sameTeacher
+        ? 'Teacher double-booking'
+        : newRoomNorm && String(conflict.room || '').trim().toLowerCase() === newRoomNorm
+          ? `Room "${conflict.room}" already occupied`
+          : `Section conflict in Grade ${conflict.grade_level}`;
+      setFormError(`${reason}: overlaps on ${overlapDays} (${timeRange}) with "${conflict.subject}".`);
+      setSaving(false);
+      return;
+    }
 
     const basePayload = {
       subject: form.subject,
       section_name: form.section_name || null,
       grade_level: form.grade_level ? Number(form.grade_level) : null,
       day_of_week: normalizedDays,
-      time_start: form.time_start,
-      time_end: form.time_end,
+      time_start: normStart,
+      time_end: normEnd,
       room: form.room || null,
-      school_year: form.school_year || currentSy?.year_label || '2025-2026',
+      school_year: currentSy?.year_label || form.school_year || '2025-2026',
     };
 
-    // Construct adaptive payload prioritizing 'teacher' with fallbacks
+    // Prioritize full migrated schema (numeric faculty_id = faculty_record_id, school_year_id, section_id, teacher_name)
     const candidatePayloads = [
-      { ...basePayload, teacher: teacherEmail, faculty_id: teacherId, section_id: secId, school_year_id: syId },
-      { ...basePayload, teacher: teacherEmail, section_id: secId },
+      { ...basePayload, teacher: teacherEmail, teacher_name: teacherName, faculty_id: facRecId, section_id: secId, school_year_id: syId },
+      { ...basePayload, teacher: teacherEmail, faculty_id: facRecId, section_id: secId, school_year_id: syId },
+      { ...basePayload, teacher: teacherEmail, section_id: secId, school_year_id: syId },
       { ...basePayload, teacher: teacherEmail },
-      { ...basePayload, faculty_id: teacherId },
-      { ...basePayload, teacher_id: teacherId },
-      { ...basePayload, teacher_name: teacherName },
     ];
 
     let saveSuccess = false;
     let lastError = null;
 
     for (const payload of candidatePayloads) {
-      if (editItem) {
-        const { error } = await supabase.from('schedules').update(payload).eq('schedule_id', editItem.schedule_id);
-        if (!error) {
-          saveSuccess = true;
-          break;
-        }
-        lastError = error;
-      } else {
-        const { error } = await supabase.from('schedules').insert([payload]);
-        if (!error) {
-          saveSuccess = true;
-          break;
-        }
-        lastError = error;
+      const { error } = editItem
+        ? await supabase.from('schedules').update(payload).eq('schedule_id', editItem.schedule_id)
+        : await supabase.from('schedules').insert([payload]);
+      if (!error) {
+        saveSuccess = true;
+        break;
+      }
+      lastError = error;
+      if (!/column|schema cache|42703/i.test(error.message || error.code || '')) {
+        break;
       }
     }
 
@@ -395,9 +439,21 @@ export default function SchedulesPage() {
   /* delete */
   async function handleDelete() {
     if (!deleteTarget) return;
-    await supabase.from('schedules').delete().eq('schedule_id', deleteTarget.schedule_id);
+    if (isHistoricalYear) {
+      alert(`Cannot delete schedules for archived S.Y. ${currentSy?.year_label}.`);
+      setDeleteTarget(null);
+      return;
+    }
+    const { error } = await supabase.from('schedules').delete().eq('schedule_id', deleteTarget.schedule_id);
+    if (error) {
+      alert(`Failed to delete schedule: ${error.message}`);
+      return;
+    }
     setDeleteTarget(null);
-    const teacherObj = teachers.find(t => t.email === selectedTeacher || t.faculty_id === selectedTeacher) || { email: selectedTeacher };
+    const teacherObj = teachers.find(
+      t => (t.email && t.email.toLowerCase() === selectedTeacher.toLowerCase()) ||
+           (t.faculty_id && t.faculty_id.toLowerCase() === selectedTeacher.toLowerCase())
+    ) || { email: selectedTeacher };
     const data = await fetchSchedulesForTeacher(teacherObj);
     setSchedules(data ?? []);
   }
@@ -410,8 +466,12 @@ export default function SchedulesPage() {
     return acc;
   }, {});
 
-  const selectedTeacherName = teachers.find(t => t.email === selectedTeacher) 
-    ? `${teachers.find(t => t.email === selectedTeacher).first_name} ${teachers.find(t => t.email === selectedTeacher).last_name}`
+  const selectedTeacherObj = teachers.find(
+    t => (t.email && t.email.toLowerCase() === selectedTeacher.toLowerCase()) ||
+         (t.faculty_id && t.faculty_id.toLowerCase() === selectedTeacher.toLowerCase())
+  );
+  const selectedTeacherName = selectedTeacherObj
+    ? `${selectedTeacherObj.first_name} ${selectedTeacherObj.last_name}`
     : selectedTeacher;
 
   const dateStr = new Date().toLocaleDateString('en-US', {
@@ -438,9 +498,14 @@ export default function SchedulesPage() {
             boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
           }}>
             <span>{currentSy?.year_label ? `S.Y. ${currentSy.year_label}` : activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
-            {activeQuarter && (
+            {!isHistoricalYear && (selectedQuarter || activeQuarter) && (
               <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
-                {activeQuarter.quarter_name}
+                {(selectedQuarter || activeQuarter).quarter_name}
+              </span>
+            )}
+            {isHistoricalYear && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                Archived (Read-Only)
               </span>
             )}
           </div>
@@ -454,7 +519,7 @@ export default function SchedulesPage() {
         <div className="card">
           <div className="card-header">
             <h2 className="card-title"><IcoFilter /> Select Teacher Schedule</h2>
-            {selectedTeacher && (
+            {selectedTeacher && !isHistoricalYear && (
               <button className="btn btn-primary" onClick={openAdd}>
                 <IcoAdd /> Add Schedule
               </button>
@@ -468,11 +533,17 @@ export default function SchedulesPage() {
               style={{ width: '100%' }}
             >
               <option value="">Select Teacher</option>
-              {teachers.map(t => (
-                <option key={t.faculty_record_id} value={t.email}>
-                  {t.first_name} {t.last_name} {t.position ? `(${t.position})` : ''}
-                </option>
-              ))}
+              {teachers
+                .filter(t =>
+                  isHistoricalYear ||
+                  (!t.is_archived && !['archived', 'inactive', 'resigned', 'terminated'].includes((t.employment_status || 'active').toLowerCase())) ||
+                  t.email === selectedTeacher
+                )
+                .map(t => (
+                  <option key={t.faculty_record_id} value={t.email}>
+                    {t.first_name} {t.last_name} {t.position ? `(${t.position})` : ''}
+                  </option>
+                ))}
             </select>
           </div>
         </div>
@@ -542,10 +613,14 @@ export default function SchedulesPage() {
                               </td>
                               <td>{s.room ?? '—'}</td>
                               <td>
-                                <div style={{ display: 'flex', gap: '6px' }}>
-                                  <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit"><IcoEdit /></button>
-                                  <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(s)} title="Delete"><IcoTrash /></button>
-                                </div>
+                                {!isHistoricalYear ? (
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit"><IcoEdit /></button>
+                                    <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(s)} title="Delete"><IcoTrash /></button>
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '12px', color: '#888' }}>Read-Only</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -582,7 +657,7 @@ export default function SchedulesPage() {
                       value={form.grade_level || ''}
                       onChange={e => {
                         const newGrade = e.target.value;
-                        setForm(f => ({ ...f, grade_level: newGrade }));
+                        setForm(f => ({ ...f, grade_level: newGrade, section_name: '' }));
                       }}
                     >
                       <option value="">Select Grade Level</option>
@@ -599,7 +674,10 @@ export default function SchedulesPage() {
                       value={form.section_name || ''}
                       onChange={e => {
                         const secName = e.target.value;
-                        const matchingSec = allSections.find(s => cleanSectionName(s.section_name, s.grade_level) === secName || s.section_name === secName);
+                        const matchingSec = allSections.find(s =>
+                          (!form.grade_level || Number(s.grade_level) === Number(form.grade_level)) &&
+                          (cleanSectionName(s.section_name, s.grade_level) === secName || s.section_name === secName)
+                        );
                         setForm(f => ({
                           ...f,
                           section_name: secName,
@@ -778,7 +856,7 @@ export default function SchedulesPage() {
                   {/* School Year */}
                   <div className="form-group">
                     <label>School Year</label>
-                    <input value={form.school_year} onChange={e => setForm(f => ({ ...f, school_year: e.target.value }))} placeholder="e.g. 2025-2026" />
+                    <input value={currentSy?.year_label || form.school_year} readOnly style={{ backgroundColor: '#f8fafc', color: '#475569' }} />
                   </div>
                 </div>
               </div>

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { buildStudentSubjectList } from '../../utils/curriculum';
+import { buildStudentSubjectList, subjectsMatch } from '../../utils/curriculum';
 import { getBaseFees, fetchFeeMatrix } from '../../utils/feeMatrix';
-import { evaluateFinancialHold } from '../../utils/financeRules';
+import { calculateProratedTuition, evaluateFinancialHold } from '../../utils/financeRules';
 
 function IcoGrades() {
   return (
@@ -25,13 +25,14 @@ export default function StudentGradesPage() {
   const [dbSubjects, setDbSubjects] = useState([]);
   const [strandCode, setStrandCode] = useState(null);
   const [financialHold, setFinancialHold] = useState({ isOverdue: false, overdueAmount: 0, balance: 0 });
-  const [loading, setLoading]       = useState(true);
+  const [loading, setLoading]       = useState(false);
   const [quarter, setQuarter]       = useState('1Q');
   const [quarterList, setQuarterList] = useState(DEFAULT_QUARTERS);
   const [quarterLabels, setQuarterLabels] = useState(DEFAULT_Q_LABELS);
 
   useEffect(() => {
     if (!profile?.student_record_id) return;
+    let ignore = false;
     async function fetch() {
       setLoading(true);
       try {
@@ -42,6 +43,8 @@ export default function StudentGradesPage() {
 
         if (currentSy?.id) {
           gQuery = gQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+        } else if (currentSy?.year_label) {
+          gQuery = gQuery.eq('school_year', currentSy.year_label);
         }
 
         const [{ data: gData }, { data: sData }, { data: strData }, { data: finRows }, { data: schList }, feesData] = await Promise.all([
@@ -65,19 +68,35 @@ export default function StudentGradesPage() {
           fetchFeeMatrix(supabase),
         ]);
 
-        // Evaluate financial hold for overdue balance
+        if (ignore) return;
+
+        // Evaluate financial hold for overdue balance (strictly match current S.Y., falling back only to unscoped legacy rows)
         const finRow =
           (finRows ?? []).find(
             f => (currentSy?.id && f.school_year_id === currentSy.id) || (currentSy?.year_label && f.school_year === currentSy.year_label)
-          ) || (finRows ?? [])[0] || null;
-        const priSch = (schList ?? []).find(s => String(s.id) === String(finRow?.scholarship_id || profile.scholarship_id)) || null;
-        const secSch = (schList ?? []).find(s => String(s.id) === String(finRow?.secondary_scholarship_id || profile.secondary_scholarship_id)) || null;
+          ) ||
+          (finRows ?? []).find(f => !f.school_year_id && !f.school_year) ||
+          null;
+        const priSchId = finRow ? finRow.scholarship_id : profile.scholarship_id;
+        const secSchId = finRow ? finRow.secondary_scholarship_id : profile.secondary_scholarship_id;
+        const priSch = (schList ?? []).find(s => String(s.id) === String(priSchId)) || null;
+        const secSch = (schList ?? []).find(s => String(s.id) === String(secSchId)) || null;
+
+        let effectiveFees = getBaseFees(profile.grade_level, feesData);
+        let effectiveFinRow = finRow;
+        if (!finRow && profile.student_type === 'Transferee' && Number(profile.months_elapsed) > 0) {
+          const prorated = calculateProratedTuition(effectiveFees.tuition, profile.months_elapsed);
+          effectiveFees = { ...effectiveFees, tuition: prorated.proratedTuition };
+          effectiveFinRow = { months_elapsed: prorated.monthsElapsed, prorated_months: prorated.remainingMonths };
+        }
+
         const hold = evaluateFinancialHold({
-          financeRow: finRow,
-          baseFees: getBaseFees(profile.grade_level, feesData),
+          financeRow: effectiveFinRow,
+          baseFees: effectiveFees,
           primaryScholarship: priSch,
           secondaryScholarship: secSch,
           activeQuarterNumber: activeQuarter?.quarter_number || 1,
+          schoolYear: currentSy,
         });
         setFinancialHold(hold);
 
@@ -88,7 +107,7 @@ export default function StudentGradesPage() {
             .eq('school_year_id', currentSy.id)
             .order('quarter_number', { ascending: true });
 
-          if (qData && qData.length > 0) {
+          if (!ignore && qData && qData.length > 0) {
             const keys = qData.map(q => `${q.quarter_number}Q`);
             const labels = {};
             qData.forEach(q => {
@@ -100,18 +119,19 @@ export default function StudentGradesPage() {
           }
         }
 
-        setGrades(gData ?? []);
-        setDbSubjects(sData ?? []);
-        if (strData?.strand_code) {
-          setStrandCode(strData.strand_code);
+        if (!ignore) {
+          setGrades(gData ?? []);
+          setDbSubjects(sData ?? []);
+          setStrandCode(strData?.strand_code ?? null);
         }
       } catch (err) {
         console.error('Error fetching grades and subjects:', err);
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     }
     fetch();
+    return () => { ignore = true; };
   }, [supabase, profile, currentSy, activeQuarter]);
 
   // Derive complete subject list strictly ordered by DepEd curriculum
@@ -119,6 +139,7 @@ export default function StudentGradesPage() {
   const subjects = buildStudentSubjectList({
     gradeLevel: studentGrade,
     strandCode: strandCode || profile?.strand_code,
+    strandId: profile?.current_strand_id || null,
     dbSubjects,
     grades,
   });
@@ -127,10 +148,10 @@ export default function StudentGradesPage() {
   const summary = subjects.map(subj => {
     const row = { subject: subj };
     quarterList.forEach(q => {
-      const g = grades.find(x => x.subject === subj && x.quarter === q);
+      const g = grades.find(x => (x.subject === subj || subjectsMatch(x.subject, subj)) && x.quarter === q);
       row[q] = g?.quarter_grade ?? null;
     });
-    const vals = quarterList.map(q => row[q]).filter(v => v != null && !isNaN(v));
+    const vals = quarterList.map(q => row[q]).filter(v => v != null && String(v).trim() !== '' && !isNaN(v));
     row.avg = vals.length ? (vals.reduce((a, b) => a + Number(b), 0) / vals.length).toFixed(2) : null;
     return row;
   });
@@ -214,7 +235,7 @@ export default function StudentGradesPage() {
                 ) : subjects.length === 0 ? (
                   <tr><td colSpan={2} className="empty-message">No subjects found.</td></tr>
                 ) : subjects.map(subj => {
-                  const g = grades.find(x => x.subject === subj && x.quarter === quarter);
+                  const g = grades.find(x => (x.subject === subj || subjectsMatch(x.subject, subj)) && x.quarter === quarter);
                   const qg = g?.quarter_grade != null ? parseFloat(g.quarter_grade) : null;
                   const hasGrade = qg != null && !isNaN(qg);
                   const pass = hasGrade && qg >= passingMark;

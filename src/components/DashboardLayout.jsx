@@ -24,6 +24,7 @@ export default function DashboardLayout() {
   if (!session) return <Navigate to="/login" replace />;
   if (role === 'teacher') return <Navigate to="/teacher" replace />;
   if (role === 'student') return <Navigate to="/student" replace />;
+  if (role !== 'admin') return <Navigate to="/login" replace />;
 
   return (
     <div className="dashboard-page">

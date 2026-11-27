@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cleanSectionName } from '../../utils/formatters';
@@ -36,16 +36,23 @@ const STATUS_COLORS = {
   present: '#28a745', absent: '#dc3545', late: '#ffc107', excused: '#17a2b8',
 };
 
-function todayISO() { return new Date().toISOString().split('T')[0]; }
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export default function TeacherAttendancePage() {
-  const { supabase, profile, selectedSchoolYear, activeSchoolYear } = useAuth();
+  const { supabase, profile, selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
   const location = useLocation();
 
   const [date, setDate]           = useState(todayISO());
   const [gradeFilter, setGrade]   = useState(location.state?.presetGrade ? String(location.state.presetGrade) : '');
-  const [sectionFilter, setSectionFilter] = useState(location.state?.presetSection || '');
+  const [sectionFilter, setSectionFilter] = useState(
+    location.state?.presetSection
+      ? cleanSectionName(location.state.presetSection, location.state?.presetGrade)
+      : ''
+  );
   const [availableSections, setAvailableSections] = useState([]);
   const [teacherSchedules, setTeacherSchedules]   = useState([]);
   const [students, setStudents]   = useState([]);
@@ -53,14 +60,17 @@ export default function TeacherAttendancePage() {
   const [loading, setLoading]     = useState(false);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   // Load teacher's personal schedules
   useEffect(() => {
+    let ignore = false;
     async function loadTeacherSchedules() {
       if (!profile) return;
-      const email = profile.email;
-      const facId = profile.faculty_id || profile.faculty_record_id;
-      const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+      const email = (profile.email || '').toLowerCase().trim();
+      const facId = (profile.faculty_id || '').toLowerCase().trim();
+      const facRecId = profile.faculty_record_id ? String(profile.faculty_record_id) : '';
+      const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.toLowerCase().trim();
 
       const { data } = await supabase
         .from('schedules')
@@ -68,16 +78,33 @@ export default function TeacherAttendancePage() {
         .order('day_of_week')
         .order('time_start');
 
-      if (data) {
+      if (!ignore && data) {
+        const syMatches = (s) => {
+          if (!currentSy) return true;
+          if (s.school_year_id && currentSy.id) return String(s.school_year_id) === String(currentSy.id);
+          if (s.school_year && currentSy.year_label) return s.school_year === currentSy.year_label;
+          return true;
+        };
         const mySch = data.filter(s => {
-          const t = s.teacher || s.faculty_id || s.teacher_id || s.teacher_name;
-          return (email && String(t ?? '').toLowerCase() === String(email).trim().toLowerCase()) || t === facId || t === fullName;
+          const t = (s.teacher || '').toLowerCase().trim();
+          const fId = String(s.faculty_id ?? '').toLowerCase().trim();
+          const fRecId = s.faculty_record_id ? String(s.faculty_record_id) : '';
+          const tn = (s.teacher_name || '').toLowerCase().trim();
+
+          const matchesTeacher = (
+            (email && (t === email || tn === email)) ||
+            (facId && (fId === facId || t === facId)) ||
+            (facRecId && (fRecId === facRecId || fId === facRecId)) ||
+            (fullName && (t === fullName || tn === fullName))
+          );
+          return matchesTeacher && syMatches(s);
         });
         setTeacherSchedules(mySch);
       }
     }
     loadTeacherSchedules();
-  }, [supabase, profile]);
+    return () => { ignore = true; };
+  }, [supabase, profile, currentSy]);
 
   // Load sections for selected grade
   useEffect(() => {
@@ -88,7 +115,7 @@ export default function TeacherAttendancePage() {
       }
       let secQuery = supabase
         .from('sections')
-        .select('id, section_name, grade_level')
+        .select('id, section_name, grade_level, adviser_id')
         .eq('grade_level', Number(gradeFilter))
         .eq('status', 'Active')
         .order('section_name');
@@ -111,56 +138,201 @@ export default function TeacherAttendancePage() {
     loadSections();
   }, [supabase, gradeFilter, currentSy]);
 
+  const isLeadership = useMemo(() => {
+    if (!profile) return false;
+    if (profile.can_edit_all_grades || profile.coverage_authorized || profile.is_admin || profile.is_leadership) {
+      return true;
+    }
+    const role = (profile.role || '').toLowerCase();
+    const pos = (profile.position || '').toLowerCase();
+    return ['principal', 'head', 'coordinator', 'admin', 'dean', 'director', 'lead', 'coverage']
+      .some(kw => role.includes(kw) || pos.includes(kw));
+  }, [profile]);
+
+  const isAdvisoryForSection = useMemo(() => {
+    if (!profile || !sectionFilter || !availableSections.length) return false;
+    const currentSection = availableSections.find(sec =>
+      cleanSectionName(sec.section_name, gradeFilter).toLowerCase().trim() === cleanSectionName(sectionFilter, gradeFilter).toLowerCase().trim()
+    );
+    if (!currentSection) return false;
+    const facRecId = profile.faculty_record_id ? String(profile.faculty_record_id) : '';
+    const facId = (profile.faculty_id || '').toLowerCase().trim();
+    const secAdv = currentSection.adviser_id ? String(currentSection.adviser_id) : '';
+    return (
+      (facRecId && secAdv === facRecId) ||
+      (facId && secAdv.toLowerCase() === facId) ||
+      (!secAdv && profile.adviser_grade_level && Number(profile.adviser_grade_level) === Number(gradeFilter) && (profile.role === 'Adviser' || profile.role === 'Both'))
+    );
+  }, [profile, sectionFilter, availableSections, gradeFilter]);
+
+  const isAssignedTeacher = useMemo(() => {
+    if (!teacherSchedules.length || !gradeFilter) return false;
+    const gl = Number(gradeFilter);
+    return teacherSchedules.some(sch => {
+      if (Number(sch.grade_level) !== gl) return false;
+      if (sectionFilter) {
+        if (!sch.section_name) return true;
+        return cleanSectionName(sch.section_name, gl).toLowerCase().trim() === cleanSectionName(sectionFilter, gl).toLowerCase().trim();
+      }
+      return !sch.section_name;
+    });
+  }, [teacherSchedules, gradeFilter, sectionFilter]);
+
+  const isAuthorizedToRecord = Boolean(isLeadership || isAssignedTeacher || isAdvisoryForSection);
+
   useEffect(() => {
     let ignore = false;
     async function load() {
-      if (!gradeFilter) return;
+      if (!gradeFilter || !date) {
+        if (!ignore) {
+          setStudents([]);
+          setAttendance({});
+          setLoading(false);
+        }
+        return;
+      }
       setLoading(true);
+      setSaveError('');
 
-      let q = supabase
-        .from('students')
-        .select('student_record_id, student_id, first_name, last_name, grade_level, section_name')
-        .eq('grade_level', Number(gradeFilter));
+      const glNum = Number(gradeFilter);
+      const targetSecNorm = sectionFilter
+        ? cleanSectionName(sectionFilter, gradeFilter).toLowerCase().trim()
+        : '';
+      const excludedStatuses = ['archived', 'inactive', 'dropped', 'transferred', 'transferred out', 'graduated'];
 
-      if (sectionFilter) {
-        q = q.eq('section_name', sectionFilter);
+      let studs = [];
+      let usedEnrollmentRoster = false;
+
+      if (currentSy?.id) {
+        const [{ data: enrRows }, { data: sySecs }] = await Promise.all([
+          supabase
+            .from('enrollments')
+            .select('student_record_id, grade_level, section_id, enrollment_status')
+            .eq('school_year_id', currentSy.id)
+            .eq('grade_level', glNum),
+          supabase
+            .from('sections')
+            .select('id, section_name')
+            .eq('school_year_id', currentSy.id),
+        ]);
+
+        const activeEnrs = (enrRows || []).filter(
+          e => !['Dropped', 'Transferred Out'].includes(e.enrollment_status)
+        );
+        if (activeEnrs.length > 0) {
+          usedEnrollmentRoster = true;
+          const enrIds = Array.from(new Set(activeEnrs.map(e => e.student_record_id).filter(Boolean)));
+          const { data: enrStuds } = await supabase
+            .from('students')
+            .select('student_record_id, student_id, lrn_id, first_name, last_name, grade_level, section_name, status, is_archived')
+            .in('student_record_id', enrIds)
+            .order('last_name');
+
+          const secById = new Map((sySecs || []).map(s => [String(s.id), s.section_name]));
+          const enrByStu = new Map(activeEnrs.map(e => [e.student_record_id, e]));
+          studs = (enrStuds || [])
+            .map(s => {
+              const e = enrByStu.get(s.student_record_id);
+              const resolvedSec = e?.section_id ? secById.get(String(e.section_id)) : null;
+              return {
+                ...s,
+                section_name: resolvedSec || (isHistoricalYear ? '' : s.section_name),
+              };
+            })
+            .filter(s => {
+              if (!isHistoricalYear) {
+                if (s.is_archived || excludedStatuses.includes((s.status || 'Active').toLowerCase())) return false;
+              }
+              if (!targetSecNorm) return true;
+              return cleanSectionName(s.section_name, gradeFilter).toLowerCase().trim() === targetSecNorm;
+            });
+        }
       }
 
-      const { data: studs } = await q.order('last_name');
+      if (!usedEnrollmentRoster && !isHistoricalYear) {
+        const { data: allStuds } = await supabase
+          .from('students')
+          .select('student_record_id, student_id, lrn_id, first_name, last_name, grade_level, section_name, status, is_archived')
+          .eq('grade_level', glNum)
+          .order('last_name');
 
-      const { data: existing } = await supabase
-        .from('attendance')
-        .select('student_record_id, status')
-        .eq('date', date)
-        .in('student_record_id', (studs ?? []).map(s => s.student_record_id));
+        studs = (allStuds ?? []).filter(s => {
+          if (s.is_archived || excludedStatuses.includes((s.status || 'Active').toLowerCase())) return false;
+          if (!targetSecNorm) return true;
+          return cleanSectionName(s.section_name, gradeFilter).toLowerCase().trim() === targetSecNorm;
+        });
+      }
 
       const map = {};
-      (existing ?? []).forEach(r => { map[r.student_record_id] = r.status; });
-      // default all to Present
-      (studs ?? []).forEach(s => { if (!map[s.student_record_id]) map[s.student_record_id] = 'Present'; });
+      if (studs.length > 0) {
+        const { data: existing } = await supabase
+          .from('attendance')
+          .select('student_record_id, status')
+          .eq('date', date)
+          .in('student_record_id', studs.map(s => s.student_record_id));
+
+        (existing ?? []).forEach(r => { map[r.student_record_id] = r.status; });
+        studs.forEach(s => { if (!map[s.student_record_id]) map[s.student_record_id] = 'Present'; });
+      }
 
       if (!ignore) {
-        setStudents(studs ?? []);
+        setStudents(studs);
         setAttendance(map);
         setLoading(false);
       }
     }
     load();
     return () => { ignore = true; };
-  }, [supabase, gradeFilter, sectionFilter, date]);
+  }, [supabase, gradeFilter, sectionFilter, date, currentSy, isHistoricalYear]);
 
   async function handleSave() {
     if (students.length === 0) return;
+    if (!date) {
+      setSaveError('Please select a valid date before saving attendance.');
+      return;
+    }
+    if (isHistoricalYear) {
+      alert(`Attendance cannot be modified for archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
+    if (!isAuthorizedToRecord) {
+      alert('Attendance recording is restricted to assigned class teachers or advisers. Please select your assigned section or request coverage authorization.');
+      return;
+    }
+
     setSaving(true);
-    const rows = students.map(s => ({
-      student_record_id: s.student_record_id,
-      date,
-      status: attendance[s.student_record_id] ?? 'Present',
-    }));
-    await supabase.from('attendance').upsert(rows, { onConflict: 'student_record_id,date' });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setSaved(false);
+    setSaveError('');
+    try {
+      const rowsWithSy = students.map(s => ({
+        student_record_id: s.student_record_id,
+        date,
+        status: attendance[s.student_record_id] ?? 'Present',
+        school_year_id: currentSy?.id || null,
+        school_year: currentSy?.year_label || '2026-2027',
+      }));
+
+      let { error: finalError } = await supabase
+        .from('attendance')
+        .upsert(rowsWithSy, { onConflict: 'student_record_id,date' });
+
+      if (finalError && /column|schema cache|42703/i.test(finalError.message || '')) {
+        const baseRows = rowsWithSy.map(({ student_record_id, date: d, status }) => ({ student_record_id, date: d, status }));
+        const fbRes = await supabase
+          .from('attendance')
+          .upsert(baseRows, { onConflict: 'student_record_id,date' });
+        finalError = fbRes.error;
+      }
+
+      if (finalError) throw finalError;
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error('Error saving attendance:', err);
+      setSaveError(err?.message || 'Failed to save attendance to database.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const counts = students.reduce((acc, s) => {
@@ -209,22 +381,23 @@ export default function TeacherAttendancePage() {
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {teacherSchedules.map(sch => {
+                  const schSecClean = sch.section_name ? cleanSectionName(sch.section_name, sch.grade_level) : '';
                   const isSelected =
                     String(gradeFilter) === String(sch.grade_level) &&
-                    (!sch.section_name || sectionFilter === sch.section_name);
+                    (!schSecClean || cleanSectionName(sectionFilter, gradeFilter).toLowerCase().trim() === schSecClean.toLowerCase().trim());
                   return (
                     <button
                       key={sch.schedule_id}
                       type="button"
                       onClick={() => {
                         setGrade(String(sch.grade_level || ''));
-                        setSectionFilter(sch.section_name || '');
+                        setSectionFilter(schSecClean);
                       }}
                       className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
                       style={{ fontSize: '12px', padding: '4px 10px' }}
                     >
                       {sch.grade_level ? `Grade ${sch.grade_level}` : ''}
-                      {sch.section_name ? ` (${cleanSectionName(sch.section_name, sch.grade_level)})` : ''} — {sch.subject}
+                      {schSecClean ? ` (${schSecClean})` : ''} — {sch.subject}
                       {sch.day_of_week ? ` [${formatDaysShort(sch.day_of_week)}]` : ''}
                     </button>
                   );
@@ -281,7 +454,7 @@ export default function TeacherAttendancePage() {
           <div className="card">
             <div className="card-header">
               <h2 className="card-title">
-                Grade {gradeFilter} — {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                Grade {gradeFilter} — {date ? new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Select Date'}
               </h2>
               {students.length > 0 && (
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -293,6 +466,12 @@ export default function TeacherAttendancePage() {
                 </div>
               )}
             </div>
+
+            {!isHistoricalYear && !isAuthorizedToRecord && (
+              <div style={{ margin: '0 16px 12px 16px', padding: '10px 14px', background: '#fff8f6', border: '1px solid #fecaca', borderLeft: '4px solid #b91c1c', borderRadius: '6px', color: '#991b1b', fontSize: '13px' }}>
+                <strong>Read-Only Mode:</strong> You are not scheduled or assigned as adviser for this grade/section. Select your assigned section or contact leadership for coverage authorization.
+              </div>
+            )}
 
             {loading ? (
               <p className="empty-message">Loading students...</p>
@@ -366,9 +545,19 @@ export default function TeacherAttendancePage() {
                     </tbody>
                   </table>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-                  <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                    <IcoSave /> {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Attendance'}
+                {saveError && (
+                  <div style={{ marginTop: '12px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '13px', fontWeight: '600' }}>
+                    Error saving attendance: {saveError}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px', gap: '12px', alignItems: 'center' }}>
+                  {isHistoricalYear && (
+                    <span style={{ fontSize: '13px', color: '#856404', fontWeight: '600' }}>
+                      Read-Only (Archived School Year)
+                    </span>
+                  )}
+                  <button className="btn btn-primary" onClick={handleSave} disabled={saving || isHistoricalYear || !isAuthorizedToRecord || !date}>
+                    <IcoSave /> {isHistoricalYear ? 'Locked (Archived S.Y.)' : !isAuthorizedToRecord ? 'Read-Only (Unauthorized)' : saving ? 'Saving...' : saved ? 'Saved!' : 'Save Attendance'}
                   </button>
                 </div>
               </>

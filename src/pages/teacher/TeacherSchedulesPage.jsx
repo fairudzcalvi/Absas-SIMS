@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatGradeSection } from '../../utils/formatters';
+import { formatGradeSection, cleanSectionName } from '../../utils/formatters';
 import { parseScheduleDays, scheduleIncludesDay, formatDaysShort } from '../../utils/scheduleDays';
 
 /* ── SVG Icons (Strictly Zero Emojis) ────────────────────────── */
@@ -97,7 +97,7 @@ function fmtTime(t) {
 }
 
 export default function TeacherSchedulesPage() {
-  const { supabase, profile, activeSchoolYear, selectedSchoolYear, activeQuarter } = useAuth();
+  const { supabase, profile, activeSchoolYear, selectedSchoolYear, activeQuarter, selectedQuarter, isHistoricalYear } = useAuth();
   const navigate = useNavigate();
 
   const currentSy = selectedSchoolYear || activeSchoolYear;
@@ -127,13 +127,13 @@ export default function TeacherSchedulesPage() {
 
       const isMySchedule = (s) => {
         const t = (s.teacher || '').toLowerCase().trim();
-        const f = (s.faculty_id || '').toLowerCase().trim();
+        const f = String(s.faculty_id ?? '').toLowerCase().trim();
         const fr = s.faculty_record_id ? String(s.faculty_record_id) : '';
         const tn = (s.teacher_name || '').toLowerCase().trim();
         return (
           (email && (t === email || tn === email)) ||
           (facId && (f === facId || t === facId)) ||
-          (facRecId && fr === facRecId) ||
+          (facRecId && (fr === facRecId || f === facRecId)) ||
           (fullName && (t === fullName || tn === fullName))
         );
       };
@@ -156,8 +156,11 @@ export default function TeacherSchedulesPage() {
     return () => { ignore = true; };
   }, [supabase, profile, currentSy]);
 
-  // Derived stats
-  const totalClasses = schedules.length;
+  // Derived stats (count class sessions across multi-day rows)
+  const totalClasses = useMemo(
+    () => schedules.reduce((sum, s) => sum + Math.max(1, parseScheduleDays(s.day_of_week).length), 0),
+    [schedules]
+  );
   const uniqueSubjects = useMemo(() => {
     return Array.from(new Set(schedules.map(s => s.subject).filter(Boolean)));
   }, [schedules]);
@@ -194,7 +197,7 @@ export default function TeacherSchedulesPage() {
       state: {
         presetGrade: s.grade_level,
         presetSubject: s.subject,
-        presetSection: s.section_name,
+        presetSection: s.section_name ? cleanSectionName(s.section_name, s.grade_level) : '',
       },
     });
   }
@@ -203,7 +206,7 @@ export default function TeacherSchedulesPage() {
     navigate('/teacher/attendance', {
       state: {
         presetGrade: s.grade_level,
-        presetSection: s.section_name,
+        presetSection: s.section_name ? cleanSectionName(s.section_name, s.grade_level) : '',
       },
     });
   }
@@ -226,9 +229,14 @@ export default function TeacherSchedulesPage() {
             boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
           }}>
             <span>{currentSy?.year_label ? `S.Y. ${currentSy.year_label}` : 'S.Y. 2025-2026'}</span>
-            {activeQuarter && (
+            {!isHistoricalYear && (selectedQuarter || activeQuarter) && (
               <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
-                {activeQuarter.quarter_name}
+                {(selectedQuarter || activeQuarter).quarter_name}
+              </span>
+            )}
+            {isHistoricalYear && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                Archived
               </span>
             )}
           </div>

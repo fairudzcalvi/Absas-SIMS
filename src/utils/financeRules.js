@@ -134,9 +134,11 @@ export function calculateMonthlyInstallment(balance, remainingMonths) {
 
 /**
  * Determine if a student has an overdue balance that restricts grade viewing/printing.
- * Expected cumulative due up to the current active quarter is (netAssessment / 4) * quarterNum.
- * If balance > 0 and amountPaid < expectedDue (or total unpaid when Q1+ is active),
- * the student's grades are held until overdue balance is settled.
+ * - Even if no `student_finances` row exists yet (₱0 paid), a student with netAssessment > 0
+ *   is evaluated so completely unpaid students cannot bypass the grade hold while partial payers are blocked.
+ * - When `schoolYear` has start/end dates, expected cumulative due is the fairer (lower) of:
+ *     (a) quarterly cumulative target ((netAssessment / 4) * qNum), OR
+ *     (b) elapsed 10-month pro-rata schedule (adjusted for transferee months_elapsed).
  */
 export function evaluateFinancialHold({
   financeRow,
@@ -144,26 +146,65 @@ export function evaluateFinancialHold({
   primaryScholarship = null,
   secondaryScholarship = null,
   activeQuarterNumber = 1,
+  schoolYear = null,
+  now = new Date(),
 }) {
-  if (!financeRow) {
-    return { isOverdue: false, overdueAmount: 0, balance: 0, netAssessment: 0, amountPaid: 0 };
-  }
-
-  const tuition = financeRow.tuition_fee != null ? Number(financeRow.tuition_fee) : Number(baseFees.tuition || 0);
-  const misc = financeRow.miscellaneous_fee != null ? Number(financeRow.miscellaneous_fee) : Number(baseFees.misc || 0);
+  const fin = financeRow || null;
+  const tuition = fin?.tuition_fee != null && fin?.tuition_fee !== ''
+    ? Number(fin.tuition_fee)
+    : Number(baseFees?.tuition || 0);
+  const misc = fin?.miscellaneous_fee != null && fin?.miscellaneous_fee !== ''
+    ? Number(fin.miscellaneous_fee)
+    : Number(baseFees?.misc || 0);
   const grossTotal = tuition + misc;
 
-  let discount = Number(financeRow.discount_amount ?? 0);
-  if (!discount && (primaryScholarship || secondaryScholarship)) {
-    discount = calculateStackedDiscount({ tuition, grossTotal, primaryScholarship, secondaryScholarship }).discount;
+  let discount = Number(fin?.discount_amount ?? 0);
+  const hasBreakdown = Array.isArray(fin?.discount_breakdown) && fin.discount_breakdown.length > 0;
+  if (primaryScholarship || secondaryScholarship) {
+    const stacked = calculateStackedDiscount({ tuition, grossTotal, primaryScholarship, secondaryScholarship });
+    if (!discount || (secondaryScholarship && !hasBreakdown && stacked.discount > discount)) {
+      discount = stacked.discount;
+    }
   }
 
-  const netAssessment = Math.max(0, grossTotal - discount);
-  const amountPaid = Number(financeRow.amount_paid ?? 0);
-  const balance = Math.max(0, netAssessment - amountPaid);
+  const netAssessment = Math.max(0, Math.round((grossTotal - discount) * 100) / 100);
+  const amountPaid = Math.round((Number(fin?.amount_paid ?? 0)) * 100) / 100;
+  const balance = Math.max(0, Math.round((netAssessment - amountPaid) * 100) / 100);
 
-  const qNum = Math.min(4, Math.max(1, Number(activeQuarterNumber) || 1));
-  const expectedCumulativeDue = Math.round(((netAssessment / 4) * qNum) * 100) / 100;
+  if (netAssessment <= 0 || balance <= 0.01) {
+    return {
+      isOverdue: false,
+      overdueAmount: 0,
+      expectedCumulativeDue: 0,
+      balance: 0,
+      netAssessment,
+      amountPaid,
+    };
+  }
+
+  const totalPeriods = Math.max(1, Number(schoolYear?.quarter_count || 4));
+  const qNum = Math.min(totalPeriods, Math.max(1, Number(activeQuarterNumber) || 1));
+  const quarterlyDue = Math.round(((netAssessment / totalPeriods) * qNum) * 100) / 100;
+
+  let expectedCumulativeDue = quarterlyDue;
+  if (schoolYear?.start_date && schoolYear?.end_date) {
+    const start = new Date(schoolYear.start_date);
+    const end = new Date(schoolYear.end_date);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end > start) {
+      if (now >= end) {
+        expectedCumulativeDue = netAssessment;
+      } else {
+        const remCalendar = getRemainingSchoolMonths(schoolYear, now);
+        const elapsedCalendar = Math.min(SCHOOL_YEAR_MONTHS, Math.max(1, SCHOOL_YEAR_MONTHS - remCalendar + 1));
+        const transferElapsed = Number(fin?.months_elapsed || 0);
+        const totalStudentMonths = Math.max(1, Number(fin?.prorated_months || (SCHOOL_YEAR_MONTHS - transferElapsed)));
+        const studentMonthsElapsed = Math.max(1, Math.min(totalStudentMonths, elapsedCalendar - transferElapsed));
+        const monthlyDue = Math.round(((netAssessment / totalStudentMonths) * studentMonthsElapsed) * 100) / 100;
+        expectedCumulativeDue = Math.min(quarterlyDue, monthlyDue);
+      }
+    }
+  }
+
   const overdueAmount = Math.max(0, Math.round((expectedCumulativeDue - amountPaid) * 100) / 100);
   const isOverdue = balance > 0 && overdueAmount > 0.01;
 

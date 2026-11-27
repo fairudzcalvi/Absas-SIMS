@@ -141,7 +141,8 @@ const QUICK_ACTIONS = [
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function DashboardPage() {
-  const { supabase, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter, selectedQuarter, isHistoricalYear } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const navigate = useNavigate();
   const [now, setNow] = useState(new Date());
   const [stats, setStats] = useState({ students: 0, faculty: 0, gradeLevels: 12 });
@@ -156,21 +157,67 @@ export default function DashboardPage() {
   useEffect(() => {
     async function fetchStats() {
       setLoadingStats(true);
-      const [studentsRes, facultyRes, enrollRes] = await Promise.all([
-        supabase.from('students').select('*', { count: 'exact', head: true }),
-        supabase.from('faculty').select('*', { count: 'exact', head: true }),
+      const [studentsRes, facultyRes, secRes, enrRes] = await Promise.all([
         supabase
           .from('students')
-          .select('student_record_id, student_id, first_name, last_name, grade_level, section_name, created_at, status')
-          .order('created_at', { ascending: false })
-          .limit(10),
+          .select('student_record_id, student_id, lrn_id, first_name, last_name, grade_level, section_name, created_at, status, is_archived')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('faculty')
+          .select('faculty_record_id, employment_status, is_archived'),
+        currentSy?.id
+          ? supabase.from('sections').select('id, section_name').eq('school_year_id', currentSy.id)
+          : Promise.resolve({ data: [] }),
+        currentSy?.id
+          ? supabase.from('enrollments').select('*').eq('school_year_id', currentSy.id).order('created_at', { ascending: false })
+          : Promise.resolve({ data: [] }),
       ]);
-      setStats({ students: studentsRes.count ?? 0, faculty: facultyRes.count ?? 0, gradeLevels: 12 });
-      setEnrollments(enrollRes.data ?? []);
+
+      const allStu = studentsRes.data ?? [];
+      const activeStu = allStu.filter(s => !s.is_archived && !['archived', 'inactive', 'graduated', 'dropped', 'transferred', 'transferred out'].includes((s.status || 'active').toLowerCase()));
+      const activeStuIds = new Set(activeStu.map(s => s.student_record_id));
+      const activeFacCount = (facultyRes.data ?? []).filter(
+        f => !f.is_archived && !['archived', 'inactive', 'resigned', 'terminated', 'retired', 'transferred'].includes((f.employment_status || 'active').toLowerCase())
+      ).length;
+      const syEnrs = enrRes.data ?? [];
+      const uniqueSyEnrIds = new Set(
+        syEnrs
+          .filter(e => !['Dropped', 'Transferred Out'].includes(e.enrollment_status))
+          .filter(e => isHistoricalYear || activeStuIds.has(e.student_record_id))
+          .map(e => e.student_record_id)
+      );
+
+      // If enrollments exist for the selected S.Y., show recent 10 S.Y. enrollments; otherwise recent active students (active year only)
+      const recentList = syEnrs.length > 0
+        ? syEnrs.slice(0, 10).map(e => {
+            const stu = allStu.find(s => s.student_record_id === e.student_record_id) || {};
+            const sec = (secRes.data ?? []).find(sc => sc.id === e.section_id);
+            return {
+              student_record_id: `${e.id}-${e.student_record_id}`,
+              lrn_id: stu.lrn_id,
+              student_id: stu.student_id,
+              first_name: stu.first_name || 'Student',
+              last_name: stu.last_name || '',
+              grade_level: e.grade_level || stu.grade_level,
+              section_name: sec?.section_name || (!isHistoricalYear ? stu.section_name : ''),
+              created_at: e.date_enrolled || e.created_at,
+              status: e.enrollment_status || 'Enrolled',
+            };
+          })
+        : (!isHistoricalYear ? activeStu.slice(0, 10) : []);
+
+      setStats({
+        students: isHistoricalYear
+          ? uniqueSyEnrIds.size
+          : (uniqueSyEnrIds.size > 0 ? Math.max(activeStu.length, uniqueSyEnrIds.size) : activeStu.length),
+        faculty: activeFacCount,
+        gradeLevels: 12,
+      });
+      setEnrollments(recentList);
       setLoadingStats(false);
     }
     fetchStats();
-  }, [supabase]);
+  }, [supabase, currentSy, isHistoricalYear]);
 
   return (
     <>
@@ -190,10 +237,15 @@ export default function DashboardPage() {
             gap: '8px',
             boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
           }}>
-            <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
-            {activeQuarter && (
+            <span>{currentSy?.year_label ? `S.Y. ${currentSy.year_label}` : 'S.Y. 2026-2027'}</span>
+            {!isHistoricalYear && (selectedQuarter || activeQuarter) && (
               <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
-                {activeQuarter.quarter_name}
+                {(selectedQuarter || activeQuarter).quarter_name}
+              </span>
+            )}
+            {isHistoricalYear && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                Archived
               </span>
             )}
           </div>

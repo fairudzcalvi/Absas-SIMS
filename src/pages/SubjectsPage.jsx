@@ -74,36 +74,20 @@ const makeRowId = () => Math.random().toString(36).substring(2, 9);
 function getStandardSubjectCode(name, grade) {
   const norm = (name || '').toLowerCase().trim();
   let prefix;
-  if (norm.includes('math')) prefix = 'MATH';
-  else if (norm.includes('scien')) prefix = 'SCI';
-  else if (norm.includes('mother tongue')) prefix = 'MTB';
-  else if (norm.includes('filipino')) prefix = 'FIL';
-  else if (norm.includes('english')) prefix = 'ENG';
-  else if (norm.includes('araling panlipunan') || norm === 'ap') prefix = 'AP';
-  else if (norm.includes('edukasyon sa pagpapakatao') || norm.includes('esp')) prefix = 'ESP';
-  else if (norm.includes('edukasyong pantahanan') || norm.includes('epp')) prefix = 'EPP';
-  else if (norm.includes('technology and livelihood') || norm.includes('tle')) prefix = 'TLE';
-  else if (norm.includes('mapeh')) prefix = 'MAPEH';
-  else if (norm.includes('oral comm')) prefix = 'ORALCOMM';
-  else if (norm.includes('reading and writing')) prefix = 'READWRITE';
-  else if (norm.includes('komunikasyon')) prefix = 'KOM';
-  else if (norm.includes('pagbasa')) prefix = 'PAGBASA';
-  else if (norm.includes('21st century')) prefix = 'LIT21';
-  else if (norm.includes('contemporary philippine')) prefix = 'CPAR';
-  else if (norm.includes('statistics')) prefix = 'STAT';
-  else if (norm.includes('earth and life')) prefix = 'ELS';
+  // Specific multi-word & SHS specialized rules MUST run before generic subject prefixes
+  if (norm.includes('earth and life')) prefix = 'ELS';
   else if (norm.includes('physical science')) prefix = 'PHYSCI';
-  else if (norm.includes('personal dev')) prefix = 'PERDEV';
-  else if (norm.includes('understanding culture') || norm.includes('ucsp')) prefix = 'UCSP';
-  else if (norm.includes('physical education') || norm.includes('pe')) prefix = 'PE';
-  else if (norm.includes('empowerment tech')) prefix = 'EMPOTECH';
-  else if (norm.includes('english for academic') || norm.includes('eapp')) prefix = 'EAPP';
-  else if (norm.includes('media and info') || norm.includes('mil')) prefix = 'MIL';
-  else if (norm.includes('philosophy')) prefix = 'PHIL';
-  else if (norm.includes('practical research 1')) prefix = 'PR1';
-  else if (norm.includes('practical research 2')) prefix = 'PR2';
-  else if (norm.includes('inquiries')) prefix = '3IS';
-  else if (norm.includes('entrepreneurship')) prefix = 'ENTREP';
+  else if (norm.includes('social science 1') || norm.includes('disciplines and ideas in the social sciences')) prefix = 'SOCSCI1';
+  else if (norm.includes('social science 2') || norm.includes('disciplines and ideas in the applied social')) prefix = 'SOCSCI2';
+  else if (norm.includes('humanities 1')) prefix = 'HUM1';
+  else if (norm.includes('humanities 2')) prefix = 'HUM2';
+  else if (norm.includes('tvl specialization 1')) prefix = 'TVL1';
+  else if (norm.includes('tvl specialization 2')) prefix = 'TVL2';
+  else if (norm.includes('tvl specialization 3')) prefix = 'TVL3';
+  else if (norm.includes('tvl specialization 4')) prefix = 'TVL4';
+  else if (norm.includes('business math')) prefix = 'BMATH';
+  else if (norm.includes('general math')) prefix = 'GENMATH';
+  else if (norm.includes('statistics')) prefix = 'STAT';
   else if (norm.includes('pre-calculus')) prefix = 'PRECALC';
   else if (norm.includes('basic calculus')) prefix = 'BASCALC';
   else if (norm.includes('biology 1')) prefix = 'BIO1';
@@ -112,6 +96,42 @@ function getStandardSubjectCode(name, grade) {
   else if (norm.includes('physics 2')) prefix = 'PHYS2';
   else if (norm.includes('chemistry 1')) prefix = 'CHEM1';
   else if (norm.includes('chemistry 2')) prefix = 'CHEM2';
+  else if (norm.includes('accountancy, business, and management 1')) prefix = 'FABM1';
+  else if (norm.includes('accountancy, business, and management 2')) prefix = 'FABM2';
+  else if (norm.includes('english for academic') || /\beapp\b/.test(norm)) prefix = 'EAPP';
+  else if (norm.includes('filipino sa piling')) prefix = 'FPL';
+  else if (norm.includes('physical education and health 1')) prefix = 'PE1';
+  else if (norm.includes('physical education and health 2')) prefix = 'PE2';
+  else if (norm.includes('physical education and health 3')) prefix = 'PE3';
+  else if (norm.includes('physical education and health 4')) prefix = 'PE4';
+  else if (norm.includes('physical education') || /\bpe\b/.test(norm)) prefix = 'PE';
+  else if (norm.includes('work immersion')) prefix = 'IMM';
+  else if (norm.includes('oral comm')) prefix = 'ORALCOMM';
+  else if (norm.includes('reading and writing')) prefix = 'READWRITE';
+  else if (norm.includes('komunikasyon')) prefix = 'KOM';
+  else if (norm.includes('pagbasa')) prefix = 'PAGBASA';
+  else if (norm.includes('21st century')) prefix = 'LIT21';
+  else if (norm.includes('contemporary philippine')) prefix = 'CPAR';
+  else if (norm.includes('personal dev')) prefix = 'PERDEV';
+  else if (norm.includes('understanding culture') || norm.includes('ucsp')) prefix = 'UCSP';
+  else if (norm.includes('empowerment tech')) prefix = 'EMPOTECH';
+  else if (norm.includes('media and info') || /\bmil\b/.test(norm)) prefix = 'MIL';
+  else if (norm.includes('philosophy')) prefix = 'PHIL';
+  else if (norm.includes('practical research 1')) prefix = 'PR1';
+  else if (norm.includes('practical research 2')) prefix = 'PR2';
+  else if (norm.includes('inquiries')) prefix = '3IS';
+  else if (norm.includes('entrepreneurship')) prefix = 'ENTREP';
+  else if (norm.includes('disaster readiness')) prefix = 'DRRR';
+  else if (norm.includes('math')) prefix = 'MATH';
+  else if (norm.includes('scien')) prefix = 'SCI';
+  else if (norm.includes('mother tongue')) prefix = 'MTB';
+  else if (norm.includes('filipino')) prefix = 'FIL';
+  else if (norm.includes('english')) prefix = 'ENG';
+  else if (norm.includes('araling panlipunan') || norm === 'ap') prefix = 'AP';
+  else if (norm.includes('edukasyon sa pagpapakatao') || /\besp\b/.test(norm)) prefix = 'ESP';
+  else if (norm.includes('edukasyong pantahanan') || /\bepp\b/.test(norm)) prefix = 'EPP';
+  else if (norm.includes('technology and livelihood') || /\btle\b/.test(norm)) prefix = 'TLE';
+  else if (norm.includes('mapeh')) prefix = 'MAPEH';
   else {
     const words = name.replace(/[^a-zA-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
     if (words.length === 1) {
@@ -243,11 +263,19 @@ export default function SubjectsPage() {
   /* ── Fetch subjects ── */
   const fetchSubjects = useCallback(async () => {
     setLoadingSubj(true);
-    const { data } = await supabase
+    let { data, error } = await supabase
       .from('subjects')
       .select('*, curriculums(id, name, code)')
       .order('grade_level', { ascending: true })
       .order('subject_name', { ascending: true });
+    if (error) {
+      const fb = await supabase
+        .from('subjects')
+        .select('*')
+        .order('grade_level', { ascending: true })
+        .order('subject_name', { ascending: true });
+      data = fb.data;
+    }
     setSubjects(data ?? []);
     setLoadingSubj(false);
   }, [supabase]);
@@ -325,6 +353,25 @@ export default function SubjectsPage() {
     if (!subjForm.subject_name.trim()) { setSubjError('Subject name is required.'); return; }
     if (!subjForm.curriculum_id) { setSubjError('Please select a curriculum.'); return; }
     if (!subjForm.grade_level) { setSubjError('Please select a grade level.'); return; }
+
+    const selCurr = curriculums.find(c => c.id === subjForm.curriculum_id);
+    const gradeNum = Number(subjForm.grade_level);
+    if (selCurr && (gradeNum < Number(selCurr.grade_level_start) || gradeNum > Number(selCurr.grade_level_end))) {
+      setSubjError(`Grade ${gradeNum} is outside ${selCurr.name} (${selCurr.grade_level_start}-${selCurr.grade_level_end}).`);
+      return;
+    }
+
+    const dup = subjects.find(s =>
+      (!editSubj || s.subject_id !== editSubj.subject_id) &&
+      s.curriculum_id === subjForm.curriculum_id &&
+      Number(s.grade_level) === gradeNum &&
+      (s.subject_name ?? '').trim().toLowerCase() === subjForm.subject_name.trim().toLowerCase()
+    );
+    if (dup) {
+      setSubjError(`"${subjForm.subject_name.trim()}" already exists for Grade ${gradeNum} in this curriculum.`);
+      return;
+    }
+
     if (!subjForm.time_start || !subjForm.time_end) {
       setSubjError('Start time and end time are required when creating a subject.');
       return;
@@ -345,7 +392,7 @@ export default function SubjectsPage() {
       subject_name:  subjForm.subject_name.trim(),
       subject_code:  subjForm.subject_code.trim() || null,
       curriculum_id: subjForm.curriculum_id,
-      grade_level:   Number(subjForm.grade_level),
+      grade_level:   gradeNum,
       semester:      null,
       description:   subjForm.description.trim() || null,
       status:        subjForm.status,
@@ -366,7 +413,8 @@ export default function SubjectsPage() {
 
     let { error } = await runSave(extendedPayload);
     if (error && /column|schema cache|42703/i.test(error.message || '')) {
-      const compactTime = `${formatDaysShort(dayStr)} ${subjForm.time_start}-${subjForm.time_end}`.trim();
+      const compactDays = formatDaysShort(dayStr).replace('M-T-W-Th-F', 'M-F');
+      const compactTime = `${compactDays} ${subjForm.time_start}-${subjForm.time_end}`.trim().slice(0, 20);
       ({ error } = await runSave({ ...corePayload, semester: compactTime }));
     }
     if (error) { setSubjError(error.message); setSubjSaving(false); return; }
@@ -378,7 +426,11 @@ export default function SubjectsPage() {
 
   async function handleDeleteSubject() {
     if (!deleteSubj) return;
-    await supabase.from('subjects').delete().eq('subject_id', deleteSubj.subject_id);
+    const { error } = await supabase.from('subjects').delete().eq('subject_id', deleteSubj.subject_id);
+    if (error) {
+      alert(`Failed to delete subject: ${error.message}`);
+      return;
+    }
     setDeleteSubj(null);
     fetchSubjects();
   }
@@ -414,6 +466,18 @@ export default function SubjectsPage() {
     const newGrade = currObj ? String(currObj.grade_level_start) : '7';
     setBatchGrade(newGrade);
     setBatchStrand('');
+    if (currObj) {
+      const minG = Number(currObj.grade_level_start);
+      const maxG = Number(currObj.grade_level_end);
+      setBatchRows(prev => prev.map(row => {
+        const g = Number(row.grade_level);
+        if (!g || g < minG || g > maxG) {
+          const updatedCode = row.subject_name?.trim() ? getStandardSubjectCode(row.subject_name, newGrade) : row.subject_code;
+          return { ...row, grade_level: newGrade, subject_code: updatedCode };
+        }
+        return row;
+      }));
+    }
   }
 
   function handleLoadDepEdTemplate() {
@@ -502,10 +566,21 @@ export default function SubjectsPage() {
       return;
     }
 
+    const batchCurr = curriculums.find(c => c.id === batchCurrId);
     const missingGrade = validRows.find(r => !r.grade_level);
     if (missingGrade) {
       setBatchError(`Subject "${missingGrade.subject_name}" is missing a grade level.`);
       return;
+    }
+    if (batchCurr) {
+      const outOfRange = validRows.find(r => {
+        const g = Number(r.grade_level);
+        return g < Number(batchCurr.grade_level_start) || g > Number(batchCurr.grade_level_end);
+      });
+      if (outOfRange) {
+        setBatchError(`Subject "${outOfRange.subject_name}" Grade ${outOfRange.grade_level} is outside ${batchCurr.name} (${batchCurr.grade_level_start}-${batchCurr.grade_level_end}).`);
+        return;
+      }
     }
 
     const seenInBatch = new Set();
@@ -532,9 +607,17 @@ export default function SubjectsPage() {
         continue;
       }
 
-      const missingTime = validRows.find(r => !r.time_start || !r.time_end);
-      if (missingTime) {
-        setBatchError(`Subject "${missingTime.subject_name}" requires start and end time.`);
+      if (!row.time_start || !row.time_end) {
+        setBatchError(`Subject "${row.subject_name}" requires start and end time.`);
+        return;
+      }
+      if (row.time_end <= row.time_start) {
+        setBatchError(`Subject "${row.subject_name}": End time (${row.time_end}) must be later than start time (${row.time_start}).`);
+        return;
+      }
+      const dayStr = serializeScheduleDays(row.days_of_week);
+      if (!dayStr) {
+        setBatchError(`Subject "${row.subject_name}" requires at least one valid weekday.`);
         return;
       }
 
@@ -546,7 +629,7 @@ export default function SubjectsPage() {
         semester:      null,
         time_start:    row.time_start,
         time_end:      row.time_end,
-        days_of_week:  serializeScheduleDays(row.days_of_week) || 'Monday, Wednesday, Friday',
+        days_of_week:  dayStr,
         description:   row.description ? row.description.trim() || null : null,
         status:        row.status || 'Active',
       });
@@ -565,10 +648,13 @@ export default function SubjectsPage() {
     setBatchSaving(true);
     let { error } = await supabase.from('subjects').insert(toInsert);
     if (error && /column|schema cache|42703/i.test(error.message || '')) {
-      const fallbackRows = toInsert.map(({ time_start, time_end, days_of_week, ...rest }) => ({
-        ...rest,
-        semester: `${formatDaysShort(days_of_week)} ${time_start}-${time_end}`.trim(),
-      }));
+      const fallbackRows = toInsert.map(({ time_start, time_end, days_of_week, ...rest }) => {
+        const compactDays = formatDaysShort(days_of_week).replace('M-T-W-Th-F', 'M-F');
+        return {
+          ...rest,
+          semester: `${compactDays} ${time_start}-${time_end}`.trim().slice(0, 20),
+        };
+      });
       ({ error } = await supabase.from('subjects').insert(fallbackRows));
     }
 
@@ -645,7 +731,11 @@ export default function SubjectsPage() {
 
   async function handleDeleteCurriculum() {
     if (!deleteCurr) return;
-    await supabase.from('curriculums').delete().eq('id', deleteCurr.id);
+    const { error } = await supabase.from('curriculums').delete().eq('id', deleteCurr.id);
+    if (error) {
+      alert(`Failed to delete curriculum: ${error.message}`);
+      return;
+    }
     if (activeCurrId === deleteCurr.id) setActiveCurrId(null);
     setDeleteCurr(null);
     fetchCurriculums();
@@ -1115,8 +1205,8 @@ export default function SubjectsPage() {
                       <label>Curriculum *</label>
                       <select value={subjForm.curriculum_id} onChange={e => setSubjForm(f => ({ ...f, curriculum_id: e.target.value, grade_level: '' }))}>
                         <option value="">Select curriculum</option>
-                        {curriculums.filter(c => c.is_active).map(c => (
-                          <option key={c.id} value={c.id}>{c.name} (Gr. {c.grade_level_start}–{c.grade_level_end})</option>
+                        {curriculums.filter(c => c.is_active || c.id === subjForm.curriculum_id).map(c => (
+                          <option key={c.id} value={c.id}>{c.name} (Gr. {c.grade_level_start}–{c.grade_level_end}){!c.is_active ? ' [Inactive]' : ''}</option>
                         ))}
                       </select>
                     </div>

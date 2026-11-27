@@ -130,15 +130,34 @@ export async function fetchFeeMatrix(supabase) {
   if (!supabase) return cached;
 
   try {
-    // 1. Try school_policies (Financial category)
-    const { data: polData, error: polErr } = await supabase
+    // 1. Try school_policies (dedicated Fee Matrix row first so other Financial policies never collide)
+    let { data: polData, error: polErr } = await supabase
       .from('school_policies')
       .select('*')
       .eq('category', 'Financial')
+      .eq('policy_name', 'Tuition & Miscellaneous Fee Matrix')
       .eq('is_active', true)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (!polErr && !polData) {
+      const legacyRes = await supabase
+        .from('school_policies')
+        .select('*')
+        .eq('category', 'Financial')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      polData = (legacyRes.data || []).find(row => {
+        try {
+          const arr = JSON.parse(row.description);
+          return Array.isArray(arr) && arr.length > 0 && arr[0]?.grade != null;
+        } catch {
+          return false;
+        }
+      }) || null;
+      polErr = legacyRes.error;
+    }
 
     if (!polErr && polData?.description) {
       try {
@@ -191,22 +210,24 @@ export async function fetchFeeMatrix(supabase) {
 export async function saveFeeMatrix(supabase, feeArray) {
   const normalized = normalizeFeeArray(feeArray);
 
-  // 1. Update localStorage immediately
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
-    window.localStorage.setItem('absas_fee_matrix', JSON.stringify(normalized));
+  if (!supabase) {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
+      window.localStorage.setItem('absas_fee_matrix', JSON.stringify(normalized));
+    }
+    return normalized;
   }
 
-  if (!supabase) return normalized;
-
   try {
-    // 2. Upsert in school_policies
-    const { data: existingPol } = await supabase
+    // 1. Upsert dedicated Fee Matrix policy row in school_policies (never overwrite general Financial policies)
+    const { data: existingPol, error: lookupErr } = await supabase
       .from('school_policies')
       .select('id')
       .eq('category', 'Financial')
+      .eq('policy_name', 'Tuition & Miscellaneous Fee Matrix')
       .limit(1)
       .maybeSingle();
+    if (lookupErr) throw lookupErr;
 
     const policyPayload = {
       policy_name: 'Tuition & Miscellaneous Fee Matrix',
@@ -216,14 +237,22 @@ export async function saveFeeMatrix(supabase, feeArray) {
     };
 
     if (existingPol?.id) {
-      await supabase
+      const { error: updErr } = await supabase
         .from('school_policies')
         .update(policyPayload)
         .eq('id', existingPol.id);
+      if (updErr) throw updErr;
     } else {
-      await supabase
+      const { error: insErr } = await supabase
         .from('school_policies')
         .insert([policyPayload]);
+      if (insErr) throw insErr;
+    }
+
+    // 2. Sync localStorage once DB save succeeds
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
+      window.localStorage.setItem('absas_fee_matrix', JSON.stringify(normalized));
     }
 
     // 3. Try to update school_settings if fee_matrix column is present

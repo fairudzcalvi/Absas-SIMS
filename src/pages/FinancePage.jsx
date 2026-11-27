@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatGradeSection } from '../utils/formatters';
-import { getBaseFees, fetchFeeMatrix } from '../utils/feeMatrix';
+import { getBaseFees, fetchFeeMatrix, normalizeFeeArray } from '../utils/feeMatrix';
 import {
   NO_REFUND_DISCLAIMER,
   calculateStackedDiscount,
@@ -168,12 +168,14 @@ const OTHER_FEES_CATALOG = [
 ];
 
 /* ── Quarterly Breakdown Calculator (Q1 - Q4) ───────────── */
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 function computeQuarterlyBreakdown(netAssessment, amountPaid = 0) {
-  const net = Math.max(0, Number(netAssessment || 0));
-  const paid = Math.max(0, Number(amountPaid || 0));
+  const net = Math.max(0, round2(netAssessment));
+  const paid = Math.max(0, round2(amountPaid));
 
   const qBase = Math.floor(net / 4);
-  const qRemainder = net - (qBase * 3);
+  const qRemainder = round2(net - (qBase * 3));
 
   const quarters = [
     { id: 'Q1', code: '1Q', name: '1st Quarter (Enrollment / Prelims)', due: qBase,      targetDate: 'August 31' },
@@ -184,17 +186,15 @@ function computeQuarterlyBreakdown(netAssessment, amountPaid = 0) {
 
   let remainingPaid = paid;
   return quarters.map(q => {
-    const credited = Math.min(q.due, remainingPaid);
-    remainingPaid = Math.max(0, remainingPaid - credited);
-    const balance = Math.max(0, q.due - credited);
+    const credited = round2(Math.min(q.due, remainingPaid));
+    remainingPaid = Math.max(0, round2(remainingPaid - credited));
+    const balance = Math.max(0, round2(q.due - credited));
 
     let status = 'Due';
-    if (credited >= q.due && q.due > 0) {
+    if (balance <= 0.005 || q.due === 0) {
       status = 'Paid';
     } else if (credited > 0) {
       status = 'Partial';
-    } else if (q.due === 0) {
-      status = 'Paid';
     }
 
     return {
@@ -208,7 +208,7 @@ function computeQuarterlyBreakdown(netAssessment, amountPaid = 0) {
 
 /* ── Main Finance Page ─────────────────────────────────── */
 export default function FinancePage() {
-  const { supabase, schoolYears, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, schoolYears, selectedSchoolYear, activeSchoolYear, activeQuarter, selectedQuarter, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [students, setStudents]         = useState([]);
@@ -328,13 +328,14 @@ export default function FinancePage() {
       const { data: secData } = await secQuery;
       setSections(secData ?? []);
 
-      // 3c. Fetch Enrollments for selected School Year (accurate section & transferee/proration links)
+      // 3c. Fetch Enrollments for selected School Year ordered newest-first so re-enrollments take precedence
       let enrData = [];
       if (targetSy?.id) {
         const { data } = await supabase
           .from('enrollments')
           .select('*')
-          .eq('school_year_id', targetSy.id);
+          .eq('school_year_id', targetSy.id)
+          .order('created_at', { ascending: false });
         enrData = data ?? [];
       }
       setEnrollments(enrData);
@@ -372,25 +373,48 @@ export default function FinancePage() {
 
   /* Build unified student account ledger rows */
   const remainingSchoolMonths = getRemainingSchoolMonths(effectiveSy);
+  const isViewingActiveSy = !activeSchoolYear?.id || !effectiveSy?.id || String(effectiveSy.id) === String(activeSchoolYear.id);
 
-  const studentAccounts = students.map(student => {
+  const pickActiveEnrollment = (stuId) => {
+    const matches = enrollments.filter(e => e.student_record_id === stuId);
+    return matches.find(e => !['Dropped', 'Transferred Out'].includes(e.enrollment_status)) || matches[0] || null;
+  };
+
+  const studentAccounts = students
+    .filter(student => {
+      const fin = finances.find(f => f.student_record_id === student.student_record_id);
+      const enrRow = pickActiveEnrollment(student.student_record_id);
+      const st = (student.status || 'Active').toLowerCase();
+      const isInactiveRecord = Boolean(student.is_archived) || ['archived', 'inactive', 'graduated', 'dropped', 'transferred', 'transferred out'].includes(st);
+      // Only include inactive/archived records if they actually have a finance/enrollment entry for the selected S.Y.
+      return !isInactiveRecord || Boolean(fin) || Boolean(enrRow);
+    })
+    .map(student => {
     const fin = finances.find(f => f.student_record_id === student.student_record_id);
-    const enrRow = enrollments.find(e => e.student_record_id === student.student_record_id);
+    const enrRow = pickActiveEnrollment(student.student_record_id);
 
-    const sectionId = enrRow?.section_id || student.current_section_id || '';
+    const sectionId = enrRow?.section_id || (isViewingActiveSy ? student.current_section_id : '') || '';
     const secObj = sections.find(sec => String(sec.id) === String(sectionId));
-    const sectionName = secObj?.section_name || student.section_name || '';
+    const sectionName = secObj?.section_name || (isViewingActiveSy ? student.section_name : '') || '';
     const gradeLevel = enrRow?.grade_level || student.grade_level;
 
-    const enrollmentType = enrRow?.enrollment_type || student.enrollment_type || 'New Enrollee';
+    const enrollmentType = enrRow?.enrollment_type || student.student_type || 'New Enrollee';
     const isTransferee = Boolean(fin?.is_transferee_prorated || enrollmentType === 'Transferee');
-    const monthsElapsed = Number(fin?.months_elapsed ?? enrRow?.months_elapsed ?? student.months_elapsed ?? 0);
+    const monthsElapsed = isTransferee
+      ? Number(fin?.months_elapsed ?? enrRow?.months_elapsed ?? (isViewingActiveSy ? student.months_elapsed : 0) ?? 0)
+      : 0;
 
-    const schId = fin?.scholarship_id || enrRow?.scholarship_id || student.scholarship_id || '';
-    const secSchId = fin?.secondary_scholarship_id || enrRow?.secondary_scholarship_id || student.secondary_scholarship_id || '';
+    // Treat fin row as authoritative once created for this S.Y. so cleared grants don't snap back from enrollment/student profile
+    const schId = fin
+      ? (fin.scholarship_id || '')
+      : (enrRow?.scholarship_id || (isViewingActiveSy ? student.scholarship_id : '') || '');
+    const secSchId = fin
+      ? (fin.secondary_scholarship_id || '')
+      : (enrRow?.secondary_scholarship_id || (isViewingActiveSy ? student.secondary_scholarship_id : '') || '');
     const sch = scholarships.find(s => String(s.id) === String(schId)) || null;
     const secSch = scholarships.find(s => String(s.id) === String(secSchId)) || null;
-    const str = strands.find(st => st.id === student.current_strand_id);
+    const strandId = enrRow?.strand_id || (isViewingActiveSy ? student.current_strand_id : '');
+    const str = strands.find(st => String(st.id) === String(strandId)) || null;
 
     const base = getBaseFees(gradeLevel, feeMatrix);
     const proration = calculateProratedTuition(base.tuition, monthsElapsed);
@@ -402,7 +426,7 @@ export default function FinancePage() {
       fin?.miscellaneous_fee != null && fin?.miscellaneous_fee !== ''
         ? Number(fin.miscellaneous_fee)
         : base.misc;
-    const grossTotal = tuition + misc;
+    const grossTotal = round2(tuition + misc);
 
     // Stacked scholarship / discount calculation (e.g. ESC Grant + Sibling Discount)
     const stacked = calculateStackedDiscount({
@@ -411,16 +435,18 @@ export default function FinancePage() {
       primaryScholarship: sch,
       secondaryScholarship: secSch,
     });
+    const storedBdLen = Array.isArray(fin?.discount_breakdown) ? fin.discount_breakdown.length : 0;
     const hasFinDiscount = fin?.discount_amount != null && Number(fin.discount_amount) > 0;
-    const useStoredDiscount = hasFinDiscount && !(secSch && !fin?.discount_breakdown && Number(fin.discount_amount) < stacked.discount);
-    const discount = useStoredDiscount ? Number(fin.discount_amount) : stacked.discount;
-    const discountBreakdown = Array.isArray(fin?.discount_breakdown) && fin.discount_breakdown.length > 0
+    const mismatchExternalSec = Boolean(secSch && storedBdLen < stacked.breakdown.length && Number(fin?.discount_amount || 0) < stacked.discount);
+    const useStoredDiscount = hasFinDiscount && !mismatchExternalSec;
+    const discount = round2(useStoredDiscount ? Number(fin.discount_amount) : stacked.discount);
+    const discountBreakdown = (!mismatchExternalSec && storedBdLen > 0)
       ? fin.discount_breakdown
       : stacked.breakdown;
 
-    const netAssessment = Math.max(0, grossTotal - discount);
-    const amountPaid = Number(fin?.amount_paid ?? 0);
-    const balance = Math.max(0, netAssessment - amountPaid);
+    const netAssessment = Math.max(0, round2(grossTotal - discount));
+    const amountPaid = round2(fin?.amount_paid ?? 0);
+    const balance = Math.max(0, round2(netAssessment - amountPaid));
 
     const remainingMonths = fin?.prorated_months
       ? Math.min(remainingSchoolMonths, Math.max(1, Number(fin.prorated_months)))
@@ -430,17 +456,13 @@ export default function FinancePage() {
     const monthlyPlan = calculateMonthlyInstallment(balance, remainingMonths);
 
     let status = 'Unpaid';
-    if (amountPaid >= netAssessment && netAssessment > 0) {
+    if (netAssessment <= 0 || balance <= 0.005) {
       status = 'Paid';
     } else if (amountPaid > 0) {
       status = 'Partial';
     }
 
-    const inSelectedSy =
-      !schoolYearFilter ||
-      String(schoolYearFilter) === String(currentSy?.id) ||
-      Boolean(enrRow) ||
-      Boolean(fin);
+    const inSelectedSy = isViewingActiveSy || Boolean(enrRow) || Boolean(fin);
 
     return {
       student,
@@ -505,22 +527,25 @@ export default function FinancePage() {
     return true;
   });
 
-  /* Financial Metrics */
-  const totalRevenue   = studentAccounts.reduce((sum, a) => sum + a.netAssessment, 0);
-  const totalCollected = studentAccounts.reduce((sum, a) => sum + a.amountPaid, 0);
-  const totalReceivable = studentAccounts.reduce((sum, a) => sum + a.balance, 0);
-  const fullyPaidCount = studentAccounts.filter(a => a.status === 'Paid').length;
+  /* School-year-scoped accounts & Financial Metrics */
+  const syScopedAccounts = studentAccounts.filter(a => a.inSelectedSy);
+  const totalRevenue     = syScopedAccounts.reduce((sum, a) => sum + a.netAssessment, 0);
+  const totalCollected   = syScopedAccounts.reduce((sum, a) => sum + a.amountPaid, 0);
+  const totalReceivable  = syScopedAccounts.reduce((sum, a) => sum + a.balance, 0);
+  const fullyPaidCount   = syScopedAccounts.filter(a => a.status === 'Paid').length;
 
   /* ── 1. Open Pay Tuition Modal ───────────────────────── */
   function openPaymentModal(acc = null, presetAmount = null, allocationDesc = null) {
-    const targetStudent = acc ? acc.student : students[0] || null;
+    const fallbackAcc = filteredAccounts[0] || syScopedAccounts[0] || null;
+    const chosenAcc = acc || fallbackAcc;
+    const targetStudent = chosenAcc ? chosenAcc.student : null;
     setSelectedStudent(targetStudent);
 
     let initialAmount = '';
     if (presetAmount !== null && presetAmount !== undefined) {
       initialAmount = String(presetAmount);
-    } else if (acc && acc.balance > 0) {
-      initialAmount = String(acc.balance);
+    } else if (chosenAcc && chosenAcc.balance > 0) {
+      initialAmount = String(chosenAcc.balance);
     }
 
     setPayForm({
@@ -538,7 +563,9 @@ export default function FinancePage() {
 
   /* ── 2. Open Other School Fees Modal ──────────────────── */
   function openOtherFeesModal(acc = null) {
-    const targetStudent = acc ? acc.student : students[0] || null;
+    const fallbackAcc = filteredAccounts[0] || syScopedAccounts[0] || null;
+    const chosenAcc = acc || fallbackAcc;
+    const targetStudent = chosenAcc ? chosenAcc.student : null;
     setOtherFeesStudent(targetStudent);
     const defaultCatalog = OTHER_FEES_CATALOG[0];
     setOtherFeesForm({
@@ -618,7 +645,7 @@ export default function FinancePage() {
       const netAssessment = Math.max(0, grossTotal - stacked.discount);
       const existingFin = finances.find(f => f.student_record_id === studentId);
       const amountPaid = Number(existingFin?.amount_paid ?? assessAccount.amountPaid ?? 0);
-      const newStatus = amountPaid >= netAssessment && netAssessment > 0 ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid';
+      const newStatus = (netAssessment <= 0 || amountPaid >= netAssessment) ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid';
 
       const elapsed = assessForm.is_transferee_prorated ? Math.min(9, Math.max(0, Number(assessForm.months_elapsed) || 0)) : 0;
       const proratedMonths = Math.max(1, 10 - elapsed);
@@ -676,11 +703,28 @@ export default function FinancePage() {
 
       await saveFinanceWithFallback(extendedPayload, corePayload);
 
-      // Keep student record scholarship references aligned
-      const stuPatchFull = { scholarship_id: priSch?.id || null, secondary_scholarship_id: secSch?.id || null, months_elapsed: elapsed };
-      const stuRes = await supabase.from('students').update(stuPatchFull).eq('student_record_id', studentId);
-      if (stuRes.error && /column|schema cache|42703/i.test(stuRes.error.message || '')) {
-        await supabase.from('students').update({ scholarship_id: priSch?.id || null }).eq('student_record_id', studentId);
+      // Keep current-year student & S.Y. enrollment scholarship references aligned
+      if (syObj?.id) {
+        const enrUpd = await supabase
+          .from('enrollments')
+          .update({ scholarship_id: priSch?.id || null, secondary_scholarship_id: secSch?.id || null })
+          .eq('student_record_id', studentId)
+          .eq('school_year_id', syObj.id);
+        if (enrUpd.error && /column|schema cache|42703/i.test(enrUpd.error.message || '')) {
+          await supabase
+            .from('enrollments')
+            .update({ scholarship_id: priSch?.id || null })
+            .eq('student_record_id', studentId)
+            .eq('school_year_id', syObj.id);
+        }
+      }
+      const isEditingActiveSy = !activeSchoolYear?.id || String(syObj?.id) === String(activeSchoolYear.id);
+      if (isEditingActiveSy) {
+        const stuPatchFull = { scholarship_id: priSch?.id || null, secondary_scholarship_id: secSch?.id || null, months_elapsed: elapsed };
+        const stuRes = await supabase.from('students').update(stuPatchFull).eq('student_record_id', studentId);
+        if (stuRes.error && /column|schema cache|42703/i.test(stuRes.error.message || '')) {
+          await supabase.from('students').update({ scholarship_id: priSch?.id || null }).eq('student_record_id', studentId);
+        }
       }
 
       setAssessModalOpen(false);
@@ -727,7 +771,7 @@ export default function FinancePage() {
           payment_for:       itemDesc,
           or_number:         otherFeesForm.or_number,
           reference_number:  otherFeesForm.reference_number || null,
-          remarks:           otherFeesForm.remarks || null,
+          remarks:           otherFeesForm.remarks?.trim() ? `${otherFeesForm.remarks.trim()} [other_fee]` : '[other_fee]',
           school_year_id:    syId,
           school_year:       syLabel,
         }])
@@ -737,7 +781,7 @@ export default function FinancePage() {
       if (payErr) throw payErr;
 
       setOtherFeesModalOpen(false);
-      fetchData();
+      await fetchData();
 
       // Show confirmation notice with optional receipt viewer
       setSuccessNotice({
@@ -781,15 +825,34 @@ export default function FinancePage() {
 
     try {
       const studentId = selectedStudent.student_record_id;
-      const paymentAmount = Number(payForm.amount);
+      const paymentAmount = round2(payForm.amount);
       const acc = studentAccounts.find(a => a.student.student_record_id === studentId);
-
-      const newAmountPaid = (acc ? acc.amountPaid : 0) + paymentAmount;
-      const netAssessment = acc ? acc.netAssessment : paymentAmount;
-      const newStatus = newAmountPaid >= netAssessment ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
-
       const syId = effectiveSy?.id || activeSchoolYear?.id || null;
       const syLabel = effectiveSy?.year_label || activeSchoolYear?.year_label || '2026-2027';
+
+      // Fetch live student_finances row for this student & S.Y. so rapid consecutive payments never overwrite or duplicate rows
+      let liveFinQuery = supabase.from('student_finances').select('*').eq('student_record_id', studentId);
+      if (syId) {
+        liveFinQuery = liveFinQuery.or(`school_year_id.eq.${syId},school_year.eq.${syLabel}`);
+      } else if (syLabel) {
+        liveFinQuery = liveFinQuery.eq('school_year', syLabel);
+      }
+      const { data: liveFinRows } = await liveFinQuery.limit(1);
+      const liveFin = (liveFinRows || [])[0] || finances.find(f => f.student_record_id === studentId) || null;
+
+      const currentPaid = round2(liveFin?.amount_paid ?? acc?.amountPaid ?? 0);
+      const netAssessment = acc ? acc.netAssessment : round2(Number(liveFin?.tuition_fee || 0) + Number(liveFin?.miscellaneous_fee || 0) - Number(liveFin?.discount_amount || 0));
+      const currentBalance = Math.max(0, round2(netAssessment - currentPaid));
+
+      if (acc && currentBalance <= 0.005) {
+        throw new Error('This student already has ₱0.00 remaining assessment balance. Use "Other School Fees" for extra non-tuition items.');
+      }
+      if (acc && paymentAmount > currentBalance + 0.01) {
+        throw new Error(`Payment amount (${peso(paymentAmount)}) exceeds the remaining assessment balance (${peso(currentBalance)}).`);
+      }
+
+      const newAmountPaid = round2(currentPaid + paymentAmount);
+      const newStatus = (netAssessment <= 0 || (netAssessment - newAmountPaid) <= 0.005) ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
 
       // 1. Insert into payments transaction log FIRST so a DB validation error
       //    never leaves student_finances credited without a matching receipt.
@@ -813,15 +876,17 @@ export default function FinancePage() {
       if (payErr) throw payErr;
 
       // 2. Update or insert into student_finances after payment is recorded
-      const existingFin = finances.find(f => f.student_record_id === studentId);
-      if (existingFin) {
-        const { error: finErr } = await supabase
+      if (liveFin) {
+        const finKeyCol = liveFin.finance_id ? 'finance_id' : 'id';
+        const finKeyVal = liveFin.finance_id || liveFin.id;
+        let finUpd = supabase
           .from('student_finances')
           .update({
             amount_paid: newAmountPaid,
             status:      newStatus,
-          })
-          .eq('finance_id', existingFin.finance_id);
+          });
+        finUpd = finKeyVal ? finUpd.eq(finKeyCol, finKeyVal) : finUpd.eq('student_record_id', studentId);
+        const { error: finErr } = await finUpd;
         if (finErr) throw finErr;
       } else {
         const base = getBaseFees(acc?.gradeLevel || selectedStudent.grade_level, feeMatrix);
@@ -859,22 +924,29 @@ export default function FinancePage() {
         if (finErr) throw finErr;
       }
 
+      const updatedAccSnapshot = acc ? {
+        ...acc,
+        amountPaid: newAmountPaid,
+        balance: Math.max(0, round2(netAssessment - newAmountPaid)),
+        status: newStatus === 'paid' ? 'Paid' : 'Partial',
+      } : acc;
+
       setPaymentModalOpen(false);
-      fetchData();
+      await fetchData();
 
       // Show confirmation notice with optional receipt viewer
       setSuccessNotice({
         text: `Tuition payment of ${peso(paymentAmount)} for ${selectedStudent.first_name} ${selectedStudent.last_name} (OR #${payForm.or_number}) has been confirmed and posted.`,
         payment: createdPayment,
         student: selectedStudent,
-        finance: acc,
+        finance: updatedAccSnapshot,
       });
 
       if (payForm.openReceiptNow) {
         setViewReceipt({
           payment: createdPayment,
           student: selectedStudent,
-          finance: acc,
+          finance: updatedAccSnapshot,
         });
       }
 
@@ -912,27 +984,35 @@ export default function FinancePage() {
       let delQuery = supabase.from('payments').delete();
       if (payment.payment_id) {
         delQuery = delQuery.eq('payment_id', payment.payment_id);
-      } else if (payment.id) {
-        delQuery = delQuery.eq('id', payment.id);
       } else if (payment.or_number) {
         delQuery = delQuery.eq('or_number', payment.or_number);
       }
       const { error: delErr } = await delQuery;
       if (delErr) throw delErr;
 
-      // 2. If it is a Tuition / Installment payment, deduct from student_finances
-      const isTuition = !payment.payment_for || 
-                        payment.payment_for.toLowerCase().includes('tuition') || 
-                        payment.payment_for.toLowerCase().includes('installment') || 
-                        payment.payment_for.toLowerCase().includes('quarter');
+      // 2. Only deduct from student_finances if this was an assessment/tuition payment (not an ad-hoc Other Fee item)
+      const pf = (payment.payment_for || '').toLowerCase();
+      const rem = (payment.remarks || '').toLowerCase();
+      const isAdHocOtherFee = /\(\d+x @ ₱/i.test(payment.payment_for || '') || rem.includes('[other_fee]');
+      const isTuition = !isAdHocOtherFee && (
+        !pf ||
+        pf.includes('tuition') ||
+        pf.includes('downpayment') ||
+        pf.includes('enrollment fee') ||
+        pf.includes('installment') ||
+        pf.includes('quarter') ||
+        pf.includes('full settlement') ||
+        pf.includes('miscellaneous') ||
+        pf.includes('assessment')
+      );
 
       if (isTuition && studentId) {
         const existingFin = finances.find(f => f.student_record_id === studentId);
         if (existingFin) {
           const acc = studentAccounts.find(a => a.student.student_record_id === studentId);
-          const newAmountPaid = Math.max(0, (Number(existingFin.amount_paid) || 0) - paymentAmount);
-          const netAssessment = acc ? acc.netAssessment : (Number(existingFin.tuition_fee || 0) + Number(existingFin.miscellaneous_fee || 0));
-          const newStatus = newAmountPaid >= netAssessment ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
+          const newAmountPaid = Math.max(0, round2((Number(existingFin.amount_paid) || 0) - paymentAmount));
+          const netAssessment = acc ? acc.netAssessment : round2(Number(existingFin.tuition_fee || 0) + Number(existingFin.miscellaneous_fee || 0) - Number(existingFin.discount_amount || 0));
+          const newStatus = (netAssessment <= 0 || (netAssessment - newAmountPaid) <= 0.005) ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
 
           let finQuery = supabase.from('student_finances').update({
             amount_paid: newAmountPaid,
@@ -941,8 +1021,8 @@ export default function FinancePage() {
 
           if (existingFin.finance_id) {
             finQuery = finQuery.eq('finance_id', existingFin.finance_id);
-          } else if (existingFin.id) {
-            finQuery = finQuery.eq('id', existingFin.id);
+          } else if (effectiveSy?.year_label) {
+            finQuery = finQuery.eq('student_record_id', studentId).eq('school_year', effectiveSy.year_label);
           } else {
             finQuery = finQuery.eq('student_record_id', studentId);
           }
@@ -963,7 +1043,7 @@ export default function FinancePage() {
       // 5. Refresh global page data
       await fetchData();
 
-      // 6. If viewing payment history, update history state
+      // 6. If viewing payment history, update history state (strictly scoped to selected S.Y.)
       if (viewHistory && viewHistory.student) {
         const { data: updatedPayments } = await supabase
           .from('payments')
@@ -973,7 +1053,7 @@ export default function FinancePage() {
 
         setViewHistory(prev => ({
           ...prev,
-          payments: updatedPayments || [],
+          payments: filterPaymentsBySelectedSy(updatedPayments),
         }));
       }
 
@@ -987,6 +1067,15 @@ export default function FinancePage() {
     }
   }
 
+  function filterPaymentsBySelectedSy(list) {
+    if (!effectiveSy?.id && !effectiveSy?.year_label) return list ?? [];
+    return (list ?? []).filter(p =>
+      (!p.school_year_id && !p.school_year) ||
+      (effectiveSy?.id && p.school_year_id && String(p.school_year_id) === String(effectiveSy.id)) ||
+      (effectiveSy?.year_label && p.school_year === effectiveSy.year_label)
+    );
+  }
+
   /* Open Payment History */
   async function openHistoryModal(acc) {
     setViewHistory({ student: acc.student, payments: [], finance: acc });
@@ -998,7 +1087,7 @@ export default function FinancePage() {
       .eq('student_record_id', acc.student.student_record_id)
       .order('payment_date', { ascending: false });
 
-    setViewHistory({ student: acc.student, payments: data ?? [], finance: acc });
+    setViewHistory({ student: acc.student, payments: filterPaymentsBySelectedSy(data), finance: acc });
     setHistoryLoading(false);
   }
 
@@ -1013,7 +1102,7 @@ export default function FinancePage() {
     setViewSOA({
       student: acc.student,
       finance: acc,
-      payments: data ?? [],
+      payments: filterPaymentsBySelectedSy(data),
     });
   }
 
@@ -1062,10 +1151,16 @@ export default function FinancePage() {
             gap: '6px',
             boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
           }}>
-            <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2026-2027'}</span>
-            {activeQuarter && (
+            <span>{effectiveSy?.year_label ? `S.Y. ${effectiveSy.year_label}` : 'S.Y. 2026-2027'}</span>
+            {(!isHistoricalYear && effectiveSy?.id === activeSchoolYear?.id) ? (
+              (selectedQuarter || activeQuarter) && (
+                <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                  {(selectedQuarter || activeQuarter).quarter_name}
+                </span>
+              )
+            ) : (
               <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
-                {activeQuarter.quarter_name}
+                Archived
               </span>
             )}
           </div>
@@ -1152,7 +1247,7 @@ export default function FinancePage() {
           <div className="stat-card green">
             <div className="stat-icon"><IcoPaid /></div>
             <div className="stat-info">
-              <div className="stat-number">{fullyPaidCount} / {studentAccounts.length}</div>
+              <div className="stat-number">{fullyPaidCount} / {syScopedAccounts.length}</div>
               <div className="stat-label">Fully Paid Students</div>
             </div>
           </div>
@@ -1494,39 +1589,42 @@ export default function FinancePage() {
           </div>
         </div>
 
-        {/* Academic Fee Schedule Structure */}
+        {/* Academic Fee Schedule Structure (Synced from Settings Fee Matrix) */}
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title">DepEd &amp; ABSAS Fee Matrix Schedule (S.Y. {activeSchoolYear?.year_label || '2026-2027'})</h2>
+            <h2 className="card-title">DepEd &amp; ABSAS Fee Matrix Schedule (S.Y. {effectiveSy?.year_label || '2026-2027'})</h2>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
-            <div style={styles.feeBox}>
-              <h4 style={{ color: '#8B0000', margin: '0 0 10px 0' }}>Elementary (Grades 1–6)</h4>
-              <div style={styles.feeRow}><span>Base Tuition Fee:</span> <strong>₱15,000.00</strong></div>
-              <div style={styles.feeRow}><span>Miscellaneous Fees:</span> <strong>₱3,500.00</strong></div>
-              <div style={{ ...styles.feeRow, borderTop: '2px solid #8B0000', marginTop: '8px', paddingTop: '8px', color: '#8B0000', fontWeight: 'bold' }}>
-                <span>Annual Total Assessment:</span> <span>₱18,500.00</span>
+          {(() => {
+            const matrix = normalizeFeeArray(feeMatrix);
+            const formatDeptSummary = (title, minGrade, maxGrade) => {
+              const rows = matrix.filter(r => r.grade_level >= minGrade && r.grade_level <= maxGrade);
+              const tVals = rows.map(r => r.tuition);
+              const mVals = rows.map(r => r.miscellaneous);
+              const totVals = rows.map(r => r.tuition + r.miscellaneous);
+              const rangeStr = arr => {
+                const minV = Math.min(...arr);
+                const maxV = Math.max(...arr);
+                return minV === maxV ? peso(minV) : `${peso(minV)} – ${peso(maxV)}`;
+              };
+              return (
+                <div key={title} style={styles.feeBox}>
+                  <h4 style={{ color: '#8B0000', margin: '0 0 10px 0' }}>{title}</h4>
+                  <div style={styles.feeRow}><span>Base Tuition Fee:</span> <strong>{rangeStr(tVals)}</strong></div>
+                  <div style={styles.feeRow}><span>Miscellaneous Fees:</span> <strong>{rangeStr(mVals)}</strong></div>
+                  <div style={{ ...styles.feeRow, borderTop: '2px solid #8B0000', marginTop: '8px', paddingTop: '8px', color: '#8B0000', fontWeight: 'bold' }}>
+                    <span>Annual Total Assessment:</span> <span>{rangeStr(totVals)}</span>
+                  </div>
+                </div>
+              );
+            };
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                {formatDeptSummary('Elementary (Grades 1–6)', 1, 6)}
+                {formatDeptSummary('Junior High (Grades 7–10)', 7, 10)}
+                {formatDeptSummary('Senior High (Grades 11–12)', 11, 12)}
               </div>
-            </div>
-
-            <div style={styles.feeBox}>
-              <h4 style={{ color: '#8B0000', margin: '0 0 10px 0' }}>Junior High (Grades 7–10)</h4>
-              <div style={styles.feeRow}><span>Base Tuition Fee:</span> <strong>₱18,000.00</strong></div>
-              <div style={styles.feeRow}><span>Miscellaneous &amp; Lab:</span> <strong>₱4,000.00</strong></div>
-              <div style={{ ...styles.feeRow, borderTop: '2px solid #8B0000', marginTop: '8px', paddingTop: '8px', color: '#8B0000', fontWeight: 'bold' }}>
-                <span>Annual Total Assessment:</span> <span>₱22,000.00</span>
-              </div>
-            </div>
-
-            <div style={styles.feeBox}>
-              <h4 style={{ color: '#8B0000', margin: '0 0 10px 0' }}>Senior High (Grades 11–12)</h4>
-              <div style={styles.feeRow}><span>SHS Specialized Tuition:</span> <strong>₱22,500.00</strong></div>
-              <div style={styles.feeRow}><span>Strand &amp; Workshop Fees:</span> <strong>₱5,000.00</strong></div>
-              <div style={{ ...styles.feeRow, borderTop: '2px solid #8B0000', marginTop: '8px', paddingTop: '8px', color: '#8B0000', fontWeight: 'bold' }}>
-                <span>Annual Total Assessment:</span> <span>₱27,500.00</span>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
         </div>
 
       </div>
@@ -1563,11 +1661,11 @@ export default function FinancePage() {
                     required
                   >
                     <option value="">Choose a student...</option>
-                    {students.map(s => {
-                      const acc = studentAccounts.find(a => a.student.student_record_id === s.student_record_id);
+                    {syScopedAccounts.map(acc => {
+                      const s = acc.student;
                       return (
                         <option key={s.student_record_id} value={s.student_record_id}>
-                          {s.last_name}, {s.first_name} (LRN: {s.lrn_id || s.student_id || '—'}) — Gr {s.grade_level} | Bal: {peso(acc?.balance ?? 0)}
+                          {s.last_name}, {s.first_name} (LRN: {s.lrn_id || s.student_id || '—'}) — Gr {acc.gradeLevel} | Bal: {peso(acc.balance)}
                         </option>
                       );
                     })}
@@ -1661,7 +1759,7 @@ export default function FinancePage() {
                     <input
                       type="number"
                       step="0.01"
-                      min="1"
+                      min="0.01"
                       value={payForm.amount}
                       onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))}
                       placeholder="0.00"
@@ -1692,12 +1790,13 @@ export default function FinancePage() {
                     <select value={payForm.payment_for} onChange={e => setPayForm(f => ({ ...f, payment_for: e.target.value }))}>
                       <option value="Tuition Fee">Tuition Fee</option>
                       <option value="Downpayment / Enrollment Fee">Downpayment / Enrollment Fee</option>
+                      <option value="Monthly Tuition Installment">Monthly Tuition Installment</option>
                       <option value="Q1 Installment (Prelims)">Q1 Installment (Prelims)</option>
                       <option value="Q2 Installment (Midterms)">Q2 Installment (Midterms)</option>
                       <option value="Q3 Installment (Semi-Finals)">Q3 Installment (Semi-Finals)</option>
                       <option value="Q4 Installment (Finals)">Q4 Installment (Finals)</option>
                       <option value="Full Settlement">Full Settlement</option>
-                      <option value="Miscellaneous Fee">Miscellaneous Fee</option>
+                      <option value="Assessed Miscellaneous Fee">Assessed Miscellaneous Fee</option>
                     </select>
                   </div>
                   <div className="form-group">
@@ -1770,11 +1869,14 @@ export default function FinancePage() {
                     required
                   >
                     <option value="">Choose a student...</option>
-                    {students.map(s => (
-                      <option key={s.student_record_id} value={s.student_record_id}>
-                        {s.last_name}, {s.first_name} (LRN: {s.lrn_id || s.student_id || '—'}) — Gr {s.grade_level}
-                      </option>
-                    ))}
+                    {syScopedAccounts.map(acc => {
+                      const s = acc.student;
+                      return (
+                        <option key={s.student_record_id} value={s.student_record_id}>
+                          {s.last_name}, {s.first_name} (LRN: {s.lrn_id || s.student_id || '—'}) — Gr {acc.gradeLevel}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -1944,7 +2046,7 @@ export default function FinancePage() {
           <div className="modal-content" style={{ maxWidth: '850px' }}>
             <div className="modal-header">
               <h3 className="modal-title">
-                <IcoQuarterly /> Total Per Quarter Breakdown — {quarterlyAccount ? `${quarterlyAccount.student.first_name} ${quarterlyAccount.student.last_name}` : `School-Wide (S.Y. ${activeSchoolYear?.year_label || '2026-2027'})`}
+                <IcoQuarterly /> Total Per Quarter Breakdown — {quarterlyAccount ? `${quarterlyAccount.student.first_name} ${quarterlyAccount.student.last_name}` : `School-Wide (S.Y. ${effectiveSy?.year_label || '2026-2027'})`}
               </h3>
               <button className="modal-close" onClick={() => setQuarterlyModalOpen(false)}><IcoClose /></button>
             </div>
@@ -1968,7 +2070,7 @@ export default function FinancePage() {
                         {quarterlyAccount.student.first_name} {quarterlyAccount.student.middle_name ? quarterlyAccount.student.middle_name + ' ' : ''}{quarterlyAccount.student.last_name}
                       </div>
                       <div style={{ fontSize: '13px', color: '#555', marginTop: '3px' }}>
-                        <strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace' }}>{quarterlyAccount.student.lrn_id || quarterlyAccount.student.student_id || '—'}</span> • {formatGradeSection(quarterlyAccount.student.grade_level, quarterlyAccount.student.section_name)}
+                        <strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace' }}>{quarterlyAccount.student.lrn_id || quarterlyAccount.student.student_id || '—'}</span> • {formatGradeSection(quarterlyAccount.gradeLevel, quarterlyAccount.sectionName)}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -2123,11 +2225,11 @@ export default function FinancePage() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px' }}>
                     {['Q1', 'Q2', 'Q3', 'Q4'].map((qCode, idx) => {
                       const qLabel = idx === 0 ? '1st Quarter (Enrollment)' : idx === 1 ? '2nd Quarter (Midterms)' : idx === 2 ? '3rd Quarter (Semi-Finals)' : '4th Quarter (Finals)';
-                      const totalDue = studentAccounts.reduce((sum, a) => {
+                      const totalDue = syScopedAccounts.reduce((sum, a) => {
                         const b = computeQuarterlyBreakdown(a.netAssessment, a.amountPaid);
                         return sum + (b[idx]?.due || 0);
                       }, 0);
-                      const totalPaid = studentAccounts.reduce((sum, a) => {
+                      const totalPaid = syScopedAccounts.reduce((sum, a) => {
                         const b = computeQuarterlyBreakdown(a.netAssessment, a.amountPaid);
                         return sum + (b[idx]?.credited || 0);
                       }, 0);
@@ -2170,7 +2272,7 @@ export default function FinancePage() {
                                 {acc.student.lrn_id || acc.student.student_id || '—'}
                               </td>
                               <td style={{ fontWeight: '600' }}>{acc.student.first_name} {acc.student.last_name}</td>
-                              <td>Gr {acc.student.grade_level}</td>
+                              <td>Gr {acc.gradeLevel}</td>
                               {breakdown.map(q => (
                                 <td key={q.id}>
                                   <span style={q.status === 'Paid' ? styles.badgePaid : q.status === 'Partial' ? styles.badgePartial : styles.badgeUnpaid}>
@@ -2240,7 +2342,7 @@ export default function FinancePage() {
                 <div><strong>Payment Method:</strong> {viewReceipt.payment?.payment_method}</div>
                 <div><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace' }}>{viewReceipt.student?.lrn_id || '—'}</span></div>
                 <div style={{ gridColumn: '1 / -1' }}>
-                  <strong>Received From:</strong> {viewReceipt.student?.first_name} {viewReceipt.student?.last_name} (Grade {viewReceipt.student?.grade_level})
+                  <strong>Received From:</strong> {viewReceipt.student?.first_name} {viewReceipt.student?.last_name} (Grade {viewReceipt.finance?.gradeLevel || viewReceipt.student?.grade_level})
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <strong>Payment For:</strong> {viewReceipt.payment?.payment_for}
@@ -2302,14 +2404,14 @@ export default function FinancePage() {
                 <h3 style={{ color: '#8B0000', margin: '0 0 2px 0', fontSize: '18px' }}>A.B SIMPSONS ALLIANCE SCHOOL</h3>
                 <div style={{ fontSize: '12px', color: '#555' }}>OFFICIAL STATEMENT OF ACCOUNT</div>
                 <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#8B0000', marginTop: '4px' }}>
-                  ACADEMIC YEAR {activeSchoolYear?.year_label || '2026-2027'}
+                  ACADEMIC YEAR {effectiveSy?.year_label || '2026-2027'}
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', marginBottom: '16px' }}>
                 <div><strong>Student Name:</strong> {viewSOA.student?.first_name} {viewSOA.student?.last_name}</div>
                 <div><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace' }}>{viewSOA.student?.lrn_id || '—'}</span></div>
-                <div><strong>Grade &amp; Track:</strong> Grade {viewSOA.student?.grade_level} {viewSOA.finance?.strand ? `(${viewSOA.finance.strand.strand_name})` : ''}</div>
+                <div><strong>Grade &amp; Track:</strong> Grade {viewSOA.finance?.gradeLevel || viewSOA.student?.grade_level} {viewSOA.finance?.strand ? `(${viewSOA.finance.strand.strand_name})` : ''}</div>
                 <div><strong>Date Generated:</strong> {new Date().toLocaleDateString()}</div>
               </div>
 
@@ -2687,11 +2789,13 @@ export default function FinancePage() {
                       onChange={e => setAssessForm(f => ({ ...f, scholarship_id: e.target.value }))}
                     >
                       <option value="">None (Regular)</option>
-                      {scholarships.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({s.discount_type === 'percentage' ? `${s.discount_value}%` : `₱${s.discount_value}`})
-                        </option>
-                      ))}
+                      {scholarships
+                        .filter(s => (!s.is_archived && s.is_active !== false) || String(s.id) === String(assessForm.scholarship_id))
+                        .map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.discount_type === 'percentage' ? `${s.discount_value}%` : `₱${s.discount_value}`})
+                          </option>
+                        ))}
                     </select>
                   </div>
                   <div className="form-group">
@@ -2702,7 +2806,10 @@ export default function FinancePage() {
                     >
                       <option value="">None</option>
                       {scholarships
-                        .filter(s => String(s.id) !== String(assessForm.scholarship_id))
+                        .filter(s =>
+                          String(s.id) !== String(assessForm.scholarship_id) &&
+                          ((!s.is_archived && s.is_active !== false) || String(s.id) === String(assessForm.secondary_scholarship_id))
+                        )
                         .map(s => (
                           <option key={s.id} value={s.id}>
                             {s.name} ({s.discount_type === 'percentage' ? `${s.discount_value}%` : `₱${s.discount_value}`})

@@ -54,10 +54,15 @@ BEGIN
             ALTER TABLE public.students ADD COLUMN previous_school_address TEXT;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='last_grade_completed') THEN
-            ALTER TABLE public.students ADD COLUMN last_grade_completed INT;
+            ALTER TABLE public.students ADD COLUMN last_grade_completed VARCHAR(50);
+        ELSE
+            ALTER TABLE public.students ALTER COLUMN last_grade_completed TYPE VARCHAR(50) USING last_grade_completed::text;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='last_school_year') THEN
             ALTER TABLE public.students ADD COLUMN last_school_year VARCHAR(50);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='months_elapsed') THEN
+            ALTER TABLE public.students ADD COLUMN months_elapsed INT DEFAULT 0;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='completion_confirmed') THEN
             ALTER TABLE public.students ADD COLUMN completion_confirmed BOOLEAN DEFAULT FALSE;
@@ -82,7 +87,9 @@ BEGIN
             ALTER TABLE public.enrollments ADD COLUMN previous_school_address TEXT;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='enrollments' AND column_name='last_grade_completed') THEN
-            ALTER TABLE public.enrollments ADD COLUMN last_grade_completed INT;
+            ALTER TABLE public.enrollments ADD COLUMN last_grade_completed VARCHAR(50);
+        ELSE
+            ALTER TABLE public.enrollments ALTER COLUMN last_grade_completed TYPE VARCHAR(50) USING last_grade_completed::text;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='enrollments' AND column_name='last_school_year') THEN
             ALTER TABLE public.enrollments ADD COLUMN last_school_year VARCHAR(50);
@@ -109,10 +116,45 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='subjects' AND column_name='days_of_week') THEN
             ALTER TABLE public.subjects ADD COLUMN days_of_week VARCHAR(100);
         END IF;
+        ALTER TABLE public.subjects ALTER COLUMN semester TYPE VARCHAR(50);
     END IF;
 
     IF to_regclass('public.schedules') IS NOT NULL THEN
         ALTER TABLE public.schedules ALTER COLUMN day_of_week TYPE VARCHAR(100);
+    END IF;
+END $$;
+
+-- 5. Faculty coverage_authorized & Transcripts per-school-year scoping
+DO $$
+DECLARE
+    con_name TEXT;
+BEGIN
+    IF to_regclass('public.faculty') IS NOT NULL THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='faculty' AND column_name='coverage_authorized') THEN
+            ALTER TABLE public.faculty ADD COLUMN coverage_authorized BOOLEAN DEFAULT FALSE;
+        END IF;
+    END IF;
+
+    IF to_regclass('public.transcripts') IS NOT NULL THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='transcripts' AND column_name='school_year') THEN
+            ALTER TABLE public.transcripts ADD COLUMN school_year VARCHAR(50);
+        END IF;
+
+        -- Drop legacy single-column UNIQUE(student_record_id) constraints so transcripts persist per S.Y.
+        FOR con_name IN
+            SELECT c.conname
+            FROM pg_constraint c
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE c.conrelid = 'public.transcripts'::regclass
+              AND c.contype = 'u'
+              AND array_length(c.conkey, 1) = 1
+              AND a.attname = 'student_record_id'
+        LOOP
+            EXECUTE format('ALTER TABLE public.transcripts DROP CONSTRAINT IF EXISTS %I', con_name);
+        END LOOP;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_transcripts_student_sy_unique
+            ON public.transcripts (student_record_id, COALESCE(school_year, ''));
     END IF;
 END $$;
 

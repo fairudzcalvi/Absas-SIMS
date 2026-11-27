@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { emailPattern } from '../utils/email';
 
@@ -21,6 +21,8 @@ export function AuthProvider({ children }) {
   const [selectedQuarter, setSelectedQuarter]           = useState(null);
   const [availableQuarters, setAvailableQuarters]       = useState([]);
   const [activePolicy, setActivePolicy]                 = useState(null);
+  const [academicPolicies, setAcademicPolicies]         = useState([]);
+  const prevActiveIdRef = useRef(null);
 
   async function fetchAcademicInfo() {
     try {
@@ -34,13 +36,19 @@ export function AuthProvider({ children }) {
       setSchoolYears(yearsList);
 
       const activeSy = yearsList.find(y => y.is_active) || yearsList[0] || null;
+      const prevActiveId = prevActiveIdRef.current;
+      prevActiveIdRef.current = activeSy?.id || null;
       setActiveSchoolYear(activeSy);
 
-      // Default selectedSchoolYear to active, or maintain user's current selection if valid
+      // Default selectedSchoolYear to active; switch automatically if the user was viewing the active S.Y. and a new S.Y. became active
       setSelectedSchoolYear(prev => {
         if (!prev) return activeSy;
         const stillExists = yearsList.find(y => y.id === prev.id);
-        return stillExists || activeSy;
+        if (!stillExists) return activeSy;
+        if (prevActiveId && String(prev.id) === String(prevActiveId) && activeSy && String(activeSy.id) !== String(prev.id)) {
+          return activeSy;
+        }
+        return stillExists;
       });
 
       // 2. Fetch active quarter for the active school year
@@ -66,16 +74,22 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // 3. Fetch active school policy
-      const { data: polData } = await supabase
+      // 3. Fetch active Academic grading policies (exclude Financial fee-matrix JSON and non-academic entries)
+      const { data: polRows } = await supabase
         .from('school_policies')
         .select('*')
         .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .eq('category', 'Academic')
+        .order('created_at', { ascending: false });
 
-      setActivePolicy(polData || {
+      const polList = polRows || [];
+      setAcademicPolicies(polList);
+      const defaultStandard = polList.find(p =>
+        /standard|jhs|elementary|deped order/i.test(p.policy_name || '') &&
+        !/stem|shs|senior high/i.test(p.policy_name || '')
+      ) || polList[0] || null;
+
+      setActivePolicy(defaultStandard || {
         policy_name: 'DepEd Standard Policy',
         written_work_pct: 30,
         performance_task_pct: 50,
@@ -147,6 +161,12 @@ export function AuthProvider({ children }) {
       .maybeSingle();
 
     if (faculty) {
+      const empStatus = (faculty.employment_status || 'active').toLowerCase();
+      if (faculty.is_archived || ['archived', 'inactive', 'resigned', 'terminated'].includes(empStatus)) {
+        setRole('inactive');
+        setProfile(null);
+        return;
+      }
       setRole('teacher');
       setProfile(faculty);
       return;
@@ -161,6 +181,12 @@ export function AuthProvider({ children }) {
       .maybeSingle();
 
     if (student) {
+      const stuStatus = (student.status || 'active').toLowerCase();
+      if (student.is_archived || ['archived', 'inactive', 'dropped', 'transferred', 'transferred out'].includes(stuStatus)) {
+        setRole('inactive');
+        setProfile(null);
+        return;
+      }
       setRole('student');
       setProfile(student);
       return;
@@ -209,6 +235,7 @@ export function AuthProvider({ children }) {
       availableQuarters,
       isHistoricalYear: Boolean(selectedSchoolYear && !selectedSchoolYear.is_active),
       activePolicy,
+      academicPolicies,
       refreshAcademicInfo: fetchAcademicInfo,
       refreshAcademicYear: fetchAcademicInfo,
       logout,

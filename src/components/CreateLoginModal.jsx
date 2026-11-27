@@ -32,14 +32,18 @@ function IcoCheck() {
 }
 
 export default function CreateLoginModal({ target, onClose, onSuccess }) {
+  if (!target) return null;
+  const targetKey = `${target.type || ''}-${target.id || ''}-${target.email || ''}`;
+  return <CreateLoginModalInner key={targetKey} target={target} onClose={onClose} onSuccess={onSuccess} />;
+}
+
+function CreateLoginModalInner({ target, onClose, onSuccess }) {
   const [password, setPassword]     = useState(() => generateDefaultPassword(target?.type === 'student' ? 'Student' : 'Faculty'));
   const [showPassword, setShowPass] = useState(true);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
   const [successInfo, setSuccessInfo] = useState(null);
   const [copied, setCopied]         = useState(false);
-
-  if (!target) return null;
 
   const email = target.email || '';
   const name = target.name || 'User';
@@ -74,11 +78,13 @@ export default function CreateLoginModal({ target, onClose, onSuccess }) {
   }
 
   function handleCopyCredentials() {
-    if (!successInfo) return;
+    if (!successInfo || !navigator.clipboard?.writeText) return;
     const text = `ABSAS SIMS Portal Login Details:\nPortal: ${window.location.origin}\nEmail: ${successInfo.email}\nTemporary Password: ${successInfo.password}\nRole: ${roleLabel}`;
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      setError('Could not copy automatically. Please copy the credentials manually.');
     });
   }
 

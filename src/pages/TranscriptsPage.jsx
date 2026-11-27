@@ -132,7 +132,7 @@ const GRADE_OPTIONS = [
 
 /* ── Page ──────────────────────────────────────────────── */
 export default function TranscriptsPage() {
-  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter, selectedQuarter, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [students, setStudents]     = useState([]);
@@ -153,56 +153,115 @@ export default function TranscriptsPage() {
   /* fetch students + transcripts + overdue financial hold status */
   const fetchStudents = useCallback(async () => {
     setLoading(true);
+    const syLabel = currentSy?.year_label || activeSchoolYear?.year_label || '';
 
-    // 1. Fetch students
-    let q = supabase
-      .from('students')
-      .select('student_record_id, student_id, first_name, middle_name, last_name, lrn_id, grade_level, section_name, scholarship_id')
-      .order('last_name');
-
-    if (gradeFilter === 'completers') {
-      q = q.in('grade_level', [6, 10]);
-    } else if (gradeFilter) {
-      q = q.eq('grade_level', Number(gradeFilter));
-    }
-    if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn_id.ilike.%${search}%,student_id.ilike.%${search}%`);
-
-    const [{ data: studentData }, { data: transcriptData }, { data: finData }, { data: schData }, feesData, { data: sysSettings }] = await Promise.all([
-      q,
-      supabase.from('transcripts').select('student_record_id, general_average, generated_date, school_year'),
+    // 1. Fetch students, S.Y. enrollments, S.Y. sections, transcripts, finances, scholarships, fees, settings
+    const [
+      { data: studentData },
+      { data: enrData },
+      { data: secData },
+      { data: transcriptData },
+      { data: finData },
+      { data: schData },
+      feesData,
+      { data: sysSettings },
+    ] = await Promise.all([
+      supabase
+        .from('students')
+        .select('student_record_id, student_id, first_name, middle_name, last_name, lrn_id, grade_level, section_name, scholarship_id, secondary_scholarship_id, status, is_archived')
+        .order('last_name'),
+      currentSy?.id
+        ? supabase.from('enrollments').select('student_record_id, grade_level, section_id, scholarship_id, secondary_scholarship_id, enrollment_status, created_at').eq('school_year_id', currentSy.id).order('created_at', { ascending: false })
+        : Promise.resolve({ data: [] }),
+      currentSy?.id
+        ? supabase.from('sections').select('id, section_name').eq('school_year_id', currentSy.id)
+        : Promise.resolve({ data: [] }),
+      supabase.from('transcripts').select('transcript_id, student_record_id, general_average, generated_date, school_year').order('created_at', { ascending: false }),
       supabase.from('student_finances').select('*'),
       supabase.from('scholarships').select('*'),
       fetchFeeMatrix(supabase),
       supabase.from('school_settings').select('*').limit(1).maybeSingle(),
     ]);
 
-    const studentRows = studentData ?? [];
     setSchoolSettings(sysSettings || null);
 
+    const activeEnrs = (enrData || []).filter(e => !['Dropped', 'Transferred Out'].includes(e.enrollment_status));
+    const secById = new Map((secData || []).map(sc => [String(sc.id), sc.section_name]));
+    const enrByStu = new Map();
+    for (const e of activeEnrs) {
+      if (!enrByStu.has(e.student_record_id)) enrByStu.set(e.student_record_id, e);
+    }
+
+    const excludedStatuses = ['archived', 'inactive', 'dropped', 'transferred', 'transferred out'];
+    let studentRows = (studentData ?? []).map(s => {
+      const enr = enrByStu.get(s.student_record_id);
+      if (enr) {
+        const resolvedSec = enr.section_id ? secById.get(String(enr.section_id)) : null;
+        return {
+          ...s,
+          grade_level: enr.grade_level ?? s.grade_level,
+          section_name: resolvedSec || (isHistoricalYear ? '' : s.section_name),
+          scholarship_id: enr.scholarship_id || (!isHistoricalYear ? s.scholarship_id : null),
+          secondary_scholarship_id: enr.secondary_scholarship_id || (!isHistoricalYear ? s.secondary_scholarship_id : null),
+        };
+      }
+      return s;
+    }).filter(s => {
+      if (isHistoricalYear) {
+        return activeEnrs.length > 0 ? enrByStu.has(s.student_record_id) : false;
+      }
+      if (s.is_archived) return false;
+      return !excludedStatuses.includes((s.status || 'Active').toLowerCase());
+    });
+
+    if (gradeFilter === 'completers') {
+      studentRows = studentRows.filter(s => [6, 10].includes(Number(s.grade_level)));
+    } else if (gradeFilter) {
+      studentRows = studentRows.filter(s => Number(s.grade_level) === Number(gradeFilter));
+    }
+    if (search.trim()) {
+      const qLower = search.trim().toLowerCase();
+      studentRows = studentRows.filter(s =>
+        `${s.first_name || ''} ${s.last_name || ''} ${s.lrn_id || ''} ${s.student_id || ''}`.toLowerCase().includes(qLower)
+      );
+    }
+
+    const syTranscripts = (transcriptData ?? []).filter(
+      t => !syLabel || !t.school_year || t.school_year === syLabel
+    );
     const tMap = {};
-    (transcriptData ?? []).forEach(t => {
-      tMap[t.student_record_id] = t;
+    syTranscripts.forEach(t => {
+      if (!tMap[t.student_record_id]) {
+        tMap[t.student_record_id] = t;
+      }
     });
     setTranscriptMap(tMap);
 
-    // Evaluate overdue financial holds per student
+    // Evaluate overdue financial holds per student (strictly matched by current S.Y. or unscoped legacy row)
     const hMap = {};
-    const qNum = activeQuarter?.quarter_number || 1;
+    const qNum = (selectedQuarter || activeQuarter)?.quarter_number || 1;
     studentRows.forEach(s => {
       const finRow =
         (finData ?? []).find(
           f =>
             f.student_record_id === s.student_record_id &&
-            ((currentSy?.id && f.school_year_id === currentSy.id) || (currentSy?.year_label && f.school_year === currentSy.year_label))
-        ) || (finData ?? []).find(f => f.student_record_id === s.student_record_id) || null;
-      const priSch = (schData ?? []).find(sc => String(sc.id) === String(finRow?.scholarship_id || s.scholarship_id)) || null;
-      const secSch = (schData ?? []).find(sc => String(sc.id) === String(finRow?.secondary_scholarship_id)) || null;
+            ((currentSy?.id && f.school_year_id === currentSy.id) || (syLabel && f.school_year === syLabel))
+        ) ||
+        (finData ?? []).find(
+          f => f.student_record_id === s.student_record_id && !f.school_year_id && !f.school_year
+        ) ||
+        null;
+      const priSchId = finRow ? finRow.scholarship_id : s.scholarship_id;
+      const secSchId = finRow ? finRow.secondary_scholarship_id : s.secondary_scholarship_id;
+      const priSch = (schData ?? []).find(sc => String(sc.id) === String(priSchId)) || null;
+      const secSch = (schData ?? []).find(sc => String(sc.id) === String(secSchId)) || null;
       hMap[s.student_record_id] = evaluateFinancialHold({
         financeRow: finRow,
         baseFees: getBaseFees(s.grade_level, feesData),
         primaryScholarship: priSch,
         secondaryScholarship: secSch,
         activeQuarterNumber: qNum,
+        schoolYear: currentSy,
       });
     });
     setHoldMap(hMap);
@@ -214,25 +273,36 @@ export default function TranscriptsPage() {
 
     setStudents(rows);
 
-    // 4. Stats
-    const today = new Date().toISOString().split('T')[0];
-    const todayCount = (transcriptData ?? []).filter(t => (t.generated_date ?? '').startsWith(today)).length;
-    const completeIds = new Set((transcriptData ?? []).map(t => t.student_record_id));
+    // 4. Stats scoped to the listed S.Y. students so counts are always consistent and non-negative
+    const nowLocal = new Date();
+    const todayLocal = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+    const syTranscriptsForListed = studentRows.map(s => tMap[s.student_record_id]).filter(Boolean);
+    const todayCount = syTranscriptsForListed.filter(t => (t.generated_date ?? '').startsWith(todayLocal)).length;
+    const completeForListed = syTranscriptsForListed.length;
 
     setStats({
-      total:      (transcriptData ?? []).length,
+      total:      completeForListed,
       today:      todayCount,
-      complete:   completeIds.size,
-      incomplete: studentRows.length - completeIds.size,
+      complete:   completeForListed,
+      incomplete: Math.max(0, studentRows.length - completeForListed),
     });
 
     setLoading(false);
-  }, [supabase, gradeFilter, search, statusFilter, currentSy, activeQuarter]);
+  }, [supabase, gradeFilter, search, statusFilter, currentSy, activeSchoolYear, activeQuarter, selectedQuarter, isHistoricalYear]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs cleanly when filter deps change
     fetchStudents();
   }, [fetchStudents]);
+
+  function filterGradesBySelectedSy(rows) {
+    if (!currentSy?.id && !currentSy?.year_label) return rows ?? [];
+    return (rows ?? []).filter(g =>
+      (!g.school_year_id && !g.school_year) ||
+      (currentSy?.id && g.school_year_id && String(g.school_year_id) === String(currentSy.id)) ||
+      (currentSy?.year_label && g.school_year === currentSy.year_label)
+    );
+  }
 
   /* preview grades */
   async function openPreview(student) {
@@ -243,7 +313,7 @@ export default function TranscriptsPage() {
       .select('*')
       .eq('student_record_id', student.student_record_id)
       .order('subject');
-    setGrades(data ?? []);
+    setGrades(filterGradesBySelectedSy(data));
     setPreviewLoading(false);
   }
 
@@ -259,21 +329,41 @@ export default function TranscriptsPage() {
       .from('grades')
       .select('*')
       .eq('student_record_id', studentId);
-    const grouped = groupBySubject(gData ?? []).filter(r => r.final != null);
-    const avg = grouped.length > 0
-      ? Number((grouped.reduce((sum, r) => sum + Number(r.final), 0) / grouped.length).toFixed(2))
-      : null;
+    const grouped = groupBySubject(filterGradesBySelectedSy(gData)).filter(r => r.final != null);
+    if (grouped.length === 0) {
+      alert('Cannot generate transcript: no graded subjects found for this student in the selected school year.');
+      return;
+    }
+    const avg = Number((grouped.reduce((sum, r) => sum + Number(r.final), 0) / grouped.length).toFixed(2));
 
-    const today = new Date().toISOString().split('T')[0];
-    await supabase.from('transcripts').upsert(
-      {
-        student_record_id: studentId,
-        general_average:   avg,
-        generated_date:    today,
-        school_year:       currentSy?.year_label || activeSchoolYear?.year_label || '2026-2027',
-      },
-      { onConflict: 'student_record_id' }
-    );
+    const nowLocal = new Date();
+    const today = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+    const syLabel = currentSy?.year_label || activeSchoolYear?.year_label || '2026-2027';
+
+    // Scope transcript persistence per (student_record_id, school_year) so generating new S.Y. never overwrites past S.Y. records
+    const { data: existingTr } = await supabase
+      .from('transcripts')
+      .select('transcript_id')
+      .eq('student_record_id', studentId)
+      .eq('school_year', syLabel)
+      .limit(1)
+      .maybeSingle();
+
+    const trPayload = {
+      student_record_id: studentId,
+      general_average:   avg,
+      generated_date:    today,
+      school_year:       syLabel,
+    };
+
+    const { error: trErr } = existingTr?.transcript_id
+      ? await supabase.from('transcripts').update(trPayload).eq('transcript_id', existingTr.transcript_id)
+      : await supabase.from('transcripts').insert([trPayload]);
+
+    if (trErr) {
+      alert(`Failed to save transcript record: ${trErr.message}`);
+      return;
+    }
     setPreview(null);
     fetchStudents();
   }
@@ -434,7 +524,7 @@ export default function TranscriptsPage() {
                         <td>{t?.general_average ? Number(t.general_average).toFixed(2) : '—'}</td>
                         <td>
                           {t?.generated_date
-                            ? new Date(t.generated_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            ? new Date(t.generated_date.includes('T') ? t.generated_date : `${t.generated_date}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                             : '—'}
                         </td>
                         <td>
@@ -514,7 +604,17 @@ export default function TranscriptsPage() {
                 <div><strong>Student Name:</strong> {previewStudent.first_name} {previewStudent.last_name}</div>
                 <div><strong>DepEd LRN:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#8B0000' }}>{previewStudent.lrn_id ?? previewStudent.student_id ?? '—'}</span></div>
                 <div><strong>Grade &amp; Section:</strong> {formatGradeSection(previewStudent.grade_level, previewStudent.section_name)}</div>
-                <div><strong>General Average:</strong> {transcriptMap[previewStudent.student_record_id]?.general_average ? Number(transcriptMap[previewStudent.student_record_id].general_average).toFixed(2) : '—'}</div>
+                <div>
+                  <strong>General Average:</strong>{' '}
+                  {(() => {
+                    const liveGrouped = groupBySubject(grades).filter(r => r.final != null);
+                    if (liveGrouped.length > 0) {
+                      return (liveGrouped.reduce((sum, r) => sum + Number(r.final), 0) / liveGrouped.length).toFixed(2);
+                    }
+                    const savedAvg = transcriptMap[previewStudent.student_record_id]?.general_average;
+                    return savedAvg ? Number(savedAvg).toFixed(2) : '—';
+                  })()}
+                </div>
               </div>
 
               {holdMap[previewStudent.student_record_id]?.isOverdue && (
@@ -695,16 +795,18 @@ function groupBySubject(grades) {
     if (!map[g.subject]) {
       map[g.subject] = { subject: g.subject, q1: null, q2: null, q3: null, q4: null, final: null };
     }
-    // quarter values are '1Q','2Q','3Q','4Q'
-    // Map '1Q' -> q1, '2Q' -> q2, etc.
-    const qKey = `q${g.quarter[0]}`;
-    if (qKey in map[g.subject]) {
-      map[g.subject][qKey] = g.quarter_grade;
+    // quarter values are '1Q','2Q','3Q','4Q' (also handle 'Q1' or null safely)
+    const qMatch = String(g.quarter ?? '').match(/[1-4]/);
+    if (qMatch) {
+      const qKey = `q${qMatch[0]}`;
+      if (qKey in map[g.subject]) {
+        map[g.subject][qKey] = g.quarter_grade;
+      }
     }
-    // Compute final as average of present quarters
+    // Compute final as average of present numeric quarters (exclude empty strings)
     const vals = ['q1','q2','q3','q4']
       .map(k => map[g.subject][k])
-      .filter(v => v != null && !isNaN(Number(v)));
+      .filter(v => v != null && String(v).trim() !== '' && !isNaN(Number(v)));
     if (vals.length > 0) {
       map[g.subject].final = (vals.reduce((a, b) => a + Number(b), 0) / vals.length).toFixed(2);
     }

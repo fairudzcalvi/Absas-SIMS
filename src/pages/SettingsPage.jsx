@@ -228,6 +228,7 @@ function SchoolProfileTab({ supabase }) {
   });
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -240,7 +241,13 @@ function SchoolProfileTab({ supabase }) {
 
   async function handleSave(e) {
     e.preventDefault();
-    await supabase.from('school_settings').upsert([{ id: 1, ...form }]);
+    setSaveError('');
+    setSaved(false);
+    const { error } = await supabase.from('school_settings').upsert([{ id: 1, ...form }]);
+    if (error) {
+      setSaveError(error.message || 'Failed to save school profile settings.');
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -251,11 +258,16 @@ function SchoolProfileTab({ supabase }) {
     <div className="card">
       <div className="card-header">
         <h2 className="card-title"><IcoSchool /> School Information & DepEd Identification</h2>
-        <button className="btn btn-primary" onClick={handleSave}>
+        <button type="submit" form="school-profile-form" className="btn btn-primary">
           <IcoSave /> {saved ? 'Saved Successfully!' : 'Save Changes'}
         </button>
       </div>
-      <form onSubmit={handleSave}>
+      {saveError && (
+        <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '13px', fontWeight: '600' }}>
+          {saveError}
+        </div>
+      )}
+      <form id="school-profile-form" onSubmit={handleSave}>
         <div className="form-grid">
           <div className="form-group">
             <label>School Name *</label>
@@ -373,10 +385,19 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   }, [fetchData]);
 
   async function handleSetActiveSY(syId) {
-    await supabase.from('school_years').update({ is_active: false }).neq('id', syId);
-    await supabase.from('school_years').update({ is_active: true }).eq('id', syId);
-    fetchData();
-    if (refreshAcademicYear) refreshAcademicYear();
+    const { error: deactErr } = await supabase.from('school_years').update({ is_active: false }).neq('id', syId);
+    if (deactErr) {
+      alert(`Failed to update active school year: ${deactErr.message}`);
+      return;
+    }
+    const { error: actErr } = await supabase.from('school_years').update({ is_active: true }).eq('id', syId);
+    if (actErr) {
+      alert(`Failed to activate school year: ${actErr.message}`);
+      fetchData();
+      return;
+    }
+    await fetchData();
+    if (refreshAcademicYear) await refreshAcademicYear();
   }
 
   async function handleToggleQuarter(quarterId, isCurrentActive) {
@@ -399,6 +420,10 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   async function handleAddSchoolYear(e) {
     e.preventDefault();
     if (!newSyLabel) return;
+    if (newSyStart && newSyEnd && newSyEnd <= newSyStart) {
+      setSyFormError('End date must be later than start date.');
+      return;
+    }
     setSySaving(true);
     setSyFormError('');
 
@@ -435,16 +460,16 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
       }
 
       if (createdSy) {
-        const numQ = Number(newSyQuarters);
-        const numSem = Number(newSySemesters);
+        const numQ = Math.max(1, Number(newSyQuarters) || 4);
+        const numSem = Math.max(1, Number(newSySemesters) || 2);
         const quarterRows = [];
 
         for (let i = 1; i <= numQ; i++) {
-          let semName = null;
-          if (numSem === 2) {
-            semName = (numQ === 4 && i > 2) ? '2nd Semester' : (numQ === 2 && i === 2) ? '2nd Semester' : '1st Semester';
-          } else if (numSem === 1) {
-            semName = 'Full Year';
+          let semName = 'Full Year';
+          if (numSem >= 2) {
+            const semIdx = Math.min(numSem, Math.ceil((i / numQ) * numSem));
+            const sOrd = semIdx === 1 ? '1st' : semIdx === 2 ? '2nd' : semIdx === 3 ? '3rd' : `${semIdx}th`;
+            semName = `${sOrd} Semester`;
           }
 
           const qOrdinal = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`;
@@ -458,11 +483,16 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
           });
         }
 
-        // Try inserting with semester_name, fallback if column doesn't exist
+        // Try inserting with semester_name, fallback only on missing column error
         const { error: qErr } = await supabase.from('quarters').insert(quarterRows);
-        if (qErr && (qErr.message.includes('semester_name') || qErr.code === '42703')) {
-          const fallbackRows = quarterRows.map(r => { const rest = { ...r }; delete rest.semester_name; return rest; });
-          await supabase.from('quarters').insert(fallbackRows);
+        if (qErr) {
+          if (/semester_name|42703|column/i.test(qErr.message || qErr.code || '')) {
+            const fallbackRows = quarterRows.map(r => { const rest = { ...r }; delete rest.semester_name; return rest; });
+            const { error: qFbErr } = await supabase.from('quarters').insert(fallbackRows);
+            if (qFbErr) throw qFbErr;
+          } else {
+            throw qErr;
+          }
         }
       }
 
@@ -514,14 +544,24 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
 
   // Adjust structurePeriods dynamically when count changes
   function handleQuartersCountChange(newCount) {
-    const count = Math.max(1, Math.min(8, Number(newCount)));
+    if (newCount === '') {
+      setEditQuartersCount('');
+      return;
+    }
+    const count = Math.max(1, Math.min(8, Number(newCount) || 1));
     setEditQuartersCount(count);
     setStructurePeriods(prev => {
       const updated = [...prev];
       if (count > updated.length) {
+        const semCount = Math.max(1, Number(editSemesters) || 1);
         for (let i = updated.length + 1; i <= count; i++) {
           const qOrdinal = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`;
-          const sName = (editSemesters === 2 && i > 2) ? '2nd Semester' : '1st Semester';
+          let sName = 'Full Year';
+          if (semCount >= 2) {
+            const semIdx = Math.min(semCount, Math.ceil((i / count) * semCount));
+            const sOrd = semIdx === 1 ? '1st' : semIdx === 2 ? '2nd' : semIdx === 3 ? '3rd' : `${semIdx}th`;
+            sName = `${sOrd} Semester`;
+          }
           updated.push({
             quarter_number: i,
             quarter_name: `${qOrdinal} Quarter`,
@@ -542,10 +582,19 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
     setStructureError('');
 
     try {
-      const targetQ = Number(editQuartersCount);
-      const targetSem = Number(editSemesters);
+      const targetQ = Math.max(1, Math.min(8, Number(editQuartersCount) || structurePeriods.length || 1));
+      const targetSem = Math.max(1, Math.min(6, Number(editSemesters) || 1));
+      const periodsToSave = structurePeriods.slice(0, targetQ);
 
-      // 1. Update school_years table
+      // 1. Delete surplus quarters by ID BEFORE renumbering so unique(school_year_id, quarter_number) never collides or deletes renamed rows
+      const keptIds = new Set(periodsToSave.map(p => p.id).filter(Boolean));
+      const surplus = quarters.filter(q => !keptIds.has(q.id));
+      for (const s of surplus) {
+        const { error: delErr } = await supabase.from('quarters').delete().eq('id', s.id);
+        if (delErr) throw delErr;
+      }
+
+      // 2. Update school_years table
       const syUpdate = {
         semester_count: targetSem,
         quarter_count: targetQ,
@@ -555,9 +604,10 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
         throw syErr;
       }
 
-      // 2. Upsert each period with user's customized name and semester track
-      for (let idx = 0; idx < structurePeriods.length; idx++) {
-        const p = structurePeriods[idx];
+      // 3. Upsert each kept/new period with user's customized name and semester track
+      const hadActiveKept = periodsToSave.some(p => p.id && quarters.find(q => q.id === p.id)?.is_active);
+      for (let idx = 0; idx < periodsToSave.length; idx++) {
+        const p = periodsToSave[idx];
         const qNum = idx + 1;
         const row = {
           school_year_id: activeYear.id,
@@ -567,25 +617,30 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
         };
 
         if (p.id) {
-          await supabase.from('quarters').update(row).eq('id', p.id);
-        } else {
-          const { error: insErr } = await supabase.from('quarters').insert([{
-            ...row,
-            is_active: qNum === 1,
-            is_grading_open: qNum <= 2,
-          }]);
-          if (insErr && (insErr.message.includes('semester_name') || insErr.code === '42703')) {
-            const baseRow = { ...row }; delete baseRow.semester_name;
-            await supabase.from('quarters').insert([baseRow]);
+          const updateRow = (!hadActiveKept && qNum === 1) ? { ...row, is_active: true } : row;
+          let { error: updErr } = await supabase.from('quarters').update(updateRow).eq('id', p.id);
+          if (updErr && /semester_name|42703/i.test(updErr.message || updErr.code || '')) {
+            const baseRow = { ...updateRow }; delete baseRow.semester_name;
+            ({ error: updErr } = await supabase.from('quarters').update(baseRow).eq('id', p.id));
           }
-        }
-      }
-
-      // If user reduced the number of periods, delete the surplus ones
-      if (quarters.length > targetQ) {
-        const surplus = quarters.filter(q => q.quarter_number > targetQ);
-        for (const s of surplus) {
-          await supabase.from('quarters').delete().eq('id', s.id);
+          if (updErr) throw updErr;
+        } else {
+          const insPayload = {
+            ...row,
+            is_active: !hadActiveKept && qNum === 1,
+            is_grading_open: qNum <= 2,
+          };
+          let { error: insErr } = await supabase.from('quarters').insert([insPayload]);
+          if (insErr && /semester_name|is_grading_open|42703/i.test(insErr.message || insErr.code || '')) {
+            const baseRow = {
+              school_year_id: activeYear.id,
+              quarter_number: qNum,
+              quarter_name: row.quarter_name,
+              is_active: !hadActiveKept && qNum === 1,
+            };
+            ({ error: insErr } = await supabase.from('quarters').insert([baseRow]));
+          }
+          if (insErr) throw insErr;
         }
       }
 
@@ -693,9 +748,16 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
   async function handleDeleteQuarter(qId, qName) {
     if (!window.confirm(`Are you sure you want to remove ${qName}? Any grading rules tied to this period will be unlinked.`)) return;
     try {
-      await supabase.from('quarters').delete().eq('id', qId);
+      const targetQ = quarters.find(q => q.id === qId);
+      const { error: delErr } = await supabase.from('quarters').delete().eq('id', qId);
+      if (delErr) throw delErr;
+
+      const remaining = quarters.filter(q => q.id !== qId);
+      if (targetQ?.is_active && remaining.length > 0) {
+        await supabase.from('quarters').update({ is_active: true }).eq('id', remaining[0].id);
+      }
       if (activeYear) {
-        await supabase.from('school_years').update({ quarter_count: Math.max(1, quarters.length - 1) }).eq('id', activeYear.id);
+        await supabase.from('school_years').update({ quarter_count: Math.max(1, remaining.length) }).eq('id', activeYear.id);
       }
       fetchData();
       if (refreshAcademicYear) refreshAcademicYear();
@@ -1352,7 +1414,7 @@ function AcademicYearsTab({ supabase, refreshAcademicYear }) {
    TAB 3: Sections Management (Multiple per Grade Level)
    ══════════════════════════════════════════════════════════ */
 function SectionsManagerTab({ supabase }) {
-  const { selectedSchoolYear, activeSchoolYear } = useAuth();
+  const { selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [sections, setSections] = useState([]);
@@ -1381,7 +1443,10 @@ function SectionsManagerTab({ supabase }) {
     setLoading(true);
     let facList = [];
     try {
-      const { data: fac } = await supabase.from('faculty').select('faculty_record_id, faculty_id, first_name, last_name').order('last_name', { ascending: true });
+      const { data: fac } = await supabase
+        .from('faculty')
+        .select('faculty_record_id, faculty_id, first_name, last_name, employment_status, is_archived')
+        .order('last_name', { ascending: true });
       facList = fac || [];
       setFaculty(facList);
     } catch {
@@ -1459,22 +1524,44 @@ function SectionsManagerTab({ supabase }) {
 
   async function handleCopyFromPreviousSy() {
     if (!currentSy?.id) return;
+    if (isHistoricalYear) {
+      alert(`Cannot modify sections while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     setCloning(true);
     setCloneMsg('');
     try {
-      const { data: sourceSections, error: srcErr } = await supabase
-        .from('sections')
-        .select('*')
-        .neq('school_year_id', currentSy.id)
-        .order('created_at', { ascending: false });
+      const { data: allSys } = await supabase
+        .from('school_years')
+        .select('id, year_label, start_date, created_at')
+        .neq('id', currentSy.id)
+        .order('year_label', { ascending: false });
 
-      if (srcErr || !sourceSections || sourceSections.length === 0) {
-        setCloneMsg('No sections found in previous school years to copy.');
+      const currentLabel = currentSy.year_label || '';
+      const prevSy = (allSys || []).find(sy => (sy.year_label || '') < currentLabel) || (allSys || [])[0];
+      if (!prevSy) {
+        setCloneMsg('No previous school year found to copy sections from.');
         setCloning(false);
         return;
       }
 
-      const seenNames = new Set();
+      const { data: sourceSections, error: srcErr } = await supabase
+        .from('sections')
+        .select('*')
+        .eq('school_year_id', prevSy.id)
+        .eq('status', 'Active')
+        .order('grade_level', { ascending: true });
+
+      if (srcErr || !sourceSections || sourceSections.length === 0) {
+        setCloneMsg(`No active sections found in S.Y. ${prevSy.year_label} to copy.`);
+        setCloning(false);
+        return;
+      }
+
+      const existingKeys = new Set(
+        sections.map(s => `${s.grade_level}::${cleanSectionName(s.section_name, s.grade_level).toLowerCase().trim()}`)
+      );
+      const seenNames = new Set(existingKeys);
       const toClone = [];
       for (const sec of sourceSections) {
         const cleanName = cleanSectionName(sec.section_name, sec.grade_level);
@@ -1494,11 +1581,14 @@ function SectionsManagerTab({ supabase }) {
       }
 
       if (toClone.length > 0) {
-        const { error: insErr } = await supabase.from('sections').insert(toClone);
-        if (insErr) {
+        let { error: insErr } = await supabase.from('sections').insert(toClone);
+        if (insErr && /strand_id|42703|column/i.test(insErr.message || insErr.code || '')) {
           const fallback = toClone.map(r => { const rest = { ...r }; delete rest.strand_id; return rest; });
-          await supabase.from('sections').insert(fallback);
+          ({ error: insErr } = await supabase.from('sections').insert(fallback));
         }
+        if (insErr) throw insErr;
+      } else {
+        setCloneMsg(`All active sections from S.Y. ${prevSy.year_label} already exist in ${currentSy.year_label}.`);
       }
 
       setCloning(false);
@@ -1510,6 +1600,10 @@ function SectionsManagerTab({ supabase }) {
   }
 
   function openAddModal() {
+    if (isHistoricalYear) {
+      alert(`Cannot add sections while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     setEditSection(null);
     setModalError('');
     setForm({
@@ -1525,13 +1619,20 @@ function SectionsManagerTab({ supabase }) {
   }
 
   function openEditModal(sec) {
+    if (isHistoricalYear) {
+      alert(`Cannot edit sections while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
+    const matchedAdviser = sec.adviser_id
+      ? faculty.find(f => String(f.faculty_record_id) === String(sec.adviser_id) || String(f.faculty_id) === String(sec.adviser_id))
+      : null;
     setEditSection(sec);
     setModalError('');
     setForm({
       grade_level: sec.grade_level,
       section_name: cleanSectionName(sec.section_name, sec.grade_level),
       strand_id: sec.strand_id || '',
-      adviser_id: sec.adviser_id || '',
+      adviser_id: matchedAdviser ? String(matchedAdviser.faculty_record_id) : '',
       room_number: sec.room_number || '',
       max_capacity: sec.max_capacity || 45,
       status: sec.status || 'Active',
@@ -1541,6 +1642,10 @@ function SectionsManagerTab({ supabase }) {
 
   async function handleSaveSection(e) {
     e.preventDefault();
+    if (isHistoricalYear) {
+      setModalError(`Cannot modify sections while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     setModalError('');
     const cleanName = cleanSectionName(form.section_name, form.grade_level);
     if (!cleanName) {
@@ -1549,7 +1654,7 @@ function SectionsManagerTab({ supabase }) {
     }
 
     // Validation: prevent duplicate section names within the same grade level
-    const duplicateExists = sections.some(sec => 
+    const duplicateExists = sections.some(sec =>
       (!editSection || sec.id !== editSection.id) &&
       Number(sec.grade_level) === Number(form.grade_level) &&
       cleanSectionName(sec.section_name, sec.grade_level).toLowerCase().trim() === cleanName.toLowerCase().trim()
@@ -1571,30 +1676,67 @@ function SectionsManagerTab({ supabase }) {
       school_year_id: currentSy?.id || null,
     };
 
+    const runSave = async (obj) => editSection
+      ? await supabase.from('sections').update(obj).eq('id', editSection.id)
+      : await supabase.from('sections').insert([obj]);
+
+    let { error } = await runSave(payload);
+    if (error && /strand_id|42703|column|schema cache/i.test(error.message || error.code || '')) {
+      const fallback = { ...payload };
+      if (/strand_id/i.test(error.message || '')) delete fallback.strand_id;
+      if (!currentSy?.id && /school_year_id/i.test(error.message || '')) delete fallback.school_year_id;
+      ({ error } = await runSave(fallback));
+    }
+
+    if (error) {
+      setModalError(error.message || 'Failed to save section.');
+      return;
+    }
+
+    // Cascade renamed section to students & schedules referencing this section
     if (editSection) {
-      const { error } = await supabase.from('sections').update(payload).eq('id', editSection.id);
-      if (error) {
-        const fallback = { ...payload };
-        delete fallback.school_year_id;
-        delete fallback.strand_id;
-        await supabase.from('sections').update(fallback).eq('id', editSection.id);
-      }
-    } else {
-      const { error } = await supabase.from('sections').insert([payload]);
-      if (error) {
-        const fallback = { ...payload };
-        delete fallback.school_year_id;
-        delete fallback.strand_id;
-        await supabase.from('sections').insert([fallback]);
+      const oldCleanName = cleanSectionName(editSection.section_name, editSection.grade_level);
+      const renamed = oldCleanName.toLowerCase().trim() !== cleanName.toLowerCase().trim() ||
+        Number(editSection.grade_level) !== Number(form.grade_level);
+      if (renamed) {
+        await supabase
+          .from('students')
+          .update({ section_name: cleanName, grade_level: Number(form.grade_level) })
+          .eq('current_section_id', editSection.id);
+
+        let schUpd = supabase
+          .from('schedules')
+          .update({ section_name: cleanName, grade_level: Number(form.grade_level) })
+          .eq('section_id', editSection.id);
+        if (currentSy?.id) schUpd = schUpd.eq('school_year_id', currentSy.id);
+        await schUpd;
       }
     }
+
     setModalOpen(false);
     fetchData();
   }
 
   async function handleDeleteSection(id) {
+    if (isHistoricalYear) {
+      alert(`Cannot delete sections while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
+    const [{ data: enrDeps }, { data: stuDeps }, { data: schDeps }] = await Promise.all([
+      supabase.from('enrollments').select('id').eq('section_id', id).limit(1),
+      supabase.from('students').select('student_record_id').eq('current_section_id', id).limit(1),
+      supabase.from('schedules').select('schedule_id').eq('section_id', id).limit(1),
+    ]);
+    if ((enrDeps && enrDeps.length > 0) || (stuDeps && stuDeps.length > 0) || (schDeps && schDeps.length > 0)) {
+      alert('Cannot delete this section because students, enrollments, or schedules are still linked to it. Reassign them or mark the section Inactive instead.');
+      return;
+    }
     if (window.confirm('Are you sure you want to delete this section?')) {
-      await supabase.from('sections').delete().eq('id', id);
+      const { error } = await supabase.from('sections').delete().eq('id', id);
+      if (error) {
+        alert(`Failed to delete section: ${error.message}`);
+        return;
+      }
       fetchData();
     }
   }
@@ -1616,7 +1758,7 @@ function SectionsManagerTab({ supabase }) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {sections.length === 0 && (
+          {sections.length === 0 && !isHistoricalYear && (
             <button
               className="btn btn-secondary"
               onClick={handleCopyFromPreviousSy}
@@ -1626,9 +1768,11 @@ function SectionsManagerTab({ supabase }) {
               <IcoCopy /> {cloning ? 'Copying...' : 'Copy Sections from Previous S.Y.'}
             </button>
           )}
-          <button className="btn btn-primary" onClick={openAddModal}>
-            <IcoAdd /> Add New Section
-          </button>
+          {!isHistoricalYear && (
+            <button className="btn btn-primary" onClick={openAddModal}>
+              <IcoAdd /> Add New Section
+            </button>
+          )}
         </div>
       </div>
 
@@ -1688,14 +1832,16 @@ function SectionsManagerTab({ supabase }) {
                         <div style={{ color: '#666', marginBottom: '12px' }}>
                           No class sections exist for S.Y. {currentSy?.year_label || 'this school year'}.
                         </div>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={handleCopyFromPreviousSy}
-                          disabled={cloning}
-                          style={{ margin: '0 auto' }}
-                        >
-                          <IcoCopy /> {cloning ? 'Copying...' : 'Copy Sections from Previous School Year'}
-                        </button>
+                        {!isHistoricalYear && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={handleCopyFromPreviousSy}
+                            disabled={cloning}
+                            style={{ margin: '0 auto' }}
+                          >
+                            <IcoCopy /> {cloning ? 'Copying...' : 'Copy Sections from Previous School Year'}
+                          </button>
+                        )}
                       </div>
                     ) : (
                       'No sections found for this grade level filter.'
@@ -1731,10 +1877,14 @@ function SectionsManagerTab({ supabase }) {
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button className="btn btn-secondary btn-sm" onClick={() => openEditModal(sec)}><IcoEdit /></button>
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDeleteSection(sec.id)}><IcoTrash /></button>
-                      </div>
+                      {!isHistoricalYear ? (
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button className="btn btn-secondary btn-sm" onClick={() => openEditModal(sec)}><IcoEdit /></button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteSection(sec.id)}><IcoTrash /></button>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '12px', color: '#888' }}>Read-Only</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -1814,11 +1964,16 @@ function SectionsManagerTab({ supabase }) {
                     onChange={e => setForm(f => ({ ...f, adviser_id: e.target.value }))}
                   >
                     <option value="">Unassigned</option>
-                    {faculty.map(fac => (
-                      <option key={fac.faculty_record_id} value={fac.faculty_record_id}>
-                        {fac.last_name}, {fac.first_name} ({fac.faculty_id || 'ID'})
-                      </option>
-                    ))}
+                    {faculty
+                      .filter(fac =>
+                        (!fac.is_archived && !['archived', 'inactive', 'resigned', 'terminated', 'retired', 'transferred'].includes((fac.employment_status || 'active').toLowerCase())) ||
+                        String(fac.faculty_record_id) === String(form.adviser_id)
+                      )
+                      .map(fac => (
+                        <option key={fac.faculty_record_id} value={fac.faculty_record_id}>
+                          {fac.last_name}, {fac.first_name} ({fac.faculty_id || 'ID'})
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -1872,7 +2027,9 @@ function FeesScholarshipsTab({ supabase }) {
   const [scholarships, setScholarships] = useState([]);
   const [feeSaved, setFeeSaved] = useState(false);
   const [feeSaving, setFeeSaving] = useState(false);
+  const [feeError, setFeeError] = useState('');
   const [schModal, setSchModal] = useState(false);
+  const [schError, setSchError] = useState('');
   const [editSch, setEditSch] = useState(null);
   const [schForm, setSchForm] = useState({
     name: '',
@@ -1914,14 +2071,15 @@ function FeesScholarshipsTab({ supabase }) {
 
   async function handleSaveFees() {
     setFeeSaving(true);
+    setFeeSaved(false);
+    setFeeError('');
     try {
       await saveFeeMatrix(supabase, fees);
       setFeeSaved(true);
       setTimeout(() => setFeeSaved(false), 3500);
     } catch (err) {
       console.error('Error saving fee matrix:', err);
-      setFeeSaved(true);
-      setTimeout(() => setFeeSaved(false), 3500);
+      setFeeError(err?.message || 'Failed to save fee matrix changes.');
     } finally {
       setFeeSaving(false);
     }
@@ -1929,6 +2087,7 @@ function FeesScholarshipsTab({ supabase }) {
 
   function openAddScholarship() {
     setEditSch(null);
+    setSchError('');
     setSchForm({
       name: '',
       code: '',
@@ -1942,20 +2101,36 @@ function FeesScholarshipsTab({ supabase }) {
 
   async function handleSaveScholarship(e) {
     e.preventDefault();
-    if (!schForm.name || !schForm.code) return;
+    setSchError('');
+    if (!schForm.name.trim() || !schForm.code.trim()) {
+      setSchError('Scholarship name and code are required.');
+      return;
+    }
+    const val = Number(schForm.discount_value);
+    if (Number.isNaN(val) || val < 0) {
+      setSchError('Discount value cannot be negative.');
+      return;
+    }
+    if (schForm.discount_type === 'percentage' && val > 100) {
+      setSchError('Percentage waiver cannot exceed 100%.');
+      return;
+    }
     const payload = {
-      name: schForm.name,
-      code: schForm.code.toUpperCase(),
+      name: schForm.name.trim(),
+      code: schForm.code.trim().toUpperCase(),
       discount_type: schForm.discount_type,
-      discount_value: Number(schForm.discount_value),
+      discount_value: val,
       description: schForm.description,
       is_active: schForm.is_active,
     };
 
-    if (editSch) {
-      await supabase.from('scholarships').update(payload).eq('id', editSch.id);
-    } else {
-      await supabase.from('scholarships').insert([payload]);
+    const { error } = editSch
+      ? await supabase.from('scholarships').update(payload).eq('id', editSch.id)
+      : await supabase.from('scholarships').insert([payload]);
+
+    if (error) {
+      setSchError(error.message || 'Failed to save scholarship.');
+      return;
     }
     setSchModal(false);
     fetchScholarships();
@@ -1963,13 +2138,21 @@ function FeesScholarshipsTab({ supabase }) {
 
   async function handleArchiveScholarship(id) {
     if (window.confirm('Archive this scholarship? It will no longer appear in new enrollments, but existing records will be preserved.')) {
-      await supabase.from('scholarships').update({ is_active: false, is_archived: true }).eq('id', id);
+      const { error } = await supabase.from('scholarships').update({ is_active: false, is_archived: true }).eq('id', id);
+      if (error) {
+        alert(`Failed to archive scholarship: ${error.message}`);
+        return;
+      }
       fetchScholarships();
     }
   }
 
   async function handleRestoreScholarship(id) {
-    await supabase.from('scholarships').update({ is_active: true, is_archived: false }).eq('id', id);
+    const { error } = await supabase.from('scholarships').update({ is_active: true, is_archived: false }).eq('id', id);
+    if (error) {
+      alert(`Failed to restore scholarship: ${error.message}`);
+      return;
+    }
     fetchScholarships();
   }
 
@@ -1990,6 +2173,12 @@ function FeesScholarshipsTab({ supabase }) {
             <IcoSave /> {feeSaving ? 'Saving...' : feeSaved ? 'Saved Successfully!' : 'Save Fee Changes'}
           </button>
         </div>
+
+        {feeError && (
+          <div style={{ margin: '0 16px 12px', padding: '10px 14px', background: '#f8d7da', color: '#721c24', border: '1px solid #f5c6cb', borderRadius: '6px', fontSize: '13px' }}>
+            <strong>Save Failed:</strong> {feeError}
+          </div>
+        )}
 
         {/* Department Filter Tabs */}
         <div style={{ display: 'flex', gap: '8px', padding: '0 16px 12px', flexWrap: 'wrap' }}>
@@ -2224,6 +2413,11 @@ function FeesScholarshipsTab({ supabase }) {
             </div>
             <form onSubmit={handleSaveScholarship}>
               <div className="modal-body">
+                {schError && (
+                  <div style={{ padding: '10px 14px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '6px', marginBottom: '12px', fontSize: '13px' }}>
+                    {schError}
+                  </div>
+                )}
                 <div className="form-grid">
                   <div className="form-group">
                     <label>Scholarship Name *</label>
@@ -2294,8 +2488,10 @@ function FeesScholarshipsTab({ supabase }) {
    TAB 5: School Policies & DepEd Grading Standards
    ══════════════════════════════════════════════════════════ */
 function SchoolPoliciesTab({ supabase }) {
+  const { refreshAcademicInfo } = useAuth();
   const [policies, setPolicies] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [policyError, setPolicyError] = useState('');
   const [form, setForm] = useState({
     policy_name: '',
     category: 'Academic',
@@ -2310,7 +2506,11 @@ function SchoolPoliciesTab({ supabase }) {
 
   const fetchPolicies = useCallback(async () => {
     const { data } = await supabase.from('school_policies').select('*').order('created_at', { ascending: false });
-    setPolicies(data || []);
+    // Hide the internal Fee Matrix JSON storage row from the editable Policies list
+    const visible = (data || []).filter(
+      p => !(p.category === 'Financial' && p.policy_name === 'Tuition & Miscellaneous Fee Matrix')
+    );
+    setPolicies(visible);
   }, [supabase]);
 
   useEffect(() => {
@@ -2320,8 +2520,21 @@ function SchoolPoliciesTab({ supabase }) {
 
   async function handleAddPolicy(e) {
     e.preventDefault();
-    if (!form.policy_name) return;
-    await supabase.from('school_policies').insert([form]);
+    setPolicyError('');
+    if (!form.policy_name.trim()) {
+      setPolicyError('Policy name is required.');
+      return;
+    }
+    const weightSum = Number(form.written_work_pct || 0) + Number(form.performance_task_pct || 0) + Number(form.quarterly_exam_pct || 0);
+    if (form.category === 'Academic' && Math.abs(weightSum - 100) > 0.01) {
+      setPolicyError(`DepEd Grading Weights must total 100% (currently ${weightSum}%).`);
+      return;
+    }
+    const { error } = await supabase.from('school_policies').insert([form]);
+    if (error) {
+      setPolicyError(error.message || 'Failed to save policy.');
+      return;
+    }
     setModalOpen(false);
     setForm({
       policy_name: '',
@@ -2335,12 +2548,18 @@ function SchoolPoliciesTab({ supabase }) {
       document_url: '',
     });
     fetchPolicies();
+    if (refreshAcademicInfo) refreshAcademicInfo();
   }
 
   async function handleDeletePolicy(id) {
     if (window.confirm('Delete this policy configuration?')) {
-      await supabase.from('school_policies').delete().eq('id', id);
+      const { error } = await supabase.from('school_policies').delete().eq('id', id);
+      if (error) {
+        alert(`Failed to delete policy: ${error.message}`);
+        return;
+      }
       fetchPolicies();
+      if (refreshAcademicInfo) refreshAcademicInfo();
     }
   }
 
@@ -2354,7 +2573,7 @@ function SchoolPoliciesTab({ supabase }) {
               Configure component weights (DepEd Order No. 8, s. 2015), passing marks, and attendance rules.
             </p>
           </div>
-          <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
+          <button className="btn btn-primary" onClick={() => { setPolicyError(''); setModalOpen(true); }}>
             <IcoAdd /> Add Policy Rule
           </button>
         </div>
@@ -2407,6 +2626,11 @@ function SchoolPoliciesTab({ supabase }) {
             </div>
             <form onSubmit={handleAddPolicy}>
               <div className="modal-body">
+                {policyError && (
+                  <div style={{ color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', padding: '10px 12px', borderRadius: '6px', marginBottom: '12px', fontSize: '13px', fontWeight: '600' }}>
+                    {policyError}
+                  </div>
+                )}
                 <div className="form-grid">
                   <div className="form-group">
                     <label>Policy Name *</label>

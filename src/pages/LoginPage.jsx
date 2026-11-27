@@ -19,6 +19,10 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [forgotMode, setForgotMode]     = useState(false);
+  const [resetInput, setResetInput]     = useState('');
+  const [resetSending, setResetSending] = useState(false);
+  const [resetStatus, setResetStatus]   = useState({ type: '', text: '' });
 
   // Still resolving session on page load
   if (session === undefined) {
@@ -28,6 +32,27 @@ export default function LoginPage() {
   // Logged in + role known → go to correct portal
   if (session && role && ROLE_HOME[role]) {
     return <Navigate to={ROLE_HOME[role]} replace />;
+  }
+
+  // Logged in but the account is archived or deactivated
+  if (session && role === 'inactive') {
+    return (
+      <div style={styles.loadScreen}>
+        <div style={{ textAlign: 'center', maxWidth: '420px', padding: '0 16px' }}>
+          <p style={{ fontWeight: 700, fontSize: '18px' }}>Account Archived or Deactivated</p>
+          <p style={{ fontSize: '13px', opacity: 0.9, marginTop: '8px' }}>
+            Your student or faculty record is currently archived or inactive. Contact the Registrar or School Administrator for assistance.
+          </p>
+          <button
+            type="button"
+            onClick={logout}
+            style={{ marginTop: '16px', padding: '10px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#fff', color: CRIMSON, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Logged in but the account isn't recognized in admins/faculty/students
@@ -112,6 +137,52 @@ export default function LoginPage() {
     // On success: onAuthStateChange fires → resolveRole runs → role is set → Navigate above triggers
   }
 
+  async function handleForgotPassword(e) {
+    e.preventDefault();
+    setResetStatus({ type: '', text: '' });
+    const input = resetInput.trim();
+    if (!input) {
+      setResetStatus({ type: 'error', text: 'Please enter your email address or username.' });
+      return;
+    }
+
+    setResetSending(true);
+    try {
+      let targetEmail = input.includes('@') ? normalizeEmail(input) : '';
+      if (!targetEmail) {
+        const [{ data: adm }, { data: fac }, { data: stu }] = await Promise.all([
+          supabase.from('admins').select('email').eq('username', input).maybeSingle(),
+          supabase.from('faculty').select('email').eq('username', input).maybeSingle(),
+          supabase.from('students').select('email').eq('username', input).maybeSingle(),
+        ]);
+        const found = adm?.email || fac?.email || stu?.email;
+        if (!found) {
+          setResetStatus({ type: 'error', text: 'No account found with that username. Please enter your registered email or contact the Registrar.' });
+          setResetSending(false);
+          return;
+        }
+        targetEmail = normalizeEmail(found);
+      }
+
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(targetEmail, {
+        redirectTo: `${window.location.origin}/login`,
+      });
+      if (resetErr) throw resetErr;
+
+      setResetStatus({
+        type: 'success',
+        text: `Password reset instructions sent to ${targetEmail}. If you do not have access to this email, contact the School Administrator or Registrar to reset your portal credentials.`,
+      });
+    } catch (err) {
+      setResetStatus({
+        type: 'error',
+        text: err.message || 'Unable to send reset link. Contact the School Administrator for assistance.',
+      });
+    } finally {
+      setResetSending(false);
+    }
+  }
+
   return (
     <div style={styles.wrapper}>
       <div style={styles.card} className="login-card-responsive">
@@ -123,61 +194,116 @@ export default function LoginPage() {
 
         {/* Title */}
         <h1 style={styles.title}>A.B. Simpson Alliance School</h1>
-        <p style={styles.subtitle}></p>
+        <p style={styles.subtitle}>{forgotMode ? 'Reset Portal Password' : ''}</p>
 
-        {/* Form */}
-        <form onSubmit={handleLogin} style={styles.form}>
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Username / Email</label>
-            <input
-              type="text"
-              placeholder="Enter your username or email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              style={styles.input}
-              required
-              autoComplete="username"
-            />
-          </div>
-
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Password</label>
-            <div style={styles.passwordWrapper}>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Enter your password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                style={styles.passwordInput}
-                required
-                autoComplete="current-password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(prev => !prev)}
-                style={styles.eyeBtn}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                title={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <IcoEyeOff /> : <IcoEye />}
-              </button>
+        {forgotMode ? (
+          <form onSubmit={handleForgotPassword} style={styles.form}>
+            <div style={{ fontSize: '13px', color: '#555', lineHeight: '1.5' }}>
+              Enter your registered email address or username to receive a password reset link, or ask the School Administrator to update your login.
             </div>
-          </div>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Email Address or Username</label>
+              <input
+                type="text"
+                placeholder="Enter your email or username"
+                value={resetInput}
+                onChange={e => setResetInput(e.target.value)}
+                style={styles.input}
+                required
+              />
+            </div>
 
-          {error && <p style={styles.error}>{error}</p>}
+            {resetStatus.text && (
+              <p style={{
+                color: resetStatus.type === 'success' ? '#166534' : '#c0392b',
+                backgroundColor: resetStatus.type === 'success' ? '#f0fdf4' : '#fef2f2',
+                border: `1px solid ${resetStatus.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+                borderRadius: '6px',
+                padding: '10px 12px',
+                fontSize: '13px',
+                margin: 0,
+              }}>
+                {resetStatus.text}
+              </p>
+            )}
 
-          <button
-            type="submit"
-            style={{ ...styles.loginBtn, opacity: loading ? 0.7 : 1 }}
-            disabled={loading}
-          >
-            {loading ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              style={{ ...styles.loginBtn, opacity: resetSending ? 0.7 : 1 }}
+              disabled={resetSending}
+            >
+              {resetSending ? 'Sending Reset Link...' : 'Send Password Reset Link'}
+            </button>
 
-        <button style={styles.forgotBtn} type="button">
-          Forgot Password?
-        </button>
+            <button
+              style={styles.forgotBtn}
+              type="button"
+              onClick={() => { setForgotMode(false); setResetStatus({ type: '', text: '' }); }}
+            >
+              Back to Login
+            </button>
+          </form>
+        ) : (
+          <>
+            {/* Form */}
+            <form onSubmit={handleLogin} style={styles.form}>
+              <div style={styles.fieldGroup}>
+                <label style={styles.label}>Username / Email</label>
+                <input
+                  type="text"
+                  placeholder="Enter your username or email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  style={styles.input}
+                  required
+                  autoComplete="username"
+                />
+              </div>
+
+              <div style={styles.fieldGroup}>
+                <label style={styles.label}>Password</label>
+                <div style={styles.passwordWrapper}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    style={styles.passwordInput}
+                    required
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(prev => !prev)}
+                    style={styles.eyeBtn}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <IcoEyeOff /> : <IcoEye />}
+                  </button>
+                </div>
+              </div>
+
+              {error && <p style={styles.error}>{error}</p>}
+
+              <button
+                type="submit"
+                style={{ ...styles.loginBtn, opacity: loading ? 0.7 : 1 }}
+                disabled={loading}
+              >
+                {loading ? 'Logging in...' : 'Login'}
+              </button>
+            </form>
+
+            <button
+              style={styles.forgotBtn}
+              type="button"
+              onClick={() => { setForgotMode(true); setResetInput(email); setResetStatus({ type: '', text: '' }); }}
+            >
+              Forgot Password?
+            </button>
+          </>
+        )}
       </div>
 
     </div>

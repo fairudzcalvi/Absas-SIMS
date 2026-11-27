@@ -272,13 +272,128 @@ export function getCurriculumSubjects(gradeLevel, strandCode = null) {
 
   if ((gl === 11 || gl === 12) && strandCode) {
     const cleanStrand = String(strandCode).toUpperCase().trim();
-    const strandSubjects = SHS_STRAND_SUBJECTS[gl]?.[cleanStrand];
+    const resolvedStrand = cleanStrand.startsWith('TVL') ? 'TVL' : cleanStrand;
+    const strandSubjects = SHS_STRAND_SUBJECTS[gl]?.[resolvedStrand];
     if (strandSubjects && strandSubjects.length > 0) {
       baseSubjects.push(...strandSubjects);
     }
   }
 
   return baseSubjects;
+}
+
+/**
+ * Returns a canonical comparable key for a subject name (resolving acronyms/aliases).
+ */
+export function getCanonicalSubjectKey(subjName) {
+  const norm = normalizeSubject(subjName);
+  if (!norm) return '';
+  if (SUBJECT_ALIASES[norm]) {
+    return normalizeSubject(SUBJECT_ALIASES[norm]);
+  }
+  return norm;
+}
+
+/**
+ * Checks whether two subject names refer to the same canonical subject.
+ */
+export function subjectsMatch(a, b) {
+  const keyA = getCanonicalSubjectKey(a);
+  const keyB = getCanonicalSubjectKey(b);
+  if (!keyA || !keyB) return false;
+  return keyA === keyB;
+}
+
+/**
+ * Resolves DepEd Order No. 8, s. 2015 grading component weights by grade level & subject.
+ * Returns { wwWeight, ptWeight, qaWeight } as fractions summing to 1.0.
+ */
+export function getDepEdSubjectWeights(gradeLevel, subjectName = '', policyOverride = null, academicPolicies = []) {
+  const gl = Number(String(gradeLevel ?? '').replace(/\D/g, ''));
+  const norm = normalizeSubject(subjectName);
+  const key = getCanonicalSubjectKey(subjectName);
+
+  // Check if an explicitly scoped school policy matches this grade/track
+  if (Array.isArray(academicPolicies) && academicPolicies.length > 0) {
+    const matchedPol = academicPolicies.find(p => {
+      const pn = (p.policy_name || '').toLowerCase();
+      if (gl >= 11) {
+        return pn.includes('shs') || pn.includes('senior high') || pn.includes('stem');
+      }
+      if (gl >= 1 && gl <= 10) {
+        return (pn.includes('jhs') || pn.includes('elementary') || pn.includes('standard')) && !pn.includes('shs') && !pn.includes('stem');
+      }
+      return false;
+    });
+    // Only use an explicit policy override for subject groups when it matches general JHS default
+    // or SHS specialized STEM/Senior High if no finer DepEd subject group rule differs below.
+    if (matchedPol && !gl && matchedPol.written_work_pct != null) {
+      return {
+        wwWeight: Number(matchedPol.written_work_pct) / 100,
+        ptWeight: Number(matchedPol.performance_task_pct) / 100,
+        qaWeight: Number(matchedPol.quarterly_exam_pct) / 100,
+      };
+    }
+  }
+
+  // Grades 1 - 10 (Elementary & Junior High School) per DepEd Order No. 8, s. 2015
+  if (gl >= 1 && gl <= 10) {
+    if (
+      key.includes('science') ||
+      key.includes('mathematics') ||
+      norm.includes('math') ||
+      norm.includes('scien')
+    ) {
+      return { wwWeight: 0.40, ptWeight: 0.40, qaWeight: 0.20 };
+    }
+    if (
+      key.includes('mapeh') ||
+      key.includes('edukasyong pantahanan') ||
+      key.includes('technology and livelihood') ||
+      ['music', 'arts', 'physical education', 'health', 'pe', 'epp', 'tle'].includes(norm)
+    ) {
+      return { wwWeight: 0.20, ptWeight: 0.60, qaWeight: 0.20 };
+    }
+    return { wwWeight: 0.30, ptWeight: 0.50, qaWeight: 0.20 };
+  }
+
+  // Grades 11 - 12 (Senior High School) per DepEd Order No. 8, s. 2015
+  if (gl >= 11) {
+    if (norm.includes('tvl') || norm.includes('sports') || norm.includes('immersion') === false && norm.includes('arts specialization')) {
+      return { wwWeight: 0.20, ptWeight: 0.60, qaWeight: 0.20 };
+    }
+    if (
+      norm.includes('immersion') ||
+      norm.includes('research') ||
+      norm.includes('inquiries') ||
+      norm.includes('simulation') ||
+      norm.includes('culminating') ||
+      norm.includes('capstone') ||
+      norm.includes('empowerment') ||
+      norm.includes('entrepreneurship') ||
+      norm.includes('english for academic') ||
+      norm.includes('filipino sa piling')
+    ) {
+      return { wwWeight: 0.35, ptWeight: 0.40, qaWeight: 0.25 };
+    }
+    const coreShs = (DEPED_CURRICULUM[11] || []).concat(DEPED_CURRICULUM[12] || []).map(normalizeSubject);
+    const isCore = coreShs.includes(key) || coreShs.includes(norm);
+    if (!isCore) {
+      // Academic Track Specialized Subjects
+      return { wwWeight: 0.25, ptWeight: 0.45, qaWeight: 0.30 };
+    }
+    // SHS Core Subjects
+    return { wwWeight: 0.25, ptWeight: 0.50, qaWeight: 0.25 };
+  }
+
+  if (policyOverride?.written_work_pct != null) {
+    return {
+      wwWeight: Number(policyOverride.written_work_pct) / 100,
+      ptWeight: Number(policyOverride.performance_task_pct) / 100,
+      qaWeight: Number(policyOverride.quarterly_exam_pct) / 100,
+    };
+  }
+  return { wwWeight: 0.30, ptWeight: 0.50, qaWeight: 0.20 };
 }
 
 /**
@@ -309,15 +424,17 @@ export function sortSubjectsByCurriculum(subjectList, gradeLevel, strandCode = n
     const directIdx = normalizedCurriculum.indexOf(norm);
     if (directIdx !== -1) return directIdx;
 
-    // Substring / partial match
-    const partialIdx = normalizedCurriculum.findIndex(c => norm.includes(c) || c.includes(norm));
-    if (partialIdx !== -1) return partialIdx;
-
-    // Separate MAPEH components (Music, Arts, PE, Health) sort with MAPEH
+    // Separate MAPEH components (Music, Arts, PE, Health) sort with MAPEH before partial checks
     if (['music', 'arts', 'physical education', 'health', 'pe'].includes(norm)) {
       const mapehIdx = normalizedCurriculum.findIndex(c => c.includes('mapeh'));
       if (mapehIdx !== -1) return mapehIdx + 0.1;
     }
+
+    // Word-boundary prefix match (avoids short codes like 'pe' hitting 'personal' or 'mapeh')
+    const partialIdx = normalizedCurriculum.findIndex(c =>
+      c.startsWith(norm + ' ') || norm.startsWith(c + ' ')
+    );
+    if (partialIdx !== -1) return partialIdx;
 
     // Not in standard curriculum: place at end
     return 1000;
@@ -334,29 +451,28 @@ export function sortSubjectsByCurriculum(subjectList, gradeLevel, strandCode = n
 /**
  * Builds a unified, deduplicated list of subjects for a student:
  * 1. Takes official curriculum subjects for the student's exact grade level.
- * 2. Merges with matching active database subjects for that grade.
+ * 2. Merges with matching active database subjects for that grade & strand.
  * 3. Merges any already-graded subjects for the student.
- * 4. Sorts the complete list strictly by official curriculum order.
+ * 4. Deduplicates aliases/case variants and sorts strictly by curriculum order.
  */
 export function buildStudentSubjectList({
   gradeLevel,
   strandCode = null,
+  strandId = null,
   dbSubjects = [],
   grades = [],
 }) {
   const gl = Number(String(gradeLevel).replace(/\D/g, ''));
   const curriculum = getCurriculumSubjects(gl, strandCode);
 
-  // Filter DB subjects: match student's exact grade level (or non-grade-specific electives)
+  // Filter DB subjects: match student's grade level (or non-grade-specific electives) & strand
   const dbMatching = (Array.isArray(dbSubjects) ? dbSubjects : [])
     .filter(s => {
       if (!s) return false;
       const sGrade = s.grade_level ? Number(s.grade_level) : null;
-      // Match exact grade level
-      if (gl && sGrade) return sGrade === gl;
-      // If student grade not specified, allow all
-      if (!gl) return true;
-      return false;
+      if (gl && sGrade && sGrade !== gl) return false;
+      if (s.strand_id && strandId && String(s.strand_id) !== String(strandId)) return false;
+      return true;
     })
     .map(s => s.subject_name)
     .filter(Boolean);
@@ -366,9 +482,19 @@ export function buildStudentSubjectList({
     .map(g => g.subject)
     .filter(Boolean);
 
-  // Combine and deduplicate
-  const combined = Array.from(new Set([...curriculum, ...dbMatching, ...gradedSubjects]));
+  // Deduplicate by canonical subject key while keeping curriculum names canonical
+  const deduped = [];
+  const seenKeys = new Set();
+  for (const subj of [...curriculum, ...dbMatching, ...gradedSubjects]) {
+    const trimmed = String(subj).trim();
+    if (!trimmed) continue;
+    const key = getCanonicalSubjectKey(trimmed) || trimmed.toLowerCase();
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      deduped.push(trimmed);
+    }
+  }
 
   // Sort strictly by curriculum
-  return sortSubjectsByCurriculum(combined, gl, strandCode);
+  return sortSubjectsByCurriculum(deduped, gl, strandCode);
 }

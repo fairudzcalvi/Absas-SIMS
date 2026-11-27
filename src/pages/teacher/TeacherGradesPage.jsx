@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCurriculumSubjects, sortSubjectsByCurriculum } from '../../utils/curriculum';
+import { getCurriculumSubjects, getDepEdSubjectWeights, sortSubjectsByCurriculum } from '../../utils/curriculum';
 import { cleanSectionName } from '../../utils/formatters';
 
 function IcoGrades() {
@@ -112,6 +112,31 @@ function transmuteGrade(initialGrade) {
   return row ? row.grade : 60;
 }
 
+function computeGradeRow(row, wwWeight, ptWeight, qaWeight) {
+  const ww = parseFloat(row.written_works);
+  const pt = parseFloat(row.performance_tasks);
+  const qa = parseFloat(row.quarterly_assessment);
+  const clampScore = n => Math.min(100, Math.max(0, n));
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+  if (!Number.isNaN(ww)) { weightedSum += clampScore(ww) * wwWeight; totalWeight += wwWeight; }
+  if (!Number.isNaN(pt)) { weightedSum += clampScore(pt) * ptWeight; totalWeight += ptWeight; }
+  if (!Number.isNaN(qa)) { weightedSum += clampScore(qa) * qaWeight; totalWeight += qaWeight; }
+
+  const hasAllThree = !Number.isNaN(ww) && !Number.isNaN(pt) && !Number.isNaN(qa);
+  const initialGrade = totalWeight > 0 ? (weightedSum / totalWeight) : NaN;
+  const roundedInitial = !Number.isNaN(initialGrade)
+    ? Math.round((initialGrade + Number.EPSILON) * 100) / 100
+    : NaN;
+
+  return {
+    initial_grade: !Number.isNaN(roundedInitial) ? roundedInitial.toFixed(2) : '',
+    quarter_grade: hasAllThree && !Number.isNaN(roundedInitial) ? String(transmuteGrade(roundedInitial)) : '',
+    hasAllThree,
+  };
+}
+
 const DEFAULT_SUBJECTS = [
   'Mathematics',
   'Science',
@@ -129,14 +154,18 @@ const DEFAULT_SUBJECTS = [
 ];
 
 export default function TeacherGradesPage() {
-  const { supabase, profile, activePolicy, selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
+  const { supabase, profile, activePolicy, academicPolicies, selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
   const location = useLocation();
 
   const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [gradeFilter, setGrade]   = useState(location.state?.presetGrade ? String(location.state.presetGrade) : '');
   const [subject, setSubject]     = useState(location.state?.presetSubject || '');
-  const [sectionFilter, setSectionFilter] = useState(location.state?.presetSection || '');
+  const [sectionFilter, setSectionFilter] = useState(
+    location.state?.presetSection
+      ? cleanSectionName(location.state.presetSection, location.state?.presetGrade)
+      : ''
+  );
   const [quarter, setQuarter]     = useState('1Q');
   const [availableQuarters, setAvailableQuarters] = useState([
     { key: '1Q', num: 1, label: '1st Quarter' },
@@ -149,6 +178,7 @@ export default function TeacherGradesPage() {
   const [loading, setLoading]     = useState(false);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [subjects, setSubjects]   = useState(DEFAULT_SUBJECTS);
   const [availableSections, setAvailableSections] = useState([]);
   const [teacherSchedules, setTeacherSchedules]   = useState([]);
@@ -206,6 +236,7 @@ export default function TeacherGradesPage() {
 
   // Load subjects according to grade level curriculum + db subjects
   useEffect(() => {
+    let ignore = false;
     async function loadSubjects() {
       const gl = gradeFilter ? Number(gradeFilter) : null;
       const baseList = gl ? getCurriculumSubjects(gl) : DEFAULT_SUBJECTS;
@@ -219,16 +250,39 @@ export default function TeacherGradesPage() {
         ? data.filter(s => !gl || !s.grade_level || s.grade_level === gl).map(s => s.subject_name)
         : [];
 
-      const { data: gradeSubjs } = await supabase
-        .from('grades')
-        .select('subject');
-      
-      const prevSubjs = gradeSubjs ? gradeSubjs.map(g => g.subject).filter(Boolean) : [];
+      let prevSubjs = [];
+      if (gl) {
+        const { data: glStudents } = await supabase
+          .from('students')
+          .select('student_record_id, is_archived')
+          .eq('grade_level', gl);
+        const ids = (glStudents || [])
+          .filter(s => !s.is_archived)
+          .map(s => s.student_record_id)
+          .filter(Boolean);
+        for (let i = 0; i < ids.length; i += 100) {
+          const { data: gradeSubjs } = await supabase
+            .from('grades')
+            .select('subject')
+            .in('student_record_id', ids.slice(i, i + 100));
+          if (gradeSubjs) {
+            prevSubjs.push(...gradeSubjs.map(g => g.subject).filter(Boolean));
+          }
+        }
+      } else {
+        const { data: gradeSubjs } = await supabase
+          .from('grades')
+          .select('subject');
+        prevSubjs = gradeSubjs ? gradeSubjs.map(g => g.subject).filter(Boolean) : [];
+      }
+
+      if (ignore) return;
       const unique = [...new Set([...baseList, ...dbSubjects, ...prevSubjs])];
       const sorted = sortSubjectsByCurriculum(unique, gl);
       setSubjects(sorted);
     }
     loadSubjects();
+    return () => { ignore = true; };
   }, [supabase, gradeFilter]);
 
   // Leadership & Coverage Authorization determination
@@ -239,7 +293,7 @@ export default function TeacherGradesPage() {
     }
     const role = (profile.role || '').toLowerCase();
     const pos = (profile.position || '').toLowerCase();
-    const leadershipKeywords = ['principal', 'head', 'coordinator', 'admin', 'dean', 'director', 'lead'];
+    const leadershipKeywords = ['principal', 'head', 'coordinator', 'admin', 'dean', 'director', 'lead', 'coverage'];
     return leadershipKeywords.some(kw => role.includes(kw) || pos.includes(kw));
   }, [profile]);
 
@@ -259,24 +313,31 @@ export default function TeacherGradesPage() {
         .order('time_start');
 
       if (data) {
+        const syMatches = (s) => {
+          if (!currentSy) return true;
+          if (s.school_year_id && currentSy.id) return String(s.school_year_id) === String(currentSy.id);
+          if (s.school_year && currentSy.year_label) return s.school_year === currentSy.year_label;
+          return true;
+        };
         const mySch = data.filter(s => {
           const t = (s.teacher || '').toLowerCase().trim();
-          const fId = (s.faculty_id || '').toLowerCase().trim();
+          const fId = String(s.faculty_id ?? '').toLowerCase().trim();
           const fRecId = s.faculty_record_id ? String(s.faculty_record_id) : '';
           const tn = (s.teacher_name || '').toLowerCase().trim();
 
-          return (
+          const matchesTeacher = (
             (email && (t === email || tn === email)) ||
             (facId && (fId === facId || t === facId)) ||
-            (facRecId && fRecId === facRecId) ||
+            (facRecId && (fRecId === facRecId || fId === facRecId)) ||
             (fullName && (t === fullName || tn === fullName))
           );
+          return matchesTeacher && syMatches(s);
         });
         setTeacherSchedules(mySch);
       }
     }
     loadTeacherSchedules();
-  }, [supabase, profile]);
+  }, [supabase, profile, currentSy]);
 
   // Load sections for selected grade level
   useEffect(() => {
@@ -325,7 +386,7 @@ export default function TeacherGradesPage() {
     return (
       (facRecId && secAdv === facRecId) ||
       (facId && secAdv.toLowerCase() === facId) ||
-      (profile.adviser_grade_level && Number(profile.adviser_grade_level) === Number(gradeFilter) && (profile.role === 'Adviser' || profile.role === 'Both'))
+      (!secAdv && profile.adviser_grade_level && Number(profile.adviser_grade_level) === Number(gradeFilter) && (profile.role === 'Adviser' || profile.role === 'Both'))
     );
   }, [profile, sectionFilter, availableSections, gradeFilter]);
 
@@ -352,9 +413,18 @@ export default function TeacherGradesPage() {
   // Combined authorization check
   const isAuthorizedToGrade = Boolean(isLeadership || isAssignedTeacher || isAdvisoryForSection);
 
-  // Auto-select assigned section if teacher only has one assigned section for this grade and subject
+  // Auto-select assigned section once per (grade, subject) change if teacher has one assigned section
+  const lastAutoKeyRef = useRef('');
   useEffect(() => {
-    if (!gradeFilter || !subject || sectionFilter || isLeadership) return;
+    const key = `${gradeFilter}::${subject}`;
+    if (!gradeFilter || !subject || isLeadership) {
+      if (!gradeFilter || !subject) lastAutoKeyRef.current = '';
+      return;
+    }
+    if (lastAutoKeyRef.current === key) return;
+    lastAutoKeyRef.current = key;
+    if (sectionFilter) return;
+
     const gl = Number(gradeFilter);
     const cleanSubj = subject.toLowerCase().trim();
     const matchingSchedules = teacherSchedules.filter(sch =>
@@ -364,7 +434,7 @@ export default function TeacherGradesPage() {
     );
     if (matchingSchedules.length === 1) {
       const targetSec = cleanSectionName(matchingSchedules[0].section_name, gl);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs once per grade/subject pair
       setSectionFilter(targetSec);
     }
   }, [gradeFilter, subject, sectionFilter, teacherSchedules, isLeadership]);
@@ -408,106 +478,157 @@ export default function TeacherGradesPage() {
     checkAssignedTeacher();
   }, [supabase, gradeFilter, subject, sectionFilter, currentSy]);
 
+  const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
+  const { wwWeight, ptWeight, qaWeight } = useMemo(
+    () => getDepEdSubjectWeights(gradeFilter, subject, activePolicy, academicPolicies),
+    [gradeFilter, subject, activePolicy, academicPolicies]
+  );
+
   useEffect(() => {
     let ignore = false;
     async function load() {
       if (!gradeFilter || !subject || !quarter) return;
       setLoading(true);
+      setSaveError('');
 
-      let q = supabase
-        .from('students')
-        .select('student_record_id, student_id, first_name, last_name, section_name')
-        .eq('grade_level', Number(gradeFilter));
+      const glNum = Number(gradeFilter);
+      const targetSecNorm = sectionFilter
+        ? cleanSectionName(sectionFilter, gradeFilter).toLowerCase().trim()
+        : '';
+      const excludedStatuses = ['archived', 'inactive', 'dropped', 'transferred', 'transferred out', 'graduated'];
 
-      if (sectionFilter) {
-        q = q.eq('section_name', sectionFilter);
-      }
-
-      const { data: studs, error: studsError } = await q.order('last_name');
-
-      if (studsError) {
-        console.error("Error loading students:", studsError);
-        if (!ignore) setLoading(false);
-        return;
-      }
-
-      const ids = (studs ?? []).map(s => s.student_record_id);
-      let gQuery = supabase
-        .from('grades')
-        .select('grade_id, student_record_id, written_works, performance_tasks, quarterly_assessment, participation, quarter_grade, remarks, school_year, school_year_id')
-        .eq('subject', subject)
-        .eq('quarter', quarter)
-        .in('student_record_id', ids);
+      let studs = [];
+      let usedEnrollmentRoster = false;
 
       if (currentSy?.id) {
-        gQuery = gQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+        const [{ data: enrRows }, { data: sySecs }] = await Promise.all([
+          supabase
+            .from('enrollments')
+            .select('student_record_id, grade_level, section_id, enrollment_status')
+            .eq('school_year_id', currentSy.id)
+            .eq('grade_level', glNum),
+          supabase
+            .from('sections')
+            .select('id, section_name')
+            .eq('school_year_id', currentSy.id),
+        ]);
+
+        const activeEnrs = (enrRows || []).filter(
+          e => !['Dropped', 'Transferred Out'].includes(e.enrollment_status)
+        );
+        if (activeEnrs.length > 0) {
+          usedEnrollmentRoster = true;
+          const enrIds = Array.from(new Set(activeEnrs.map(e => e.student_record_id).filter(Boolean)));
+          const { data: enrStuds, error: enrStudErr } = await supabase
+            .from('students')
+            .select('student_record_id, student_id, lrn_id, first_name, last_name, section_name, status, is_archived')
+            .in('student_record_id', enrIds)
+            .order('last_name');
+
+          if (enrStudErr) {
+            console.error('Error loading enrolled students:', enrStudErr);
+            if (!ignore) setLoading(false);
+            return;
+          }
+
+          const secById = new Map((sySecs || []).map(s => [String(s.id), s.section_name]));
+          const enrByStu = new Map(activeEnrs.map(e => [e.student_record_id, e]));
+          studs = (enrStuds || [])
+            .map(s => {
+              const e = enrByStu.get(s.student_record_id);
+              const resolvedSec = e?.section_id ? secById.get(String(e.section_id)) : null;
+              return {
+                ...s,
+                section_name: resolvedSec || (isHistoricalYear ? '' : s.section_name),
+              };
+            })
+            .filter(s => {
+              if (!isHistoricalYear) {
+                if (s.is_archived || excludedStatuses.includes((s.status || 'Active').toLowerCase())) return false;
+              }
+              if (!targetSecNorm) return true;
+              return cleanSectionName(s.section_name, gradeFilter).toLowerCase().trim() === targetSecNorm;
+            });
+        }
       }
 
-      const { data: existing, error: gradesError } = await gQuery;
+      if (!usedEnrollmentRoster && !isHistoricalYear) {
+        const { data: allStuds, error: studsError } = await supabase
+          .from('students')
+          .select('student_record_id, student_id, lrn_id, first_name, last_name, section_name, status, is_archived')
+          .eq('grade_level', glNum)
+          .order('last_name');
 
-      if (gradesError) {
-        console.error("Error loading grades:", gradesError);
+        if (studsError) {
+          console.error('Error loading students:', studsError);
+          if (!ignore) setLoading(false);
+          return;
+        }
+
+        studs = (allStuds ?? []).filter(s => {
+          if (s.is_archived || excludedStatuses.includes((s.status || 'Active').toLowerCase())) return false;
+          if (!targetSecNorm) return true;
+          return cleanSectionName(s.section_name, gradeFilter).toLowerCase().trim() === targetSecNorm;
+        });
+      }
+
+      const ids = studs.map(s => s.student_record_id).filter(Boolean);
+      let existing = [];
+      if (ids.length > 0) {
+        let gQuery = supabase
+          .from('grades')
+          .select('grade_id, student_record_id, written_works, performance_tasks, quarterly_assessment, participation, quarter_grade, remarks, school_year, school_year_id')
+          .eq('subject', subject)
+          .eq('quarter', quarter)
+          .in('student_record_id', ids);
+
+        if (currentSy?.id && currentSy?.year_label) {
+          gQuery = gQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+        } else if (currentSy?.id) {
+          gQuery = gQuery.eq('school_year_id', currentSy.id);
+        } else if (currentSy?.year_label) {
+          gQuery = gQuery.eq('school_year', currentSy.year_label);
+        }
+
+        const { data: gData, error: gradesError } = await gQuery;
+        if (gradesError) {
+          console.error('Error loading grades:', gradesError);
+        }
+        existing = gData ?? [];
       }
 
       const map = {};
-      (existing ?? []).forEach(g => { map[g.student_record_id] = { ...g }; });
-      (studs ?? []).forEach(s => {
+      existing.forEach(g => {
+        const computed = computeGradeRow(g, wwWeight, ptWeight, qaWeight);
+        map[g.student_record_id] = {
+          ...g,
+          initial_grade: computed.initial_grade,
+          quarter_grade: g.quarter_grade ?? computed.quarter_grade,
+        };
+      });
+      studs.forEach(s => {
         if (!map[s.student_record_id]) {
-          map[s.student_record_id] = { written_works: '', performance_tasks: '', quarterly_assessment: '', participation: '', quarter_grade: '', remarks: '' };
+          map[s.student_record_id] = { written_works: '', performance_tasks: '', quarterly_assessment: '', participation: '', initial_grade: '', quarter_grade: '', remarks: '' };
         }
       });
 
       if (!ignore) {
-        setStudents(studs ?? []);
+        setStudents(studs);
         setGradeMap(map);
         setLoading(false);
       }
     }
     load();
     return () => { ignore = true; };
-  }, [supabase, gradeFilter, subject, quarter, sectionFilter, currentSy]);
-
-  const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
-  const wwWeight = activePolicy?.written_work_pct != null ? Number(activePolicy.written_work_pct) / 100 : 0.30;
-  const ptWeight = activePolicy?.performance_task_pct != null ? Number(activePolicy.performance_task_pct) / 100 : 0.50;
-  const qaWeight = activePolicy?.quarterly_exam_pct != null ? Number(activePolicy.quarterly_exam_pct) / 100 : 0.20;
+  }, [supabase, gradeFilter, subject, quarter, sectionFilter, currentSy, isHistoricalYear, wwWeight, ptWeight, qaWeight]);
 
   function updateGrade(studentId, field, value) {
+    setSaveError('');
     setGradeMap(prev => {
       const updated = { ...prev[studentId], [field]: value };
-      
-      const ww = parseFloat(updated.written_works);
-      const pt = parseFloat(updated.performance_tasks);
-      const qa = parseFloat(updated.quarterly_assessment);
-
-      let weightedSum = 0;
-      let totalWeight = 0;
-
-      if (!isNaN(ww)) {
-        weightedSum += ww * wwWeight;
-        totalWeight += wwWeight;
-      }
-      if (!isNaN(pt)) {
-        weightedSum += pt * ptWeight;
-        totalWeight += ptWeight;
-      }
-      if (!isNaN(qa)) {
-        weightedSum += qa * qaWeight;
-        totalWeight += qaWeight;
-      }
-
-      // If only participation is provided
-      if (isNaN(ww) && isNaN(pt) && isNaN(qa)) {
-        const part = parseFloat(updated.participation);
-        if (!isNaN(part)) {
-          weightedSum = part;
-          totalWeight = 1;
-        }
-      }
-
-      const initialGrade = totalWeight > 0 ? (weightedSum / totalWeight) : NaN;
-      updated.initial_grade = !isNaN(initialGrade) ? initialGrade.toFixed(2) : '';
-      updated.quarter_grade = !isNaN(initialGrade) ? String(transmuteGrade(initialGrade)) : '';
+      const computed = computeGradeRow(updated, wwWeight, ptWeight, qaWeight);
+      updated.initial_grade = computed.initial_grade;
+      updated.quarter_grade = computed.quarter_grade;
       return { ...prev, [studentId]: updated };
     });
   }
@@ -522,37 +643,111 @@ export default function TeacherGradesPage() {
       alert("Grade editing is restricted to assigned section teachers. Please contact school leadership for coverage or administrative authorization.");
       return;
     }
-    setSaving(true);
 
-    const rows = students.map(s => ({
-      student_record_id:    s.student_record_id,
-      subject,
-      quarter,
-      school_year_id:       currentSy?.id || null,
-      school_year:          currentSy?.year_label || '2025-2026',
-      written_works:        gradeMap[s.student_record_id]?.written_works        ? Number(gradeMap[s.student_record_id].written_works)        : 0,
-      performance_tasks:    gradeMap[s.student_record_id]?.performance_tasks    ? Number(gradeMap[s.student_record_id].performance_tasks)    : 0,
-      quarterly_assessment: gradeMap[s.student_record_id]?.quarterly_assessment ? Number(gradeMap[s.student_record_id].quarterly_assessment) : 0,
-      participation:        gradeMap[s.student_record_id]?.participation        ? Number(gradeMap[s.student_record_id].participation)        : 0,
-      quarter_grade:        gradeMap[s.student_record_id]?.quarter_grade        ? Number(gradeMap[s.student_record_id].quarter_grade)        : 0,
-      remarks:              gradeMap[s.student_record_id]?.remarks              ?? null,
-    }));
-
-    try {
-      // 1. Try upserting with multi-year conflict resolution
-      const { error: err1 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter,school_year' });
-      if (err1) {
-        // Fallback to legacy constraint if multi-year constraint not active in db
-        const { error: err2 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter' });
-        if (err2 && (err2.message?.includes('school_year') || err2.code === '42703')) {
-          const fallbackRows = rows.map(r => { const rest = { ...r }; delete rest.school_year_id; delete rest.school_year; return rest; });
-          await supabase.from('grades').upsert(fallbackRows, { onConflict: 'student_record_id,subject,quarter' });
+    const scoreFields = ['written_works', 'performance_tasks', 'quarterly_assessment', 'participation'];
+    for (const s of students) {
+      const g = gradeMap[s.student_record_id] || {};
+      for (const f of scoreFields) {
+        if (g[f] === '' || g[f] === null || g[f] === undefined) continue;
+        const num = Number(g[f]);
+        if (Number.isNaN(num) || num < 0 || num > 100) {
+          setSaveError(`Invalid score for ${s.first_name} ${s.last_name}: scores must be between 0 and 100.`);
+          return;
         }
       }
+    }
+
+    setSaving(true);
+    setSaved(false);
+    setSaveError('');
+
+    const hasVal = v => v !== '' && v !== null && v !== undefined && !Number.isNaN(Number(v));
+    const hasAnyData = g =>
+      hasVal(g.written_works) ||
+      hasVal(g.performance_tasks) ||
+      hasVal(g.quarterly_assessment) ||
+      hasVal(g.participation) ||
+      hasVal(g.quarter_grade) ||
+      Boolean(String(g.remarks ?? '').trim());
+
+    const rows = students
+      .filter(s => hasAnyData(gradeMap[s.student_record_id] || {}))
+      .map(s => {
+        const g = gradeMap[s.student_record_id] || {};
+        return {
+          student_record_id:    s.student_record_id,
+          subject,
+          quarter,
+          school_year_id:       currentSy?.id || null,
+          school_year:          currentSy?.year_label || '2026-2027',
+          written_works:        hasVal(g.written_works) ? Number(g.written_works) : null,
+          performance_tasks:    hasVal(g.performance_tasks) ? Number(g.performance_tasks) : null,
+          quarterly_assessment: hasVal(g.quarterly_assessment) ? Number(g.quarterly_assessment) : null,
+          participation:        hasVal(g.participation) ? Number(g.participation) : null,
+          quarter_grade:        hasVal(g.quarter_grade) ? Number(g.quarter_grade) : null,
+          remarks:              g.remarks ?? null,
+        };
+      });
+
+    const idsToDelete = students
+      .map(s => gradeMap[s.student_record_id])
+      .filter(g => g?.grade_id && !hasAnyData(g))
+      .map(g => g.grade_id);
+
+    if (rows.length === 0 && idsToDelete.length === 0) {
+      setSaving(false);
+      alert('Enter at least one student grade before saving.');
+      return;
+    }
+
+    try {
+      let finalError = null;
+      if (idsToDelete.length > 0) {
+        const { error: delErr } = await supabase.from('grades').delete().in('grade_id', idsToDelete);
+        if (delErr) throw delErr;
+      }
+
+      if (rows.length > 0) {
+        // 1. Try upserting with multi-year conflict resolution
+        const { error: err1 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter,school_year' });
+        if (err1) {
+          const isConstraintOrColErr = /42P10|42703|constraint|on conflict|school_year|schema cache/i.test(err1.message || err1.code || '');
+          if (isConstraintOrColErr) {
+            const { error: err2 } = await supabase.from('grades').upsert(rows, { onConflict: 'student_record_id,subject,quarter' });
+            if (err2 && /school_year|42703|schema cache/i.test(err2.message || err2.code || '')) {
+              const fallbackRows = rows.map(r => { const rest = { ...r }; delete rest.school_year_id; delete rest.school_year; return rest; });
+              const { error: err3 } = await supabase.from('grades').upsert(fallbackRows, { onConflict: 'student_record_id,subject,quarter' });
+              finalError = err3 || null;
+            } else {
+              finalError = err2 || null;
+            }
+          } else {
+            finalError = err1;
+          }
+        }
+      }
+      if (finalError) throw finalError;
+
+      // Refresh gradeMap with persisted grade_id values so newly saved rows can be cleared later if needed
+      if (rows.length > 0 || idsToDelete.length > 0) {
+        setGradeMap(prev => {
+          const next = { ...prev };
+          for (const id of idsToDelete) {
+            const entry = Object.entries(next).find(([, v]) => v?.grade_id === id);
+            if (entry) next[entry[0]] = { ...next[entry[0]], grade_id: undefined };
+          }
+          return next;
+        });
+      }
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
     } catch (e) {
       console.error('Error saving grades:', e);
+      setSaveError(e?.message || 'Failed to save grades to database.');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2500);
   }
 
   const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
@@ -609,10 +804,11 @@ export default function TeacherGradesPage() {
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {teacherSchedules.map(sch => {
+                  const schSecClean = sch.section_name ? cleanSectionName(sch.section_name, sch.grade_level) : '';
                   const isSelected =
                     String(gradeFilter) === String(sch.grade_level) &&
                     subject === sch.subject &&
-                    (!sch.section_name || sectionFilter === sch.section_name);
+                    (!schSecClean || cleanSectionName(sectionFilter, gradeFilter).toLowerCase().trim() === schSecClean.toLowerCase().trim());
                   return (
                     <button
                       key={sch.schedule_id}
@@ -620,13 +816,13 @@ export default function TeacherGradesPage() {
                       onClick={() => {
                         setGrade(String(sch.grade_level || ''));
                         setSubject(sch.subject || '');
-                        setSectionFilter(sch.section_name || '');
+                        setSectionFilter(schSecClean);
                       }}
                       className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
                       style={{ fontSize: '12px', padding: '4px 10px' }}
                     >
                       {sch.grade_level ? `Grade ${sch.grade_level}` : ''}
-                      {sch.section_name ? ` (${cleanSectionName(sch.section_name, sch.grade_level)})` : ''} — {sch.subject}
+                      {schSecClean ? ` (${schSecClean})` : ''} — {sch.subject}
                     </button>
                   );
                 })}
@@ -671,7 +867,10 @@ export default function TeacherGradesPage() {
                     const facRecId = profile?.faculty_record_id ? String(profile.faculty_record_id) : '';
                     const facId = (profile?.faculty_id || '').toLowerCase().trim();
                     const secAdv = sec.adviser_id ? String(sec.adviser_id) : '';
-                    const isAdviser = (facRecId && secAdv === facRecId) || (facId && secAdv.toLowerCase() === facId);
+                    const isAdviser =
+                      (facRecId && secAdv === facRecId) ||
+                      (facId && secAdv.toLowerCase() === facId) ||
+                      (!secAdv && profile?.adviser_grade_level && Number(profile.adviser_grade_level) === Number(gradeFilter) && (profile.role === 'Adviser' || profile.role === 'Both'));
 
                     if (isSecAssigned) tag = ' (Assigned)';
                     else if (isAdviser) tag = ' (Advisory)';
@@ -770,7 +969,9 @@ export default function TeacherGradesPage() {
                 fontWeight: '600',
               }}>
                 <IcoLock />
-                Grading for the {QUARTER_LABELS[quarter]} is locked by the administrator. Grade inputs are read-only.
+                {isHistoricalYear
+                  ? `Archived School Year (${currentSy?.year_label}): Grade entries are read-only.`
+                  : `Grading for the ${availableQuarters.find(q => q.key === quarter)?.label || QUARTER_LABELS[quarter] || quarter} is locked by the administrator. Grade inputs are read-only.`}
               </div>
             )}
 
@@ -874,10 +1075,12 @@ export default function TeacherGradesPage() {
                   gap: '8px',
                 }}>
                   <div>
-                    <span style={{ fontWeight: '600', color: '#1e293b' }}>Active Grading Policy:</span>{' '}
-                    <span>{activePolicy?.policy_name || 'Standard DepEd Policy'}</span>
+                    <span style={{ fontWeight: '600', color: '#1e293b' }}>Grading Policy:</span>{' '}
+                    <span>{gradeFilter ? `DepEd Order No. 8 (Grade ${gradeFilter})` : (activePolicy?.policy_name || 'Standard DepEd Policy')}</span>
                     <span style={{ margin: '0 8px', color: '#cbd5e1' }}>•</span>
                     <span>Weights: Written <strong>{(wwWeight * 100).toFixed(0)}%</strong> | Performance <strong>{(ptWeight * 100).toFixed(0)}%</strong> | Exam <strong>{(qaWeight * 100).toFixed(0)}%</strong></span>
+                    <span style={{ margin: '0 8px', color: '#cbd5e1' }}>•</span>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Quarter Grade calculates once WW, PT, and QA are entered.</span>
                   </div>
                   <div>
                     Passing Mark: <strong style={{ color: '#137333' }}>{passingMark}</strong>
@@ -951,6 +1154,11 @@ export default function TeacherGradesPage() {
                     </tbody>
                   </table>
                 </div>
+                {saveError && (
+                  <div style={{ marginTop: '12px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '13px', fontWeight: '600' }}>
+                    Error saving grades: {saveError}
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px', gap: '12px', alignItems: 'center' }}>
                   {gradingLocked && (
                     <span style={{ fontSize: '13px', color: '#856404', fontWeight: '600' }}>

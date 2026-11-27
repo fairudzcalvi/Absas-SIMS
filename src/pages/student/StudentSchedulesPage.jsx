@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { cleanSectionName } from '../../utils/formatters';
 import { parseScheduleDays, scheduleIncludesDay, formatDaysShort } from '../../utils/scheduleDays';
 
 /* ── SVG Icons (Strictly Zero Emojis) ────────────────────────── */
@@ -83,11 +84,12 @@ export default function StudentSchedulesPage() {
   const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [schedules, setSchedules] = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading]     = useState(false);
   const [viewMode, setViewMode]   = useState('grid'); // 'grid' (columns) | 'table'
 
   useEffect(() => {
     if (!profile?.grade_level) return;
+    let ignore = false;
     async function fetch() {
       setLoading(true);
       const { data } = await supabase
@@ -97,33 +99,34 @@ export default function StudentSchedulesPage() {
         .order('day_of_week')
         .order('time_start');
 
-      let filtered = data ?? [];
+      // Isolate to selected/active school year (preserving legacy null-SY schedules only when unset)
+      let filtered = (data ?? []).filter(s =>
+        !currentSy ||
+        (!s.school_year_id && !s.school_year) ||
+        (currentSy?.id && s.school_year_id && String(s.school_year_id) === String(currentSy.id)) ||
+        (currentSy?.year_label && s.school_year === currentSy.year_label)
+      );
 
-      // If student has a section_name, show their section's schedules plus grade-wide schedules
+      // Strictly show schedules for the student's own assigned section + grade-wide classes
       if (profile.section_name) {
-        const studentSec = profile.section_name.toLowerCase().trim();
-        const hasSectionMatches = filtered.some(s =>
-          s.section_name && (
-            s.section_name.toLowerCase().trim() === studentSec ||
-            studentSec.includes(s.section_name.toLowerCase().trim()) ||
-            s.section_name.toLowerCase().trim().includes(studentSec)
-          )
-        );
-
-        if (hasSectionMatches) {
-          filtered = filtered.filter(s => {
-            if (!s.section_name) return true; // Grade-wide class
-            const sec = s.section_name.toLowerCase().trim();
-            return sec === studentSec || studentSec.includes(sec) || sec.includes(studentSec);
-          });
-        }
+        const studentSec = cleanSectionName(profile.section_name, profile.grade_level).toLowerCase().trim();
+        filtered = filtered.filter(s => {
+          if (!s.section_name) return true; // Grade-wide class
+          const sec = cleanSectionName(s.section_name, profile.grade_level).toLowerCase().trim();
+          return sec === studentSec;
+        });
+      } else {
+        filtered = filtered.filter(s => !s.section_name);
       }
 
-      setSchedules(filtered);
-      setLoading(false);
+      if (!ignore) {
+        setSchedules(filtered);
+        setLoading(false);
+      }
     }
     fetch();
-  }, [supabase, profile]);
+    return () => { ignore = true; };
+  }, [supabase, profile, currentSy]);
 
   const byDay = useMemo(() => {
     return DAYS.reduce((acc, d) => {
@@ -140,7 +143,10 @@ export default function StudentSchedulesPage() {
     return dayNames[new Date().getDay()];
   }, []);
 
-  const totalClasses = schedules.length;
+  const totalClasses = useMemo(
+    () => DAYS.reduce((sum, d) => sum + (byDay[d]?.length || 0), 0),
+    [byDay]
+  );
   const uniqueSubjects = useMemo(() => {
     return Array.from(new Set(schedules.map(s => s.subject).filter(Boolean)));
   }, [schedules]);

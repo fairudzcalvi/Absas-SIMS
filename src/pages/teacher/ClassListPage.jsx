@@ -18,14 +18,6 @@ function IcoFilter() {
     </svg>
   );
 }
-function IcoAdd() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-      <line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" />
-    </svg>
-  );
-}
 function IcoExport() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -49,27 +41,10 @@ function IcoEdit() {
     </svg>
   );
 }
-function IcoTrash() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-    </svg>
-  );
-}
 function IcoClose() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-function IcoSave() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-      <polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" />
     </svg>
   );
 }
@@ -89,7 +64,7 @@ const EMPTY_FORM = {
 };
 
 export default function ClassListPage() {
-  const { supabase, selectedSchoolYear, activeSchoolYear } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [students, setStudents]     = useState([]);
@@ -106,8 +81,6 @@ export default function ClassListPage() {
   const [form, setForm]             = useState(EMPTY_FORM);
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [saved, setSaved]           = useState(false);
 
   useEffect(() => {
     async function loadSections() {
@@ -125,44 +98,91 @@ export default function ClassListPage() {
     loadSections();
   }, [supabase, currentSy]);
 
+  const loadStudentsList = useCallback(async () => {
+    const excludedStatuses = ['archived', 'inactive', 'dropped', 'transferred', 'transferred out', 'graduated'];
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .order('last_name');
+    if (error) {
+      console.error('Error loading class list:', error);
+      return [];
+    }
+
+    let list = data ?? [];
+    if (currentSy?.id) {
+      const [{ data: enrRows }, { data: sySecs }] = await Promise.all([
+        supabase.from('enrollments').select('student_record_id, grade_level, section_id, enrollment_status').eq('school_year_id', currentSy.id),
+        supabase.from('sections').select('id, section_name').eq('school_year_id', currentSy.id),
+      ]);
+      const activeEnrs = (enrRows || []).filter(e => !['Dropped', 'Transferred Out'].includes(e.enrollment_status));
+      if (activeEnrs.length > 0 || isHistoricalYear) {
+        const secById = new Map((sySecs || []).map(sc => [String(sc.id), sc.section_name]));
+        const enrByStu = new Map(activeEnrs.map(e => [e.student_record_id, e]));
+        list = list
+          .filter(s => enrByStu.has(s.student_record_id))
+          .map(s => {
+            const e = enrByStu.get(s.student_record_id);
+            const secName = e.section_id ? secById.get(String(e.section_id)) : null;
+            return {
+              ...s,
+              grade_level: e.grade_level ?? s.grade_level,
+              section_name: secName || (isHistoricalYear ? '' : s.section_name),
+            };
+          });
+      }
+    }
+
+    list = list.filter(s => {
+      if (!isHistoricalYear && (s.is_archived || excludedStatuses.includes((s.status || 'Active').toLowerCase()))) {
+        return false;
+      }
+      if (gradeFilter && Number(s.grade_level) !== Number(gradeFilter)) return false;
+      if (genderFilter && s.gender !== genderFilter) return false;
+      if (sectionFilter) {
+        const cleanSec = s.section_name ? cleanSectionName(s.section_name, s.grade_level).toLowerCase().trim() : '';
+        if (cleanSec !== sectionFilter.toLowerCase().trim()) return false;
+      }
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        const hay = [s.first_name, s.middle_name, s.last_name, `${s.first_name || ''} ${s.last_name || ''}`, s.student_id, s.lrn_id]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    return list;
+  }, [supabase, currentSy, isHistoricalYear, gradeFilter, sectionFilter, genderFilter, search]);
+
   const fetchStudents = useCallback(async () => {
     setLoading(true);
-    let q = supabase.from('students').select('*').order('last_name');
-    if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
-    if (genderFilter) q = q.eq('gender', genderFilter);
-    if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%,lrn_id.ilike.%${search}%`);
-    const { data } = await q;
-    let list = data ?? [];
-    if (sectionFilter) {
-      list = list.filter(s => s.section_name && cleanSectionName(s.section_name, s.grade_level).toLowerCase() === sectionFilter.toLowerCase());
-    }
+    const list = await loadStudentsList();
     setStudents(list);
     setLoading(false);
-  }, [supabase, gradeFilter, sectionFilter, genderFilter, search]);
+  }, [loadStudentsList]);
 
   useEffect(() => {
     let ignore = false;
     async function load() {
       setLoading(true);
-      let q = supabase.from('students').select('*').order('last_name');
-      if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
-      if (genderFilter) q = q.eq('gender', genderFilter);
-      if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%,lrn_id.ilike.%${search}%`);
-      const { data } = await q;
+      const list = await loadStudentsList();
       if (!ignore) {
-        let list = data ?? [];
-        if (sectionFilter) {
-          list = list.filter(s => s.section_name && cleanSectionName(s.section_name, s.grade_level).toLowerCase() === sectionFilter.toLowerCase());
-        }
         setStudents(list);
         setLoading(false);
       }
     }
     load();
     return () => { ignore = true; };
-  }, [supabase, gradeFilter, sectionFilter, genderFilter, search]);
+  }, [loadStudentsList]);
 
   function openEdit(s) {
+    if (isHistoricalYear) {
+      alert(`Archived School Year (${currentSy?.year_label}): Student records are read-only.`);
+      return;
+    }
     setEditStudent(s);
     setForm({
       student_id:       s.student_id       ?? '',
@@ -226,39 +246,39 @@ export default function ClassListPage() {
 
   async function handleSave(e) {
     e.preventDefault();
+    if (!editStudent) return;
+    if (isHistoricalYear) {
+      setFormError(`Cannot edit students while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     if (!form.first_name || !form.last_name) { setFormError('First and last name required.'); return; }
     setSaving(true);
-    const cleanId = form.student_id || (form.lrn_id ? form.lrn_id : `STU-${Date.now()}`);
+    // Teachers can only update contact, guardian, demographic details & portrait photo;
+    // admissions fields (grade, section, enrollment type, LRN, status) are locked to Admin/Registrar.
     const payload = {
-      ...form,
-      student_id:  cleanId,
-      grade_level: form.grade_level ? Number(form.grade_level) : null,
-      age:         form.age         ? Number(form.age)         : null,
-      photo_url:   form.photo_url   || null,
+      age:              form.age ? Number(form.age) : null,
+      birthdate:        form.birthdate || null,
+      contact_number:   form.contact_number ? form.contact_number.trim() : null,
+      guardian_name:    form.guardian_name ? form.guardian_name.trim() : null,
+      guardian_contact: form.guardian_contact ? form.guardian_contact.trim() : null,
+      photo_url:        form.photo_url || null,
     };
-    if (editStudent) {
-      const { error } = await supabase.from('students').update(payload).eq('student_record_id', editStudent.student_record_id);
-      if (error) { setFormError(error.message); setSaving(false); return; }
-    } else {
-      const { error } = await supabase.from('students').insert([payload]);
-      if (error) { setFormError(error.message); setSaving(false); return; }
-    }
+    const { error } = await supabase
+      .from('students')
+      .update(payload)
+      .eq('student_record_id', editStudent.student_record_id);
+    if (error) { setFormError(error.message); setSaving(false); return; }
     setSaving(false);
     setModalOpen(false);
-    fetchStudents();
-  }
-
-  async function handleDelete() {
-    if (!deleteTarget) return;
-    await supabase.from('students').delete().eq('student_record_id', deleteTarget.student_record_id);
-    setDeleteTarget(null);
     fetchStudents();
   }
 
   function exportCSV() {
     const headers = ['Student ID', 'LRN', 'Name', 'Grade', 'Section', 'Gender', 'Age', 'Contact', 'Guardian', 'Status'];
     const rows = students.map(s => [s.student_id, s.lrn_id, `${s.first_name} ${s.last_name}`, s.grade_level, s.section_name, s.gender, s.age, s.contact_number, s.guardian_name, s.status]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v ?? ''}"`).join(',')).join('\n');
+    const csv = [headers, ...rows]
+      .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'class_list.csv'; a.click(); URL.revokeObjectURL(url);
   }
@@ -272,18 +292,6 @@ export default function ClassListPage() {
         .map(sec => cleanSectionName(sec.section_name, sec.grade_level)),
       ...students
         .filter(s => !gradeFilter || s.grade_level === Number(gradeFilter))
-        .map(s => s.section_name ? cleanSectionName(s.section_name, s.grade_level) : null)
-        .filter(Boolean),
-    ])
-  ).sort();
-
-  const availableModalSections = Array.from(
-    new Set([
-      ...sectionsList
-        .filter(sec => !form.grade_level || sec.grade_level === Number(form.grade_level))
-        .map(sec => cleanSectionName(sec.section_name, sec.grade_level)),
-      ...students
-        .filter(s => !form.grade_level || s.grade_level === Number(form.grade_level))
         .map(s => s.section_name ? cleanSectionName(s.section_name, s.grade_level) : null)
         .filter(Boolean),
     ])
@@ -374,11 +382,8 @@ export default function ClassListPage() {
         {/* Table */}
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title"><IcoStudents /> All Students</h2>
+            <h2 className="card-title"><IcoStudents /> Class List Students</h2>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { setEditStudent(null); setForm(EMPTY_FORM); setFormError(''); setModalOpen(true); }}>
-                <IcoAdd /> Add Student
-              </button>
               <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
                 <IcoExport /> Export
               </button>
@@ -447,27 +452,21 @@ export default function ClassListPage() {
                         {s.gender || '—'}
                       </span>
                     </td>
-                    <td>{s.age ?? 'undefined'}</td>
+                    <td>{s.age ?? '—'}</td>
                     <td>{s.guardian_name ?? 'N/A'}</td>
                     <td>{s.contact_number ?? 'N/A'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '4px' }}>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '5px 8px' }} onClick={() => setViewStudent(s)} title="View"><IcoView /></button>
-                        <button className="btn btn-secondary btn-sm" style={{ padding: '5px 8px' }} onClick={() => openEdit(s)} title="Edit"><IcoEdit /></button>
-                        <button className="btn btn-danger btn-sm" style={{ padding: '5px 8px' }} onClick={() => setDeleteTarget(s)} title="Delete"><IcoTrash /></button>
+                        {!isHistoricalYear && (
+                          <button className="btn btn-secondary btn-sm" style={{ padding: '5px 8px' }} onClick={() => openEdit(s)} title="Update Contact & Photo"><IcoEdit /></button>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-
-          {/* Save button */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-            <button className="btn btn-primary" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000); }}>
-              <IcoSave /> {saved ? 'Saved!' : 'Save'}
-            </button>
           </div>
         </div>
       </div>
@@ -621,87 +620,46 @@ export default function ClassListPage() {
                   </div>
                 </div>
 
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '8px 12px', borderRadius: '6px', marginBottom: '14px', fontSize: '12px' }}>
+                  <strong>Note:</strong> Enrollment, Grade Level, and Section changes are managed by the Registrar/Admin in Enrollment &amp; Student Records. Teachers may update student portrait photos and parent/guardian contact info here.
+                </div>
+
                 <div className="form-grid">
                   {[
-                    ['DepEd LRN (12 Digits)', 'lrn_id', 'text', 'Learner Reference Number'],
-                    ['First Name *', 'first_name', 'text', 'First name'],
-                    ['Middle Name', 'middle_name', 'text', 'Middle name'],
-                    ['Last Name *', 'last_name', 'text', 'Last name'],
-                    ['Age', 'age', 'number', 'Age'],
-                    ['Birthdate', 'birthdate', 'date', ''],
-                    ['Contact Number', 'contact_number', 'text', 'Contact'],
-                    ['Guardian Name', 'guardian_name', 'text', 'Guardian full name'],
-                    ['Guardian Contact', 'guardian_contact', 'text', 'Guardian contact'],
-                  ].map(([label, field, type, placeholder]) => (
+                    ['DepEd LRN (Read-Only)', 'lrn_id', 'text', '', true],
+                    ['First Name (Read-Only)', 'first_name', 'text', '', true],
+                    ['Last Name (Read-Only)', 'last_name', 'text', '', true],
+                    ['Age', 'age', 'number', 'Age', false],
+                    ['Birthdate', 'birthdate', 'date', '', false],
+                    ['Contact Number', 'contact_number', 'text', 'Contact', false],
+                    ['Guardian Name', 'guardian_name', 'text', 'Guardian full name', false],
+                    ['Guardian Contact', 'guardian_contact', 'text', 'Guardian contact', false],
+                  ].map(([label, field, type, placeholder, locked]) => (
                     <div className="form-group" key={field}>
                       <label>{label}</label>
-                      <input type={type} value={form[field]} placeholder={placeholder} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} />
+                      <input
+                        type={type}
+                        value={form[field]}
+                        placeholder={placeholder}
+                        disabled={locked}
+                        onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+                      />
                     </div>
                   ))}
                   <div className="form-group">
-                    <label>Grade Level</label>
-                    <select value={form.grade_level} onChange={e => setForm(f => ({ ...f, grade_level: e.target.value }))}>
-                      <option value="">Select grade</option>
-                      {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Section</label>
+                    <label>Grade &amp; Section (Read-Only)</label>
                     <input
-                      list="sections-modal-list"
-                      value={form.section_name}
-                      placeholder="Select or type section"
-                      onChange={e => setForm(f => ({ ...f, section_name: e.target.value }))}
+                      value={`${form.grade_level ? `Grade ${form.grade_level}` : '—'}${form.section_name ? ` - ${cleanSectionName(form.section_name, form.grade_level)}` : ''}`}
+                      disabled
                     />
-                    <datalist id="sections-modal-list">
-                      {availableModalSections.map(secName => (
-                        <option key={secName} value={secName} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div className="form-group">
-                    <label>Gender</label>
-                    <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))}>
-                      <option value="">Select</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Status</label>
-                    <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                      <option value="Graduated">Graduated</option>
-                      <option value="Transferred">Transferred</option>
-                    </select>
                   </div>
                 </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Contact Info'}</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirm */}
-      {deleteTarget && (
-        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setDeleteTarget(null); }}>
-          <div className="modal-content" style={{ maxWidth: '400px' }}>
-            <div className="modal-header">
-              <h3 className="modal-title"><IcoTrash /> Delete Student</h3>
-              <button className="modal-close" onClick={() => setDeleteTarget(null)}><IcoClose /></button>
-            </div>
-            <div className="modal-body">
-              <p style={{ fontSize: '15px', color: '#444' }}>Delete <strong>{deleteTarget.first_name} {deleteTarget.last_name}</strong>? This cannot be undone.</p>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={handleDelete}>Delete</button>
-            </div>
           </div>
         </div>
       )}

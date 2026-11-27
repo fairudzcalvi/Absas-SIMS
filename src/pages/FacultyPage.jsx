@@ -178,6 +178,7 @@ const EMPTY_FORM = {
   department:          'Junior High School',
   position:            'Subject Teacher',
   role:                'Teacher',
+  coverage_authorized: false,
   adviser_grade_level: '',
   subjects_taught:     '',
   employment_status:   'Active',
@@ -331,6 +332,11 @@ export default function FacultyPage() {
       department:          item.department          ?? 'Junior High School',
       position:            item.position            ?? 'Subject Teacher',
       role:                item.role                ?? 'Teacher',
+      coverage_authorized: Boolean(
+        item.coverage_authorized ||
+        (item.position || '').toLowerCase().includes('coverage') ||
+        (item.position || '').toLowerCase().includes('coordinator')
+      ),
       adviser_grade_level: item.adviser_grade_level ?? '',
       subjects_taught:     item.subjects_taught     ?? '',
       employment_status:   item.employment_status   ?? 'Active',
@@ -394,13 +400,25 @@ export default function FacultyPage() {
       return;
     }
 
-    // Fallback email if empty so NOT NULL constraint doesn't fail
-    const cleanFirstName = form.first_name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanLastName = form.last_name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    const finalEmail = form.email && form.email.trim()
-      ? normalizeEmail(form.email)
-      : `${cleanFirstName}.${cleanLastName}@absas.edu`;
+    const trimmedEmail = (form.email || '').trim();
+    if (!trimmedEmail) {
+      setFormError('Official Email Address is required.');
+      setSaving(false);
+      return;
+    }
+    const finalEmail = normalizeEmail(trimmedEmail);
+    const emailDup = faculty.find(
+      f =>
+        f.faculty_record_id !== editItem?.faculty_record_id &&
+        normalizeEmail(f.email || '') === finalEmail
+    );
+    if (emailDup) {
+      setFormError(`Email "${finalEmail}" is already assigned to ${emailDup.first_name} ${emailDup.last_name}.`);
+      setSaving(false);
+      return;
+    }
 
+    const willBeArchived = form.employment_status === 'Archived';
     const payload = {
       faculty_id:          facultyIdFinal || null,
       first_name:          form.first_name.trim(),
@@ -413,11 +431,12 @@ export default function FacultyPage() {
       department:          form.department          || null,
       position:            form.position            || 'Subject Teacher',
       role:                form.role                || 'Teacher',
+      coverage_authorized: Boolean(form.coverage_authorized),
       adviser_grade_level: form.adviser_grade_level ? Number(form.adviser_grade_level) : null,
       subjects_taught:     form.subjects_taught     || null,
       employment_status:   form.employment_status   || 'Active',
       hire_date:           form.hire_date           || null,
-      is_archived:         form.employment_status === 'Archived' || form.is_archived === true,
+      is_archived:         willBeArchived,
     };
 
     async function executeSave(cleanPayload) {
@@ -458,12 +477,35 @@ export default function FacultyPage() {
           res = await executeSave(fallback);
         } else if (res.error.message.includes('schema cache') || res.error.message.includes('column')) {
           const fallback = { ...payload };
-          delete fallback.is_archived;
+          if (res.error.message.includes('coverage_authorized')) {
+            delete fallback.coverage_authorized;
+            if (payload.coverage_authorized && !String(fallback.position || '').toLowerCase().includes('coverage')) {
+              fallback.position = `${fallback.position || 'Subject Teacher'} (Coverage Authorized)`;
+            }
+          }
+          if (res.error.message.includes('is_archived')) delete fallback.is_archived;
+          if (!res.error.message.includes('coverage_authorized') && !res.error.message.includes('is_archived')) {
+            delete fallback.coverage_authorized;
+            delete fallback.is_archived;
+          }
           res = await executeSave(fallback);
         }
       }
 
       if (res.error) throw res.error;
+
+      // Cascade email change to existing schedules & clear advisory assignments if archived
+      if (editItem?.email && normalizeEmail(editItem.email) !== finalEmail) {
+        await supabase
+          .from('schedules')
+          .update({ teacher: finalEmail })
+          .ilike('teacher', normalizeEmail(editItem.email));
+      }
+      if (editItem && willBeArchived) {
+        let advClear = supabase.from('sections').update({ adviser_id: null }).eq('adviser_id', editItem.faculty_record_id);
+        if (currentSy?.id) advClear = advClear.eq('school_year_id', currentSy.id);
+        await advClear;
+      }
 
       setModalOpen(false);
       fetchData();
@@ -483,24 +525,37 @@ export default function FacultyPage() {
     if (!archiveTarget) return;
     const { faculty: fac, shouldArchive } = archiveTarget;
     try {
-      await supabase
+      const { error } = await supabase
         .from('faculty')
         .update({
           is_archived: shouldArchive,
           employment_status: shouldArchive ? 'Archived' : 'Active',
         })
         .eq('faculty_record_id', fac.faculty_record_id);
+      if (error) throw error;
+
+      if (shouldArchive) {
+        let advClear = supabase.from('sections').update({ adviser_id: null }).eq('adviser_id', fac.faculty_record_id);
+        if (currentSy?.id) advClear = advClear.eq('school_year_id', currentSy.id);
+        await advClear;
+      }
       setArchiveTarget(null);
       fetchData();
     } catch (err) {
       console.error('Error archiving faculty:', err);
+      alert(err?.message || 'Failed to update faculty archive status.');
     }
   }
 
   /* Permanent Delete */
   async function handleDelete() {
     if (!deleteTarget) return;
-    await supabase.from('faculty').delete().eq('faculty_record_id', deleteTarget.faculty_record_id);
+    await supabase.from('sections').update({ adviser_id: null }).eq('adviser_id', deleteTarget.faculty_record_id);
+    const { error } = await supabase.from('faculty').delete().eq('faculty_record_id', deleteTarget.faculty_record_id);
+    if (error) {
+      alert(`Failed to delete faculty record: ${error.message}`);
+      return;
+    }
     setDeleteTarget(null);
     fetchData();
   }
@@ -792,6 +847,8 @@ export default function FacultyPage() {
                             </button>
                             <button
                               className="btn btn-secondary btn-sm"
+                              disabled={isArch}
+                              style={isArch ? { opacity: 0.45, cursor: 'not-allowed' } : {}}
                               onClick={() => setLoginTarget({
                                 name: `${f.first_name} ${f.last_name}`,
                                 email: f.email,
@@ -799,7 +856,7 @@ export default function FacultyPage() {
                                 id: f.faculty_record_id,
                                 type: 'faculty',
                               })}
-                              title="Create Portal Login"
+                              title={isArch ? 'Restore active faculty before creating portal login' : 'Create Portal Login'}
                             >
                               <IcoKey />
                             </button>
@@ -870,21 +927,23 @@ export default function FacultyPage() {
               >
                 <IcoCalendar /> View Schedules
               </button>
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  const target = viewFaculty;
-                  setLoginTarget({
-                    name: `${target.first_name} ${target.last_name}`,
-                    email: target.email,
-                    role: target.role || 'Teacher',
-                    id: target.faculty_record_id,
-                    type: 'faculty',
-                  });
-                }}
-              >
-                <IcoKey /> Create Portal Login
-              </button>
+              {!(viewFaculty.is_archived || ['archived', 'inactive', 'resigned', 'terminated', 'retired', 'transferred'].includes((viewFaculty.employment_status || '').toLowerCase())) && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    const target = viewFaculty;
+                    setLoginTarget({
+                      name: `${target.first_name} ${target.last_name}`,
+                      email: target.email,
+                      role: target.role || 'Teacher',
+                      id: target.faculty_record_id,
+                      type: 'faculty',
+                    });
+                  }}
+                >
+                  <IcoKey /> Create Portal Login
+                </button>
+              )}
               <button className="btn btn-primary" onClick={() => { const target = viewFaculty; setViewFaculty(null); openEdit(target); }}>
                 <IcoEdit /> Edit Profile
               </button>
@@ -962,6 +1021,7 @@ export default function FacultyPage() {
                         value={form.email}
                         onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                         placeholder="e.g. maria.santos@absas.edu"
+                        required
                       />
                     </div>
                     <div className="form-group">
@@ -1014,26 +1074,12 @@ export default function FacultyPage() {
                         borderRadius: '8px',
                         padding: '12px 14px',
                       }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0, fontWeight: '600', color: '#1e293b' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: form.role === 'Administrator' ? 'not-allowed' : 'pointer', margin: 0, fontWeight: '600', color: '#1e293b' }}>
                           <input
                             type="checkbox"
-                            checked={
-                              (form.position || '').toLowerCase().includes('coverage') ||
-                              (form.position || '').toLowerCase().includes('coordinator') ||
-                              form.role === 'Administrator'
-                            }
-                            onChange={e => {
-                              const checked = e.target.checked;
-                              if (checked) {
-                                if (!form.position.toLowerCase().includes('principal') && !form.position.toLowerCase().includes('head')) {
-                                  setForm(f => ({ ...f, position: 'Subject Teacher (Coverage Authorized)' }));
-                                }
-                              } else {
-                                if (form.position === 'Subject Teacher (Coverage Authorized)') {
-                                  setForm(f => ({ ...f, position: 'Subject Teacher' }));
-                                }
-                              }
-                            }}
+                            checked={Boolean(form.coverage_authorized || form.role === 'Administrator')}
+                            disabled={form.role === 'Administrator'}
+                            onChange={e => setForm(f => ({ ...f, coverage_authorized: e.target.checked }))}
                             style={{ width: '16px', height: '16px' }}
                           />
                           <span>Authorize for Administrative Grade Editing &amp; Coverage Duties</span>
@@ -1182,7 +1228,14 @@ export default function FacultyPage() {
                   <div className="form-grid">
                     <div className="form-group">
                       <label>Employment Status</label>
-                      <select value={form.employment_status} onChange={e => setForm(f => ({ ...f, employment_status: e.target.value }))}>
+                      <select
+                        value={form.employment_status}
+                        onChange={e => setForm(f => ({
+                          ...f,
+                          employment_status: e.target.value,
+                          is_archived: e.target.value === 'Archived',
+                        }))}
+                      >
                         <option value="Active">Active (Full-Time)</option>
                         <option value="Part-Time">Part-Time</option>
                         <option value="On Leave">On Leave</option>

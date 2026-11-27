@@ -798,10 +798,15 @@ BEGIN
             ALTER TABLE public.students ADD COLUMN previous_school_address TEXT;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='last_grade_completed') THEN
-            ALTER TABLE public.students ADD COLUMN last_grade_completed INT;
+            ALTER TABLE public.students ADD COLUMN last_grade_completed VARCHAR(50);
+        ELSE
+            ALTER TABLE public.students ALTER COLUMN last_grade_completed TYPE VARCHAR(50) USING last_grade_completed::text;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='last_school_year') THEN
             ALTER TABLE public.students ADD COLUMN last_school_year VARCHAR(50);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='months_elapsed') THEN
+            ALTER TABLE public.students ADD COLUMN months_elapsed INT DEFAULT 0;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='students' AND column_name='completion_confirmed') THEN
             ALTER TABLE public.students ADD COLUMN completion_confirmed BOOLEAN DEFAULT FALSE;
@@ -826,7 +831,9 @@ BEGIN
             ALTER TABLE public.enrollments ADD COLUMN previous_school_address TEXT;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='enrollments' AND column_name='last_grade_completed') THEN
-            ALTER TABLE public.enrollments ADD COLUMN last_grade_completed INT;
+            ALTER TABLE public.enrollments ADD COLUMN last_grade_completed VARCHAR(50);
+        ELSE
+            ALTER TABLE public.enrollments ALTER COLUMN last_grade_completed TYPE VARCHAR(50) USING last_grade_completed::text;
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='enrollments' AND column_name='last_school_year') THEN
             ALTER TABLE public.enrollments ADD COLUMN last_school_year VARCHAR(50);
@@ -852,6 +859,7 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='subjects' AND column_name='days_of_week') THEN
             ALTER TABLE public.subjects ADD COLUMN days_of_week VARCHAR(100);
         END IF;
+        ALTER TABLE public.subjects ALTER COLUMN semester TYPE VARCHAR(50);
     END IF;
 
     IF to_regclass('public.schedules') IS NOT NULL THEN

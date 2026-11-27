@@ -29,14 +29,17 @@ export function parseScheduleDays(input) {
   const lower = raw.toLowerCase();
   const matched = new Set();
 
-  // Direct full/abbreviated day names
-  if (/\bmon(day)?\b/i.test(lower)) matched.add('Monday');
-  if (/\btue(s|sday)?\b/i.test(lower)) matched.add('Tuesday');
-  if (/\bwed(nesday)?\b/i.test(lower)) matched.add('Wednesday');
-  if (/\bthu(rs|rsday)?\b/i.test(lower)) matched.add('Thursday');
-  if (/\bfri(day)?\b/i.test(lower)) matched.add('Friday');
+  // Tokenize delimited full/short day names & mixed separators (e.g. "Tue, Th", "M-W-F", "Mon/Wed/Fri")
+  const tokens = lower.split(/[\s,;/&+-]+/).filter(Boolean);
+  for (const tok of tokens) {
+    if (tok === 'm' || tok === 'mon' || tok === 'monday') matched.add('Monday');
+    else if (tok === 't' || tok === 'tue' || tok === 'tues' || tok === 'tuesday') matched.add('Tuesday');
+    else if (tok === 'w' || tok === 'wed' || tok === 'wednesday') matched.add('Wednesday');
+    else if (tok === 'th' || tok === 'thu' || tok === 'thur' || tok === 'thurs' || tok === 'thursday') matched.add('Thursday');
+    else if (tok === 'f' || tok === 'fri' || tok === 'friday') matched.add('Friday');
+  }
 
-  // Compact codes like M-W-F, MWF, T-Th, TTh, M-F
+  // Concatenated compact codes without delimiters like MWF, TTh, MTWThF, MF
   if (matched.size === 0) {
     const compact = raw.replace(/[^a-z]/gi, '').toUpperCase();
     if (compact === 'MF' || compact === 'MTWTHF') {

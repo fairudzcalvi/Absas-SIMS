@@ -171,7 +171,7 @@ const EMPTY_FORM = {
 
 /* ── Main Students Page ─────────────────────────────────── */
 export default function StudentsPage() {
-  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter, selectedQuarter, isHistoricalYear } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
   const navigate = useNavigate();
 
@@ -222,7 +222,7 @@ export default function StudentsPage() {
       // 2. Fetch Sections
       let secQuery = supabase
         .from('sections')
-        .select('id, grade_level, section_name, room_number, strand_id, status')
+        .select('id, grade_level, section_name, room_number, strand_id, max_capacity, status')
         .eq('status', 'Active')
         .order('section_name', { ascending: true });
       if (currentSy?.id) {
@@ -298,6 +298,10 @@ export default function StudentsPage() {
 
   /* Open Edit Modal */
   function openEdit(student) {
+    if (isHistoricalYear) {
+      alert(`Switch back to the Active School Year before editing ${student.first_name} ${student.last_name}.`);
+      return;
+    }
     setEditStudent(student);
     setForm({
       student_id:               student.student_id         ?? '',
@@ -318,7 +322,7 @@ export default function StudentsPage() {
       last_school_year:         student.last_school_year   ?? '',
       months_elapsed:           Number(student.months_elapsed ?? 0),
       is_repeater:              Boolean(student.is_repeater),
-      completion_confirmed:     Boolean(student.completion_confirmed),
+      completion_confirmed:     false,
       gender:                   student.gender             ?? '',
       birthdate:                student.birthdate          ?? '',
       age:                      student.age                ?? '',
@@ -338,6 +342,10 @@ export default function StudentsPage() {
 
   /* Open Grade Completion Verification & Promotion Modal */
   async function openPromoteModal(student) {
+    if (isHistoricalYear) {
+      alert('Switch back to the Active School Year before promoting students.');
+      return;
+    }
     const curGrade = Number(student.grade_level || 1);
     if (curGrade >= 12) return;
     setPromoteTarget({
@@ -349,6 +357,7 @@ export default function StudentsPage() {
       confirmed: false,
       saving: false,
       nextSectionId: '',
+      strand_id: curGrade + 1 >= 11 ? (curGrade === 10 ? '' : (student.current_strand_id || '')) : '',
     });
     try {
       const { data: gData } = await supabase
@@ -370,21 +379,45 @@ export default function StudentsPage() {
 
   async function handleConfirmPromote() {
     if (!promoteTarget || !promoteTarget.confirmed) return;
+    if (isHistoricalYear) {
+      alert('Switch back to the Active School Year before promoting students.');
+      return;
+    }
+    const s = promoteTarget.student;
+    const nextGrade = Number(s.grade_level || 1) + 1;
+    if (nextGrade >= 11 && !promoteTarget.strand_id) {
+      alert('Please select a Senior High School (SHS) strand before promoting to Grade 11/12.');
+      return;
+    }
     setPromoteTarget(prev => ({ ...prev, saving: true }));
     try {
-      const s = promoteTarget.student;
-      const nextGrade = Number(s.grade_level || 1) + 1;
       const secObj = sections.find(sec => String(sec.id) === String(promoteTarget.nextSectionId));
       const secName = secObj ? cleanSectionName(secObj.section_name, nextGrade) : null;
+
+      if (secObj) {
+        const cap = Number(secObj.max_capacity || 45);
+        const currentCount = students.filter(st =>
+          !st.is_archived &&
+          !['archived', 'inactive', 'graduated', 'dropped', 'transferred', 'transferred out'].includes((st.status || 'Active').toLowerCase()) &&
+          st.student_record_id !== s.student_record_id &&
+          Number(st.grade_level) === nextGrade &&
+          (String(st.current_section_id) === String(secObj.id) || cleanSectionName(st.section_name, nextGrade).toLowerCase().trim() === secName.toLowerCase().trim())
+        ).length;
+        if (currentCount >= cap) {
+          throw new Error(`Section "${secName}" (Grade ${nextGrade}) is already at max capacity (${currentCount}/${cap}).`);
+        }
+      }
 
       const coreUpdate = {
         grade_level: nextGrade,
         current_section_id: secObj ? secObj.id : null,
+        current_strand_id: nextGrade >= 11 ? (promoteTarget.strand_id || null) : null,
         section_name: secName,
         student_type: 'Continuing',
       };
       const extUpdate = {
         ...coreUpdate,
+        months_elapsed: 0,
         completion_confirmed: true,
         is_repeater: false,
       };
@@ -399,6 +432,25 @@ export default function StudentsPage() {
           .eq('student_record_id', s.student_record_id));
       }
       if (error) throw error;
+
+      if (activeSchoolYear?.id) {
+        const enrUpd = await supabase
+          .from('enrollments')
+          .update({
+            grade_level: nextGrade,
+            section_id: secObj ? secObj.id : null,
+            strand_id: nextGrade >= 11 ? (promoteTarget.strand_id || null) : null,
+          })
+          .eq('student_record_id', s.student_record_id)
+          .eq('school_year_id', activeSchoolYear.id);
+        if (enrUpd.error && /strand_id|42703|column/i.test(enrUpd.error.message || '')) {
+          await supabase
+            .from('enrollments')
+            .update({ grade_level: nextGrade, section_id: secObj ? secObj.id : null })
+            .eq('student_record_id', s.student_record_id)
+            .eq('school_year_id', activeSchoolYear.id);
+        }
+      }
       setPromoteTarget(null);
       fetchData();
     } catch (err) {
@@ -449,6 +501,10 @@ export default function StudentsPage() {
   /* Handle Save / Update Student */
   async function handleSave(e) {
     e.preventDefault();
+    if (isHistoricalYear) {
+      setFormError(`Cannot modify student records while viewing archived S.Y. ${currentSy?.year_label}.`);
+      return;
+    }
     if (!form.first_name || !form.last_name || !form.grade_level || !form.gender) {
       setFormError('First name, last name, grade level, and gender are required.');
       return;
@@ -467,6 +523,10 @@ export default function StudentsPage() {
     }
     if (form.student_type === 'Transferee' && !form.previous_school?.trim()) {
       setFormError('Please specify the Previous School Name for a Transferee.');
+      return;
+    }
+    if (editStudent && form.student_type === 'Repeater' && Number(form.grade_level) > Number(editStudent.grade_level)) {
+      setFormError(`Repeater category cannot raise grade level above Grade ${editStudent.grade_level}. Change Student Type to Continuing to promote.`);
       return;
     }
     if (
@@ -513,7 +573,13 @@ export default function StudentsPage() {
       last_school_year:         form.student_type === 'Transferee' ? (form.last_school_year?.trim() || null) : null,
       months_elapsed:           form.student_type === 'Transferee' ? Math.min(9, Math.max(0, Number(form.months_elapsed) || 0)) : 0,
       is_repeater:              form.student_type === 'Repeater',
-      completion_confirmed:     Boolean(form.completion_confirmed),
+      completion_confirmed:     editStudent
+        ? (Number(form.grade_level) > Number(editStudent.grade_level)
+          ? Boolean(form.completion_confirmed)
+          : form.student_type === 'Repeater'
+            ? false
+            : Boolean(editStudent.completion_confirmed))
+        : Boolean(form.completion_confirmed),
       gender:                   form.gender,
       birthdate:          form.birthdate          || null,
       age:                form.age                ? Number(form.age) : null,
@@ -524,7 +590,7 @@ export default function StudentsPage() {
       guardian_contact:   form.guardian_contact   ? form.guardian_contact.trim() : null,
       guardian_relation:  form.guardian_relation  || 'Parent',
       status:             form.status             || 'Active',
-      is_archived:        form.status === 'Archived' || form.is_archived === true,
+      is_archived:        form.status === 'Archived',
       photo_url:          form.photo_url          || null,
     };
 
@@ -542,14 +608,16 @@ export default function StudentsPage() {
     try {
       let res = await executeSave(payload);
 
-      // If Supabase complains about a column not in schema cache / relation
-      if (res.error && res.error.message && (res.error.message.includes('schema cache') || res.error.message.includes('column'))) {
+      // Handle legacy INT last_grade_completed before SQL patch re-run
+      if (res.error && /22P02|invalid input syntax/i.test(res.error.message || '') && payload.last_grade_completed != null) {
+        const digits = String(payload.last_grade_completed).replace(/\D/g, '');
+        payload.last_grade_completed = digits ? Number(digits) : null;
+        res = await executeSave(payload);
+      }
+
+      // If Supabase schema cache lacks recently added revision columns, strip only those optional fields
+      if (res.error && res.error.message && (res.error.message.includes('schema cache') || res.error.message.includes('column') || res.error.code === '42703')) {
         const fallbackPayload = { ...payload };
-        delete fallbackPayload.address;
-        delete fallbackPayload.guardian_relation;
-        delete fallbackPayload.current_strand_id;
-        delete fallbackPayload.current_section_id;
-        delete fallbackPayload.scholarship_id;
         delete fallbackPayload.secondary_scholarship_id;
         delete fallbackPayload.previous_school;
         delete fallbackPayload.previous_school_address;
@@ -558,25 +626,46 @@ export default function StudentsPage() {
         delete fallbackPayload.months_elapsed;
         delete fallbackPayload.is_repeater;
         delete fallbackPayload.completion_confirmed;
-        delete fallbackPayload.student_type;
-        delete fallbackPayload.is_archived;
 
         res = await executeSave(fallbackPayload);
       }
 
       if (res.error) throw res.error;
 
-      // Keep student's single enrollment row for current S.Y. aligned to ONE section
-      if (editStudent && currentSy?.id && form.current_section_id) {
-        await supabase
+      // Keep student's active-SY enrollment row aligned across placement, grants, and lifecycle status
+      const targetSyId = activeSchoolYear?.id || currentSy?.id;
+      if (editStudent && targetSyId) {
+        const stuSt = (form.status || 'Active').toLowerCase();
+        const mappedEnrStatus =
+          stuSt === 'graduated' ? 'Graduated' :
+          (stuSt === 'transferred' || stuSt === 'transferred out') ? 'Transferred Out' :
+          (stuSt === 'archived' || stuSt === 'dropped' || stuSt === 'inactive') ? 'Dropped' : 'Enrolled';
+
+        const enrSyncFull = {
+          section_id: form.current_section_id || null,
+          grade_level: Number(form.grade_level),
+          strand_id: Number(form.grade_level) >= 11 && form.current_strand_id ? form.current_strand_id : null,
+          scholarship_id: form.scholarship_id || null,
+          secondary_scholarship_id: form.secondary_scholarship_id || null,
+          enrollment_status: mappedEnrStatus,
+        };
+        const enrSyncRes = await supabase
           .from('enrollments')
-          .update({
-            section_id: form.current_section_id,
-            grade_level: Number(form.grade_level),
-            scholarship_id: form.scholarship_id || null,
-          })
+          .update(enrSyncFull)
           .eq('student_record_id', editStudent.student_record_id)
-          .eq('school_year_id', currentSy.id);
+          .eq('school_year_id', targetSyId);
+        if (enrSyncRes.error && /column|schema cache|42703/i.test(enrSyncRes.error.message || '')) {
+          await supabase
+            .from('enrollments')
+            .update({
+              section_id: form.current_section_id || null,
+              grade_level: Number(form.grade_level),
+              scholarship_id: form.scholarship_id || null,
+              enrollment_status: mappedEnrStatus,
+            })
+            .eq('student_record_id', editStudent.student_record_id)
+            .eq('school_year_id', targetSyId);
+        }
       }
 
       setModalOpen(false);
@@ -590,6 +679,10 @@ export default function StudentsPage() {
 
   /* Open Archive / Restore Modal */
   function openArchiveModal(student, shouldArchive) {
+    if (isHistoricalYear) {
+      alert(`Switch back to the Active School Year before modifying ${student.first_name} ${student.last_name}.`);
+      return;
+    }
     setArchiveTarget({ student, shouldArchive });
   }
 
@@ -597,24 +690,43 @@ export default function StudentsPage() {
     if (!archiveTarget) return;
     const { student, shouldArchive } = archiveTarget;
     try {
-      await supabase
+      const { error } = await supabase
         .from('students')
         .update({
           is_archived: shouldArchive,
           status: shouldArchive ? 'Archived' : 'Active',
         })
         .eq('student_record_id', student.student_record_id);
+      if (error) throw error;
+
+      const targetSyId = activeSchoolYear?.id || currentSy?.id;
+      if (targetSyId) {
+        await supabase
+          .from('enrollments')
+          .update({ enrollment_status: shouldArchive ? 'Dropped' : 'Enrolled' })
+          .eq('student_record_id', student.student_record_id)
+          .eq('school_year_id', targetSyId);
+      }
       setArchiveTarget(null);
       fetchData();
     } catch (err) {
       console.error('Error archiving student:', err);
+      alert(err?.message || 'Failed to update archive status.');
     }
   }
 
   /* Permanent Delete */
   async function handleDelete() {
     if (!deleteTarget) return;
-    await supabase.from('students').delete().eq('student_record_id', deleteTarget.student_record_id);
+    if (isHistoricalYear) {
+      alert('Switch back to the Active School Year before deleting student records.');
+      return;
+    }
+    const { error } = await supabase.from('students').delete().eq('student_record_id', deleteTarget.student_record_id);
+    if (error) {
+      alert(`Failed to delete student record: ${error.message}`);
+      return;
+    }
     setDeleteTarget(null);
     fetchData();
   }
@@ -676,10 +788,15 @@ export default function StudentsPage() {
             gap: '6px',
             boxShadow: '0 2px 6px rgba(139,0,0,0.15)',
           }}>
-            <span>{activeSchoolYear?.year_label ? `S.Y. ${activeSchoolYear.year_label}` : 'S.Y. 2025-2026'}</span>
-            {activeQuarter && (
+            <span>{currentSy?.year_label ? `S.Y. ${currentSy.year_label}` : 'S.Y. 2025-2026'}</span>
+            {!isHistoricalYear && (selectedQuarter || activeQuarter) && (
               <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
-                {activeQuarter.quarter_name}
+                {(selectedQuarter || activeQuarter).quarter_name}
+              </span>
+            )}
+            {isHistoricalYear && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                Archived
               </span>
             )}
           </div>
@@ -756,7 +873,7 @@ export default function StudentsPage() {
               <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
                 <IcoExport /> Export CSV
               </button>
-              <button className="btn btn-primary btn-sm" onClick={() => navigate('/dashboard/enrollment?new=true')}>
+              <button className="btn btn-primary btn-sm" disabled={isHistoricalYear} onClick={() => navigate('/dashboard/enrollment?new=true')}>
                 <IcoAddStudent /> + Enroll New Student
               </button>
             </div>
@@ -961,10 +1078,15 @@ export default function StudentsPage() {
                             <button className="btn btn-secondary btn-sm" onClick={() => setViewStudent(s)} title="View Profile">
                               <IcoView />
                             </button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit Record">
-                              <IcoEdit />
-                            </button>
-                            {!isArch && Number(s.grade_level) < 12 && (
+                            {!isHistoricalYear && (
+                              <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit Record">
+                                <IcoEdit />
+                              </button>
+                            )}
+                            {!isArch &&
+                              !isHistoricalYear &&
+                              !['graduated', 'transferred', 'transferred out', 'dropped', 'inactive'].includes((s.status || 'Active').toLowerCase()) &&
+                              Number(s.grade_level) < 12 && (
                               <button
                                 className="btn btn-sm"
                                 style={{ background: '#15803d', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
@@ -987,7 +1109,7 @@ export default function StudentsPage() {
                             >
                               <IcoKey />
                             </button>
-                            {isArch ? (
+                            {!isHistoricalYear && (isArch ? (
                               <button className="btn btn-secondary btn-sm" onClick={() => openArchiveModal(s, false)} title="Restore Student">
                                 <IcoRestore />
                               </button>
@@ -995,10 +1117,12 @@ export default function StudentsPage() {
                               <button className="btn btn-secondary btn-sm" onClick={() => openArchiveModal(s, true)} title="Archive Record">
                                 <IcoArchive />
                               </button>
+                            ))}
+                            {!isHistoricalYear && (
+                              <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(s)} title="Delete Record">
+                                <IcoTrash />
+                              </button>
                             )}
-                            <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(s)} title="Delete Record">
-                              <IcoTrash />
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1108,7 +1232,10 @@ export default function StudentsPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewStudent(null)}>Close</button>
-              {Number(viewStudent.grade_level) < 12 && !viewStudent.is_archived && (
+              {Number(viewStudent.grade_level) < 12 &&
+                !viewStudent.is_archived &&
+                !isHistoricalYear &&
+                !['graduated', 'transferred', 'transferred out', 'dropped', 'inactive'].includes((viewStudent.status || 'Active').toLowerCase()) && (
                 <button
                   className="btn btn-secondary"
                   style={{ borderColor: '#15803d', color: '#15803d' }}
@@ -1362,7 +1489,7 @@ export default function StudentsPage() {
                       <label>Grade Level (1–12) *</label>
                       <select
                         value={form.grade_level}
-                        onChange={e => setForm(f => ({ ...f, grade_level: e.target.value, current_section_id: '', current_strand_id: '' }))}
+                        onChange={e => setForm(f => ({ ...f, grade_level: e.target.value, current_section_id: '', section_name: '', current_strand_id: '' }))}
                         required
                       >
                         <option value="">Select Grade Level...</option>
@@ -1515,9 +1642,10 @@ export default function StudentsPage() {
                   <div className="form-grid">
                     <div className="form-group">
                       <label>Status</label>
-                      <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                      <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value, is_archived: e.target.value === 'Archived' }))}>
                         <option value="Active">Active Enrollee</option>
                         <option value="Inactive">Inactive</option>
+                        <option value="Dropped">Dropped</option>
                         <option value="Graduated">Graduated (Completed)</option>
                         <option value="Transferred">Transferred Out</option>
                         <option value="Archived">Archived</option>
@@ -1647,22 +1775,40 @@ export default function StudentsPage() {
               {(() => {
                 const nextGrade = Number(promoteTarget.student.grade_level || 1) + 1;
                 const nextSections = sections.filter(sec => Number(sec.grade_level) === nextGrade);
-                if (nextSections.length === 0) return null;
                 return (
-                  <div className="form-group">
-                    <label>Assign Next Grade Section (One Section Only — Optional)</label>
-                    <select
-                      value={promoteTarget.nextSectionId}
-                      onChange={e => setPromoteTarget(prev => ({ ...prev, nextSectionId: e.target.value }))}
-                    >
-                      <option value="">Assign section later...</option>
-                      {nextSections.map(sec => (
-                        <option key={sec.id} value={sec.id}>
-                          {cleanSectionName(sec.section_name, nextGrade)} {sec.room_number ? `(${sec.room_number})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <>
+                    {nextGrade >= 11 && (
+                      <div className="form-group">
+                        <label style={{ color: '#0056b3', fontWeight: '600' }}>Senior High School (SHS) Strand *</label>
+                        <select
+                          value={promoteTarget.strand_id || ''}
+                          onChange={e => setPromoteTarget(prev => ({ ...prev, strand_id: e.target.value }))}
+                          required
+                        >
+                          <option value="">Select SHS Strand...</option>
+                          {strands.map(st => (
+                            <option key={st.id} value={st.id}>{st.strand_code} — {st.strand_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {nextSections.length > 0 && (
+                      <div className="form-group">
+                        <label>Assign Next Grade Section (One Section Only — Optional)</label>
+                        <select
+                          value={promoteTarget.nextSectionId}
+                          onChange={e => setPromoteTarget(prev => ({ ...prev, nextSectionId: e.target.value }))}
+                        >
+                          <option value="">Assign section later...</option>
+                          {nextSections.map(sec => (
+                            <option key={sec.id} value={sec.id}>
+                              {cleanSectionName(sec.section_name, nextGrade)} {sec.room_number ? `(${sec.room_number})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </>
                 );
               })()}
 
@@ -1699,7 +1845,11 @@ export default function StudentsPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={!promoteTarget.confirmed || promoteTarget.saving}
+                disabled={
+                  !promoteTarget.confirmed ||
+                  promoteTarget.saving ||
+                  (Number(promoteTarget.student.grade_level || 1) + 1 >= 11 && !promoteTarget.strand_id)
+                }
                 onClick={handleConfirmPromote}
               >
                 {promoteTarget.saving ? 'Promoting...' : `Confirm & Promote to Grade ${Number(promoteTarget.student.grade_level || 1) + 1}`}

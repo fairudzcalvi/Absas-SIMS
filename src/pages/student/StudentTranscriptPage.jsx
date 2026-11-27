@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { buildStudentSubjectList } from '../../utils/curriculum';
+import { buildStudentSubjectList, subjectsMatch } from '../../utils/curriculum';
 import { getBaseFees, fetchFeeMatrix } from '../../utils/feeMatrix';
-import { evaluateFinancialHold } from '../../utils/financeRules';
+import { calculateProratedTuition, evaluateFinancialHold } from '../../utils/financeRules';
 
 function IcoTranscript() {
   return (
@@ -16,8 +16,8 @@ function IcoTranscript() {
   );
 }
 
-const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
-const Q_LABELS = { '1Q': '1st Qtr', '2Q': '2nd Qtr', '3Q': '3rd Qtr', '4Q': '4th Qtr' };
+const DEFAULT_QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
+const DEFAULT_Q_LABELS = { '1Q': '1st Qtr', '2Q': '2nd Qtr', '3Q': '3rd Qtr', '4Q': '4th Qtr' };
 
 export default function StudentTranscriptPage() {
   const { supabase, profile, activePolicy, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
@@ -27,28 +27,42 @@ export default function StudentTranscriptPage() {
   const [dbSubjects, setDbSubjects] = useState([]);
   const [strandCode, setStrandCode] = useState(null);
   const [transcript, setTranscript] = useState(null);
+  const [quarterList, setQuarterList] = useState(DEFAULT_QUARTERS);
+  const [quarterLabels, setQuarterLabels] = useState(DEFAULT_Q_LABELS);
   const [financialHold, setFinancialHold] = useState({ isOverdue: false, overdueAmount: 0, balance: 0 });
-  const [loading, setLoading]       = useState(true);
+  const [loading, setLoading]       = useState(false);
 
   const s = profile ?? {};
 
   useEffect(() => {
     if (!profile?.student_record_id) return;
+    let ignore = false;
     async function fetch() {
       setLoading(true);
       try {
+        let gQuery = supabase
+          .from('grades')
+          .select('*')
+          .eq('student_record_id', profile.student_record_id);
+        if (currentSy?.id) {
+          gQuery = gQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+        } else if (currentSy?.year_label) {
+          gQuery = gQuery.eq('school_year', currentSy.year_label);
+        }
+
+        let trQuery = supabase
+          .from('transcripts')
+          .select('*')
+          .eq('student_record_id', profile.student_record_id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (currentSy?.year_label) {
+          trQuery = trQuery.eq('school_year', currentSy.year_label);
+        }
+
         const [{ data: g }, { data: t }, { data: subjs }, { data: strData }, { data: finRows }, { data: schList }, feesData] = await Promise.all([
-          supabase
-            .from('grades')
-            .select('*')
-            .eq('student_record_id', profile.student_record_id),
-          supabase
-            .from('transcripts')
-            .select('*')
-            .eq('student_record_id', profile.student_record_id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
+          gQuery,
+          trQuery.maybeSingle(),
           supabase
             .from('subjects')
             .select('subject_name, grade_level, strand_id, status')
@@ -68,33 +82,67 @@ export default function StudentTranscriptPage() {
           fetchFeeMatrix(supabase),
         ]);
 
+        if (ignore) return;
+
+        if (currentSy?.id) {
+          const { data: qData } = await supabase
+            .from('quarters')
+            .select('*')
+            .eq('school_year_id', currentSy.id)
+            .order('quarter_number', { ascending: true });
+          if (!ignore && qData && qData.length > 0) {
+            const keys = qData.map(q => `${q.quarter_number}Q`);
+            const labels = {};
+            qData.forEach(q => {
+              labels[`${q.quarter_number}Q`] = q.quarter_name;
+            });
+            setQuarterList(keys);
+            setQuarterLabels(labels);
+          }
+        }
+
         const finRow =
           (finRows ?? []).find(
             f => (currentSy?.id && f.school_year_id === currentSy.id) || (currentSy?.year_label && f.school_year === currentSy.year_label)
-          ) || (finRows ?? [])[0] || null;
-        const priSch = (schList ?? []).find(sc => String(sc.id) === String(finRow?.scholarship_id || profile.scholarship_id)) || null;
-        const secSch = (schList ?? []).find(sc => String(sc.id) === String(finRow?.secondary_scholarship_id || profile.secondary_scholarship_id)) || null;
+          ) ||
+          (finRows ?? []).find(f => !f.school_year_id && !f.school_year) ||
+          null;
+        const priSchId = finRow ? finRow.scholarship_id : profile.scholarship_id;
+        const secSchId = finRow ? finRow.secondary_scholarship_id : profile.secondary_scholarship_id;
+        const priSch = (schList ?? []).find(sc => String(sc.id) === String(priSchId)) || null;
+        const secSch = (schList ?? []).find(sc => String(sc.id) === String(secSchId)) || null;
+
+        let effectiveFees = getBaseFees(profile.grade_level, feesData);
+        let effectiveFinRow = finRow;
+        if (!finRow && profile.student_type === 'Transferee' && Number(profile.months_elapsed) > 0) {
+          const prorated = calculateProratedTuition(effectiveFees.tuition, profile.months_elapsed);
+          effectiveFees = { ...effectiveFees, tuition: prorated.proratedTuition };
+          effectiveFinRow = { months_elapsed: prorated.monthsElapsed, prorated_months: prorated.remainingMonths };
+        }
+
         setFinancialHold(evaluateFinancialHold({
-          financeRow: finRow,
-          baseFees: getBaseFees(profile.grade_level, feesData),
+          financeRow: effectiveFinRow,
+          baseFees: effectiveFees,
           primaryScholarship: priSch,
           secondaryScholarship: secSch,
           activeQuarterNumber: activeQuarter?.quarter_number || 1,
+          schoolYear: currentSy,
         }));
 
-        setGrades(g ?? []);
-        setTranscript(t);
-        setDbSubjects(subjs ?? []);
-        if (strData?.strand_code) {
-          setStrandCode(strData.strand_code);
+        if (!ignore) {
+          setGrades(g ?? []);
+          setTranscript(t);
+          setDbSubjects(subjs ?? []);
+          setStrandCode(strData?.strand_code ?? null);
         }
       } catch (err) {
         console.error('Error fetching transcript details:', err);
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     }
     fetch();
+    return () => { ignore = true; };
   }, [supabase, profile, currentSy, activeQuarter]);
 
   // Derive complete subject list strictly ordered by DepEd curriculum
@@ -102,17 +150,18 @@ export default function StudentTranscriptPage() {
   const subjects = buildStudentSubjectList({
     gradeLevel: studentGrade,
     strandCode: strandCode || profile?.strand_code,
+    strandId: profile?.current_strand_id || null,
     dbSubjects,
     grades,
   });
 
   const rows = subjects.map(subj => {
     const row = { subject: subj };
-    QUARTERS.forEach(q => {
-      const g = grades.find(x => x.subject === subj && x.quarter === q);
+    quarterList.forEach(q => {
+      const g = grades.find(x => (x.subject === subj || subjectsMatch(x.subject, subj)) && x.quarter === q);
       row[q] = g?.quarter_grade ?? null;
     });
-    const vals = QUARTERS.map(q => row[q]).filter(v => v != null && !isNaN(Number(v)));
+    const vals = quarterList.map(q => row[q]).filter(v => v != null && String(v).trim() !== '' && !isNaN(Number(v)));
     row.avg = vals.length ? (vals.reduce((a, b) => a + Number(b), 0) / vals.length).toFixed(2) : null;
     return row;
   });
@@ -141,7 +190,7 @@ export default function StudentTranscriptPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {transcript && !financialHold.isOverdue && (
                 <span className="badge badge-success">
-                  Generated: {new Date(transcript.generated_date).toLocaleDateString()}
+                  Generated: {new Date(String(transcript.generated_date).includes('T') ? transcript.generated_date : `${transcript.generated_date}T00:00:00`).toLocaleDateString()}
                 </span>
               )}
               {!financialHold.isOverdue && !loading && rows.length > 0 && (
@@ -158,7 +207,7 @@ export default function StudentTranscriptPage() {
               ['DepEd LRN',    s.lrn_id || s.student_id || '—'],
               ['Grade Level',  s.grade_level ? `Grade ${s.grade_level}` : '—'],
               ['Section',      s.section_name],
-              ['School Year',  transcript?.school_year ?? currentSy?.year_label ?? '2026-2027'],
+              ['School Year',  currentSy?.year_label ?? transcript?.school_year ?? '2026-2027'],
             ].map(([label, val]) => (
               <div key={label}>
                 <span style={{ color: '#8B0000', fontWeight: '600' }}>{label}: </span>
@@ -191,7 +240,7 @@ export default function StudentTranscriptPage() {
                   <thead>
                     <tr>
                       <th>Subject</th>
-                      {QUARTERS.map(q => <th key={q}>{Q_LABELS[q]}</th>)}
+                      {quarterList.map(q => <th key={q}>{quarterLabels[q] || q}</th>)}
                       <th style={{ color: '#8B0000' }}>Final Average</th>
                       <th>Remarks</th>
                     </tr>
@@ -203,7 +252,7 @@ export default function StudentTranscriptPage() {
                       return (
                         <tr key={row.subject}>
                           <td style={{ fontWeight: '600' }}>{row.subject}</td>
-                          {QUARTERS.map(q => <td key={q}>{row[q] ?? '—'}</td>)}
+                          {quarterList.map(q => <td key={q}>{row[q] ?? '—'}</td>)}
                           <td>
                             <span style={{ fontWeight: '700', color: isNaN(avg) ? '#888' : pass ? '#28a745' : '#dc3545' }}>
                               {row.avg ?? '—'}
@@ -220,7 +269,7 @@ export default function StudentTranscriptPage() {
                   </tbody>
                   <tfoot>
                     <tr style={{ backgroundColor: '#f5f5f5' }}>
-                      <td colSpan={5} style={{ fontWeight: '700', textAlign: 'right', color: '#8B0000' }}>General Average:</td>
+                      <td colSpan={quarterList.length + 1} style={{ fontWeight: '700', textAlign: 'right', color: '#8B0000' }}>General Average:</td>
                       <td>
                         <span style={{ fontWeight: '700', fontSize: '16px', color: parseFloat(overallAvg) >= passingMark ? '#28a745' : '#dc3545' }}>
                           {overallAvg ?? '—'}

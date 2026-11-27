@@ -42,13 +42,15 @@ const STATUS_COLORS = {
 };
 
 export default function StudentAttendancePage() {
-  const { supabase, profile }   = useAuth();
+  const { supabase, profile, selectedSchoolYear, activeSchoolYear } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const [records, setRecords]   = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [loading, setLoading]   = useState(false);
   const [monthFilter, setMonth] = useState('');
 
   useEffect(() => {
     if (!profile?.student_record_id) return;
+    let ignore = false;
     async function fetch() {
       setLoading(true);
       let q = supabase
@@ -57,14 +59,24 @@ export default function StudentAttendancePage() {
         .eq('student_record_id', profile.student_record_id)
         .order('date', { ascending: false });
       if (monthFilter) {
-        q = q.gte('date', `${monthFilter}-01`).lte('date', `${monthFilter}-31`);
+        const [yrStr, moStr] = monthFilter.split('-');
+        const lastDay = new Date(Number(yrStr), Number(moStr), 0).getDate();
+        const endOfMonth = `${yrStr}-${moStr}-${String(lastDay).padStart(2, '0')}`;
+        q = q.gte('date', `${monthFilter}-01`).lte('date', endOfMonth);
       }
       const { data } = await q;
-      setRecords(data ?? []);
+      if (ignore) return;
+      const syFiltered = (data ?? []).filter(r =>
+        (!r.school_year_id && !r.school_year) ||
+        (currentSy?.id && r.school_year_id && String(r.school_year_id) === String(currentSy.id)) ||
+        (currentSy?.year_label && r.school_year === currentSy.year_label)
+      );
+      setRecords(syFiltered);
       setLoading(false);
     }
     fetch();
-  }, [supabase, profile, monthFilter]);
+    return () => { ignore = true; };
+  }, [supabase, profile, monthFilter, currentSy]);
 
   const counts = records.reduce((acc, r) => {
     const k = (r.status ?? '').toLowerCase();

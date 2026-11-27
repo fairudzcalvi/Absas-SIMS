@@ -137,7 +137,7 @@ export default function StudentProfilePage() {
             <Field label="Middle Name"   value={s.middle_name} />
             <Field label="Last Name"     value={s.last_name} />
             <Field label="DepEd LRN"     value={s.lrn_id || s.student_id} />
-            <Field label="Address"       value={s.home_address} fullWidth />
+            <Field label="Address"       value={s.address || s.home_address} fullWidth />
             <Field label="Phone Number"  value={s.contact_number} />
             <Field label="Date of Birth" value={s.birthdate} />
             <Field label="Email Address" value={s.email || session?.user?.email} fullWidth />

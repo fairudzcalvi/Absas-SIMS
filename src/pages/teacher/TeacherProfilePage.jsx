@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { cleanSectionName } from '../../utils/formatters';
 
 /* ── SVG Icons (Zero Emojis) ─────────────────────────────────── */
 function IcoUser() {
@@ -46,21 +47,44 @@ function Field({ label, value, fullWidth = false }) {
 }
 
 export default function TeacherProfilePage() {
-  const { profile, session, supabase } = useAuth();
+  const { profile, session, supabase, selectedSchoolYear, activeSchoolYear } = useAuth();
   const f = profile ?? {};
+  const currentSy = selectedSchoolYear || activeSchoolYear;
 
+  const [advisorySections, setAdvisorySections] = useState([]);
   const [newPassword, setNewPassword]         = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword]       = useState(false);
   const [savingPassword, setSavingPassword]   = useState(false);
   const [pwStatus, setPwStatus]               = useState({ type: '', text: '' });
 
+  useEffect(() => {
+    let ignore = false;
+    async function loadAdvisory() {
+      if (!f?.faculty_record_id && !f?.faculty_id) return;
+      let q = supabase.from('sections').select('id, section_name, grade_level, adviser_id, status').eq('status', 'Active');
+      if (currentSy?.id) q = q.eq('school_year_id', currentSy.id);
+      const { data } = await q;
+      if (!ignore && data) {
+        const facRecId = f.faculty_record_id ? String(f.faculty_record_id) : '';
+        const facId = (f.faculty_id || '').toLowerCase().trim();
+        const mine = data.filter(sec => {
+          const adv = sec.adviser_id ? String(sec.adviser_id).trim() : '';
+          return (facRecId && adv === facRecId) || (facId && adv.toLowerCase() === facId);
+        });
+        setAdvisorySections(mine);
+      }
+    }
+    loadAdvisory();
+    return () => { ignore = true; };
+  }, [supabase, f?.faculty_record_id, f?.faculty_id, currentSy]);
+
   async function handlePasswordChange(e) {
     e.preventDefault();
     setPwStatus({ type: '', text: '' });
 
-    if (!newPassword || newPassword.length < 6) {
-      setPwStatus({ type: 'error', text: 'Password must be at least 6 characters long.' });
+    if (!newPassword || newPassword.trim().length < 6 || newPassword !== newPassword.trim()) {
+      setPwStatus({ type: 'error', text: 'Password must be at least 6 non-whitespace characters without leading/trailing spaces.' });
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -150,7 +174,7 @@ export default function TeacherProfilePage() {
 
           {/* Info Grid */}
           <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px 24px' }}>
-            <Field label="Full Name"           value={`${f.first_name || ''} ${f.last_name || ''}`} />
+            <Field label="Full Name"           value={`${f.first_name || ''} ${f.middle_name ? f.middle_name + ' ' : ''}${f.last_name || ''}`.trim()} />
             <Field label="Faculty ID"          value={f.faculty_id} />
             <Field label="System Role"         value={f.role || 'Teacher'} />
             <Field label="Position"            value={f.position || 'Subject Teacher'} />
@@ -158,7 +182,14 @@ export default function TeacherProfilePage() {
             <Field label="Official Email"      value={f.email || session?.user?.email} />
             <Field label="Contact Number"      value={f.contact_number} />
             <Field label="Employment Status"   value={f.employment_status || 'Active'} />
-            <Field label="Advisory Section"    value={f.adviser_grade_level ? `Grade ${f.adviser_grade_level}` : 'None Assigned'} />
+            <Field
+              label="Advisory Section"
+              value={
+                advisorySections.length > 0
+                  ? advisorySections.map(s => `Grade ${s.grade_level} - ${cleanSectionName(s.section_name, s.grade_level)}`).join(', ')
+                  : f.adviser_grade_level ? `Grade ${f.adviser_grade_level}` : 'None Assigned'
+              }
+            />
             <Field label="Subjects Taught"     value={f.subjects_taught} fullWidth />
           </div>
         </div>
