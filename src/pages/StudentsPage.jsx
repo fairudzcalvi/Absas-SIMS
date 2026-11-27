@@ -136,29 +136,37 @@ const GRADE_OPTIONS = [
 ];
 
 const EMPTY_FORM = {
-  student_id:         '',
-  first_name:         '',
-  last_name:          '',
-  middle_name:        '',
-  lrn_id:             '',
-  grade_level:        '',
-  current_strand_id:  '',
-  current_section_id: '',
-  section_name:       '',
-  scholarship_id:     '',
-  student_type:       'Continuing',
-  gender:             '',
-  birthdate:          '',
-  age:                '',
-  email:              '',
-  contact_number:     '',
-  address:            '',
-  guardian_name:      '',
-  guardian_contact:   '',
-  guardian_relation:  'Parent',
-  status:             'Active',
-  is_archived:        false,
-  photo_url:          '',
+  student_id:               '',
+  first_name:               '',
+  last_name:                '',
+  middle_name:              '',
+  lrn_id:                   '',
+  grade_level:              '',
+  current_strand_id:        '',
+  current_section_id:       '',
+  section_name:             '',
+  scholarship_id:           '',
+  secondary_scholarship_id: '',
+  student_type:             'Continuing',
+  previous_school:          '',
+  previous_school_address:  '',
+  last_grade_completed:     '',
+  last_school_year:         '',
+  months_elapsed:           0,
+  is_repeater:              false,
+  completion_confirmed:     false,
+  gender:                   '',
+  birthdate:                '',
+  age:                      '',
+  email:                    '',
+  contact_number:           '',
+  address:                  '',
+  guardian_name:            '',
+  guardian_contact:         '',
+  guardian_relation:        'Parent',
+  status:                   'Active',
+  is_archived:              false,
+  photo_url:                '',
 };
 
 /* ── Main Students Page ─────────────────────────────────── */
@@ -190,6 +198,7 @@ export default function StudentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null); // { student, shouldArchive }
   const [loginTarget, setLoginTarget]     = useState(null); // { name, email, role, id, type }
+  const [promoteTarget, setPromoteTarget] = useState(null); // { student, loadingGrades, count, avg, failedCount, confirmed, saving, nextSectionId }
 
   /* Fetch all supporting masterdata & students */
   const fetchData = useCallback(async () => {
@@ -291,32 +300,111 @@ export default function StudentsPage() {
   function openEdit(student) {
     setEditStudent(student);
     setForm({
-      student_id:         student.student_id         ?? '',
-      first_name:         student.first_name         ?? '',
-      last_name:          student.last_name          ?? '',
-      middle_name:        student.middle_name        ?? '',
-      lrn_id:             student.lrn_id             ?? '',
-      grade_level:        student.grade_level        ?? '',
-      current_strand_id:  student.current_strand_id  ?? '',
-      current_section_id: student.current_section_id ?? '',
-      section_name:       student.section_name       ?? '',
-      scholarship_id:     student.scholarship_id     ?? '',
-      student_type:       student.student_type       ?? 'Continuing',
-      gender:             student.gender             ?? '',
-      birthdate:          student.birthdate          ?? '',
-      age:                student.age                ?? '',
-      email:              student.email              ?? '',
-      contact_number:     student.contact_number     ?? '',
-      address:            student.address            ?? '',
-      guardian_name:      student.guardian_name      ?? '',
-      guardian_contact:   student.guardian_contact   ?? '',
-      guardian_relation:  student.guardian_relation  ?? 'Parent',
-      status:             student.status             ?? 'Active',
-      is_archived:        student.is_archived        ?? false,
-      photo_url:          student.photo_url          ?? '',
+      student_id:               student.student_id         ?? '',
+      first_name:               student.first_name         ?? '',
+      last_name:                student.last_name          ?? '',
+      middle_name:              student.middle_name        ?? '',
+      lrn_id:                   student.lrn_id             ?? '',
+      grade_level:              student.grade_level        ?? '',
+      current_strand_id:        student.current_strand_id  ?? '',
+      current_section_id:       student.current_section_id ?? '',
+      section_name:             student.section_name       ?? '',
+      scholarship_id:           student.scholarship_id     ?? '',
+      secondary_scholarship_id: student.secondary_scholarship_id ?? '',
+      student_type:             student.is_repeater ? 'Repeater' : (student.student_type ?? 'Continuing'),
+      previous_school:          student.previous_school    ?? '',
+      previous_school_address:  student.previous_school_address ?? '',
+      last_grade_completed:     student.last_grade_completed ?? '',
+      last_school_year:         student.last_school_year   ?? '',
+      months_elapsed:           Number(student.months_elapsed ?? 0),
+      is_repeater:              Boolean(student.is_repeater),
+      completion_confirmed:     Boolean(student.completion_confirmed),
+      gender:                   student.gender             ?? '',
+      birthdate:                student.birthdate          ?? '',
+      age:                      student.age                ?? '',
+      email:                    student.email              ?? '',
+      contact_number:           student.contact_number     ?? '',
+      address:                  student.address            ?? '',
+      guardian_name:            student.guardian_name      ?? '',
+      guardian_contact:         student.guardian_contact   ?? '',
+      guardian_relation:        student.guardian_relation  ?? 'Parent',
+      status:                   student.status             ?? 'Active',
+      is_archived:              student.is_archived        ?? false,
+      photo_url:                student.photo_url          ?? '',
     });
     setFormError('');
     setModalOpen(true);
+  }
+
+  /* Open Grade Completion Verification & Promotion Modal */
+  async function openPromoteModal(student) {
+    const curGrade = Number(student.grade_level || 1);
+    if (curGrade >= 12) return;
+    setPromoteTarget({
+      student,
+      loadingGrades: true,
+      count: 0,
+      avg: null,
+      failedCount: 0,
+      confirmed: false,
+      saving: false,
+      nextSectionId: '',
+    });
+    try {
+      const { data: gData } = await supabase
+        .from('grades')
+        .select('grade_id, quarter_grade')
+        .eq('student_record_id', student.student_record_id);
+      const valid = (gData ?? []).filter(g => g.quarter_grade != null && !Number.isNaN(Number(g.quarter_grade)));
+      const avg = valid.length > 0
+        ? (valid.reduce((sum, g) => sum + Number(g.quarter_grade), 0) / valid.length).toFixed(2)
+        : null;
+      const failedCount = valid.filter(g => Number(g.quarter_grade) < 75).length;
+      setPromoteTarget(prev => prev && prev.student.student_record_id === student.student_record_id
+        ? { ...prev, loadingGrades: false, count: valid.length, avg, failedCount }
+        : prev);
+    } catch {
+      setPromoteTarget(prev => prev ? { ...prev, loadingGrades: false } : prev);
+    }
+  }
+
+  async function handleConfirmPromote() {
+    if (!promoteTarget || !promoteTarget.confirmed) return;
+    setPromoteTarget(prev => ({ ...prev, saving: true }));
+    try {
+      const s = promoteTarget.student;
+      const nextGrade = Number(s.grade_level || 1) + 1;
+      const secObj = sections.find(sec => String(sec.id) === String(promoteTarget.nextSectionId));
+      const secName = secObj ? cleanSectionName(secObj.section_name, nextGrade) : null;
+
+      const coreUpdate = {
+        grade_level: nextGrade,
+        current_section_id: secObj ? secObj.id : null,
+        section_name: secName,
+        student_type: 'Continuing',
+      };
+      const extUpdate = {
+        ...coreUpdate,
+        completion_confirmed: true,
+        is_repeater: false,
+      };
+      let { error } = await supabase
+        .from('students')
+        .update(extUpdate)
+        .eq('student_record_id', s.student_record_id);
+      if (error && /column|schema cache|42703/i.test(error.message || '')) {
+        ({ error } = await supabase
+          .from('students')
+          .update(coreUpdate)
+          .eq('student_record_id', s.student_record_id));
+      }
+      if (error) throw error;
+      setPromoteTarget(null);
+      fetchData();
+    } catch (err) {
+      alert(`Error promoting student: ${err.message}`);
+      setPromoteTarget(prev => prev ? { ...prev, saving: false } : null);
+    }
   }
 
   /* Handle Student Photo Upload & Compression */
@@ -373,6 +461,23 @@ export default function StudentsPage() {
       setFormError('Please select a Senior High School Strand for Grades 11 and 12.');
       return;
     }
+    if (form.student_type === 'New Enrollee' && ![1, 7].includes(Number(form.grade_level))) {
+      setFormError('New regular enrollees are restricted to Grade 1 and Grade 7 only. Change type to Transferee, Continuing, or Repeater for other grades.');
+      return;
+    }
+    if (form.student_type === 'Transferee' && !form.previous_school?.trim()) {
+      setFormError('Please specify the Previous School Name for a Transferee.');
+      return;
+    }
+    if (
+      editStudent &&
+      form.student_type !== 'Repeater' &&
+      Number(form.grade_level) > Number(editStudent.grade_level) &&
+      !form.completion_confirmed
+    ) {
+      setFormError(`Please confirm Grade ${editStudent.grade_level} completion before promoting this student to Grade ${form.grade_level}.`);
+      return;
+    }
 
     setSaving(true);
     setFormError('');
@@ -395,13 +500,21 @@ export default function StudentsPage() {
       last_name:          form.last_name.trim(),
       middle_name:        form.middle_name        ? form.middle_name.trim() : null,
       lrn_id:             form.lrn_id             ? form.lrn_id.trim() : null,
-      grade_level:        Number(form.grade_level),
-      current_strand_id:  Number(form.grade_level) >= 11 && form.current_strand_id ? form.current_strand_id : null,
-      current_section_id: form.current_section_id || null,
-      section_name:       sectionDisplayName     || null,
-      scholarship_id:     form.scholarship_id     || null,
-      student_type:       form.student_type       || 'Continuing',
-      gender:             form.gender,
+      grade_level:              Number(form.grade_level),
+      current_strand_id:        Number(form.grade_level) >= 11 && form.current_strand_id ? form.current_strand_id : null,
+      current_section_id:       form.current_section_id || null,
+      section_name:             sectionDisplayName     || null,
+      scholarship_id:           form.scholarship_id     || null,
+      secondary_scholarship_id: form.secondary_scholarship_id || null,
+      student_type:             form.student_type       || 'Continuing',
+      previous_school:          form.student_type === 'Transferee' ? (form.previous_school?.trim() || null) : null,
+      previous_school_address:  form.student_type === 'Transferee' ? (form.previous_school_address?.trim() || null) : null,
+      last_grade_completed:     form.student_type === 'Transferee' ? (form.last_grade_completed?.trim() || null) : null,
+      last_school_year:         form.student_type === 'Transferee' ? (form.last_school_year?.trim() || null) : null,
+      months_elapsed:           form.student_type === 'Transferee' ? Math.min(9, Math.max(0, Number(form.months_elapsed) || 0)) : 0,
+      is_repeater:              form.student_type === 'Repeater',
+      completion_confirmed:     Boolean(form.completion_confirmed),
+      gender:                   form.gender,
       birthdate:          form.birthdate          || null,
       age:                form.age                ? Number(form.age) : null,
       email:              normalizeEmailOrNull(form.email),
@@ -437,6 +550,14 @@ export default function StudentsPage() {
         delete fallbackPayload.current_strand_id;
         delete fallbackPayload.current_section_id;
         delete fallbackPayload.scholarship_id;
+        delete fallbackPayload.secondary_scholarship_id;
+        delete fallbackPayload.previous_school;
+        delete fallbackPayload.previous_school_address;
+        delete fallbackPayload.last_grade_completed;
+        delete fallbackPayload.last_school_year;
+        delete fallbackPayload.months_elapsed;
+        delete fallbackPayload.is_repeater;
+        delete fallbackPayload.completion_confirmed;
         delete fallbackPayload.student_type;
         delete fallbackPayload.is_archived;
 
@@ -444,6 +565,19 @@ export default function StudentsPage() {
       }
 
       if (res.error) throw res.error;
+
+      // Keep student's single enrollment row for current S.Y. aligned to ONE section
+      if (editStudent && currentSy?.id && form.current_section_id) {
+        await supabase
+          .from('enrollments')
+          .update({
+            section_id: form.current_section_id,
+            grade_level: Number(form.grade_level),
+            scholarship_id: form.scholarship_id || null,
+          })
+          .eq('student_record_id', editStudent.student_record_id)
+          .eq('school_year_id', currentSy.id);
+      }
 
       setModalOpen(false);
       fetchData();
@@ -795,24 +929,51 @@ export default function StudentsPage() {
                           )}
                         </td>
                         <td>
-                          {sch ? (
-                            <span style={styles.badgeScholarship}>{sch.code}</span>
+                          {sch || s.secondary_scholarship_id ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                              {sch && <span style={styles.badgeScholarship}>{sch.code}</span>}
+                              {s.secondary_scholarship_id && (() => {
+                                const secS = scholarships.find(sc => String(sc.id) === String(s.secondary_scholarship_id));
+                                return secS ? (
+                                  <span style={{ ...styles.badgeScholarship, background: '#e0f2fe', color: '#0369a1' }}>
+                                    + {secS.code}
+                                  </span>
+                                ) : null;
+                              })()}
+                            </div>
                           ) : (
                             <span style={{ color: '#888', fontSize: '12px' }}>None</span>
                           )}
                         </td>
                         <td>
-                          <span style={{ fontSize: '12px', color: '#555' }}>{s.student_type || 'Continuing'}</span>
+                          {(() => {
+                            const t = s.is_repeater ? 'Repeater' : (s.student_type || 'Continuing');
+                            const st =
+                              t === 'Transferee' ? styles.badgeTransferee :
+                              t === 'Repeater' ? styles.badgeRepeater :
+                              t === 'New Enrollee' ? styles.badgeNew : null;
+                            return st ? <span style={st}>{t}</span> : <span style={{ fontSize: '12px', color: '#555' }}>{t}</span>;
+                          })()}
                         </td>
                         <td><StatusBadge status={s.status} isArchived={isArch} /></td>
                         <td>
-                          <div style={{ display: 'flex', gap: '6px' }}>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                             <button className="btn btn-secondary btn-sm" onClick={() => setViewStudent(s)} title="View Profile">
                               <IcoView />
                             </button>
                             <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit Record">
                               <IcoEdit />
                             </button>
+                            {!isArch && Number(s.grade_level) < 12 && (
+                              <button
+                                className="btn btn-sm"
+                                style={{ background: '#15803d', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
+                                onClick={() => openPromoteModal(s)}
+                                title="Verify Grade Completion & Promote to Next Grade"
+                              >
+                                Promote
+                              </button>
+                            )}
                             <button
                               className="btn btn-secondary btn-sm"
                               onClick={() => setLoginTarget({
@@ -910,9 +1071,23 @@ export default function StudentsPage() {
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Grade Level:</span> Grade {viewStudent.grade_level}</div>
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Section:</span> {cleanSectionName(viewStudent.section_name, viewStudent.grade_level) || 'Unassigned'}</div>
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Senior High Strand:</span> {strands.find(st => st.id === viewStudent.current_strand_id)?.strand_name || 'N/A'}</div>
-                <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Scholarship / Grant:</span> {scholarships.find(sc => sc.id === viewStudent.scholarship_id)?.name || 'None'}</div>
-                <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Student Category:</span> {viewStudent.student_type || 'Continuing'}</div>
+                <div>
+                  <span style={{ fontWeight: '600', color: '#8B0000' }}>Scholarship / Grants:</span>{' '}
+                  {[
+                    scholarships.find(sc => String(sc.id) === String(viewStudent.scholarship_id))?.name,
+                    scholarships.find(sc => String(sc.id) === String(viewStudent.secondary_scholarship_id))?.name,
+                  ].filter(Boolean).join(' + ') || 'None'}
+                </div>
+                <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Student Category:</span> {viewStudent.is_repeater ? 'Repeater' : (viewStudent.student_type || 'Continuing')}</div>
                 <div><span style={{ fontWeight: '600', color: '#8B0000' }}>Enrollment Status:</span> {viewStudent.status || 'Active'}</div>
+                {(viewStudent.student_type === 'Transferee' || viewStudent.previous_school) && (
+                  <div style={{ gridColumn: '1 / -1', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', color: '#78350f' }}>
+                    <strong>Previous School Record:</strong> {viewStudent.previous_school || '—'}
+                    {viewStudent.previous_school_address ? ` (${viewStudent.previous_school_address})` : ''}
+                    {viewStudent.last_grade_completed ? ` • Completed: ${viewStudent.last_grade_completed}` : ''}
+                    {viewStudent.last_school_year ? ` (${viewStudent.last_school_year})` : ''}
+                  </div>
+                )}
               </div>
 
               <h4 style={{ margin: '14px 0 8px 0', color: '#8B0000' }}>Personal &amp; Contact Information</h4>
@@ -933,6 +1108,19 @@ export default function StudentsPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewStudent(null)}>Close</button>
+              {Number(viewStudent.grade_level) < 12 && !viewStudent.is_archived && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ borderColor: '#15803d', color: '#15803d' }}
+                  onClick={() => {
+                    const target = viewStudent;
+                    setViewStudent(null);
+                    openPromoteModal(target);
+                  }}
+                >
+                  Verify Completion &amp; Promote
+                </button>
+              )}
               <button
                 className="btn btn-secondary"
                 onClick={() => {
@@ -1078,15 +1266,53 @@ export default function StudentsPage() {
                       <label>Student Enrollment Type</label>
                       <select
                         value={form.student_type}
-                        onChange={e => setForm(f => ({ ...f, student_type: e.target.value }))}
+                        onChange={e => setForm(f => ({ ...f, student_type: e.target.value, is_repeater: e.target.value === 'Repeater' }))}
                       >
-                        <option value="New Enrollee">New Enrollee (First Timer)</option>
+                        <option value="New Enrollee">New Enrollee (Grade 1 &amp; Grade 7 Only)</option>
                         <option value="Continuing">Continuing (Old Student)</option>
+                        <option value="Repeater">Repeater (Retained in Current Grade)</option>
                         <option value="Transferee">Transferee</option>
                         <option value="Returnee">Returnee</option>
                       </select>
                     </div>
                   </div>
+                  {form.student_type === 'Transferee' && (
+                    <div style={{ marginTop: '12px', padding: '12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#92400e', marginBottom: '8px' }}>Transferee Previous School Records</div>
+                      <div className="form-grid">
+                        <div className="form-group">
+                          <label>Previous School Name *</label>
+                          <input
+                            value={form.previous_school}
+                            onChange={e => setForm(f => ({ ...f, previous_school: e.target.value }))}
+                            placeholder="Previous school attended"
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Previous School Address</label>
+                          <input
+                            value={form.previous_school_address}
+                            onChange={e => setForm(f => ({ ...f, previous_school_address: e.target.value }))}
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>Last Grade Completed</label>
+                          <input
+                            value={form.last_grade_completed}
+                            onChange={e => setForm(f => ({ ...f, last_grade_completed: e.target.value }))}
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>Last School Year</label>
+                          <input
+                            value={form.last_school_year}
+                            onChange={e => setForm(f => ({ ...f, last_school_year: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Section 2: Personal Information */}
@@ -1195,9 +1421,9 @@ export default function StudentsPage() {
                       </div>
                     )}
 
-                    {/* Scholarship / Grant */}
-                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                      <label>Scholarship Grant / Discount Program</label>
+                    {/* Stacked Scholarships / Grants */}
+                    <div className="form-group">
+                      <label>Primary Scholarship Grant (e.g. ESC)</label>
                       <select
                         value={form.scholarship_id}
                         onChange={e => setForm(f => ({ ...f, scholarship_id: e.target.value }))}
@@ -1210,6 +1436,35 @@ export default function StudentsPage() {
                         ))}
                       </select>
                     </div>
+                    <div className="form-group">
+                      <label>Secondary Stackable Discount (e.g. Sibling Discount)</label>
+                      <select
+                        value={form.secondary_scholarship_id}
+                        onChange={e => setForm(f => ({ ...f, secondary_scholarship_id: e.target.value }))}
+                      >
+                        <option value="">None</option>
+                        {scholarships
+                          .filter(sc => String(sc.id) !== String(form.scholarship_id))
+                          .map(sc => (
+                            <option key={sc.id} value={sc.id}>
+                              {sc.name} ({sc.discount_type === 'percentage' ? `${sc.discount_value}% OFF` : `₱${sc.discount_value} Subsidy`})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    {editStudent && form.student_type !== 'Repeater' && Number(form.grade_level) > Number(editStudent.grade_level) && (
+                      <div className="form-group" style={{ gridColumn: '1 / -1', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#991b1b', margin: 0, fontWeight: '600' }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(form.completion_confirmed)}
+                            onChange={e => setForm(f => ({ ...f, completion_confirmed: e.target.checked }))}
+                          />
+                          Confirm Grade {editStudent.grade_level} Completion &amp; Authorize Promotion to Grade {form.grade_level}
+                        </label>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1361,6 +1616,98 @@ export default function StudentsPage() {
           }}
         />
       )}
+
+      {/* ── Grade Completion Confirmation & Promotion Modal ── */}
+      {promoteTarget && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget && !promoteTarget.saving) setPromoteTarget(null); }}>
+          <div className="modal-content" style={{ maxWidth: '520px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoStudents /> Verify Grade Completion &amp; Promote</h3>
+              <button className="modal-close" onClick={() => !promoteTarget.saving && setPromoteTarget(null)}><IcoClose /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ background: '#f8f9fa', border: '1px solid #e9ecef', borderRadius: '8px', padding: '12px 14px', marginBottom: '14px' }}>
+                <div style={{ fontWeight: '700', color: '#8B0000', fontSize: '15px' }}>
+                  {promoteTarget.student.first_name} {promoteTarget.student.last_name}
+                </div>
+                <div style={{ fontSize: '13px', color: '#555', marginTop: '3px' }}>
+                  Current Level: <strong>Grade {promoteTarget.student.grade_level}</strong> &rarr; Promoting to:{' '}
+                  <strong>Grade {Number(promoteTarget.student.grade_level || 1) + 1}</strong>
+                </div>
+              </div>
+
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px 14px', marginBottom: '14px', fontSize: '13px', color: '#1e3a8a' }}>
+                {promoteTarget.loadingGrades
+                  ? 'Inspecting student academic grade records...'
+                  : promoteTarget.count > 0
+                    ? `Grade Records Found: ${promoteTarget.count} entry(s) | Average: ${promoteTarget.avg} | Passed: ${promoteTarget.count - promoteTarget.failedCount}, Failing (<75): ${promoteTarget.failedCount}`
+                    : 'No digital grade entries found on file. Confirm physical Form 138 / Report Card before approving promotion.'}
+              </div>
+
+              {(() => {
+                const nextGrade = Number(promoteTarget.student.grade_level || 1) + 1;
+                const nextSections = sections.filter(sec => Number(sec.grade_level) === nextGrade);
+                if (nextSections.length === 0) return null;
+                return (
+                  <div className="form-group">
+                    <label>Assign Next Grade Section (One Section Only — Optional)</label>
+                    <select
+                      value={promoteTarget.nextSectionId}
+                      onChange={e => setPromoteTarget(prev => ({ ...prev, nextSectionId: e.target.value }))}
+                    >
+                      <option value="">Assign section later...</option>
+                      {nextSections.map(sec => (
+                        <option key={sec.id} value={sec.id}>
+                          {cleanSectionName(sec.section_name, nextGrade)} {sec.room_number ? `(${sec.room_number})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })()}
+
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '12px',
+                background: promoteTarget.confirmed ? '#f0fdf4' : '#fef2f2',
+                border: `1px solid ${promoteTarget.confirmed ? '#86efac' : '#fecaca'}`,
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: '600',
+                color: promoteTarget.confirmed ? '#166534' : '#991b1b',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={promoteTarget.confirmed}
+                  onChange={e => setPromoteTarget(prev => ({ ...prev, confirmed: e.target.checked }))}
+                />
+                I confirm that this student has completed Grade {promoteTarget.student.grade_level} requirements and authorize promotion to Grade {Number(promoteTarget.student.grade_level || 1) + 1}.
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setPromoteTarget(null)}
+                disabled={promoteTarget.saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!promoteTarget.confirmed || promoteTarget.saving}
+                onClick={handleConfirmPromote}
+              >
+                {promoteTarget.saving ? 'Promoting...' : `Confirm & Promote to Grade ${Number(promoteTarget.student.grade_level || 1) + 1}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1441,5 +1788,32 @@ const styles = {
     borderRadius: '6px',
     fontSize: '11px',
     fontWeight: '700',
+  },
+  badgeTransferee: {
+    display: 'inline-block',
+    background: '#fef3c7',
+    color: '#92400e',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '11px',
+    fontWeight: '700',
+  },
+  badgeRepeater: {
+    display: 'inline-block',
+    background: '#ede9fe',
+    color: '#5b21b6',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '11px',
+    fontWeight: '700',
+  },
+  badgeNew: {
+    display: 'inline-block',
+    background: '#e8f0fe',
+    color: '#1a73e8',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '11px',
+    fontWeight: '600',
   },
 };

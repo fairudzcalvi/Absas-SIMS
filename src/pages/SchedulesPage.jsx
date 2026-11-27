@@ -3,6 +3,13 @@ import { emailPattern } from '../utils/email';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName } from '../utils/formatters';
+import {
+  WEEKDAYS,
+  parseScheduleDays,
+  scheduleIncludesDay,
+  serializeScheduleDays,
+  formatDaysShort,
+} from '../utils/scheduleDays';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoCalendar({ size = 26 }) {
@@ -80,14 +87,16 @@ const GRADE_OPTIONS = [
   { value: 8,  label: 'Grade 8'  },
   { value: 9,  label: 'Grade 9'  },
   { value: 10, label: 'Grade 10' },
+  { value: 11, label: 'Grade 11 (SHS)' },
+  { value: 12, label: 'Grade 12 (SHS)' },
 ];
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const DAYS = WEEKDAYS;
 
 const EMPTY_FORM = {
   subject:      '',
   teacher:      '',
-  day_of_week:  'Monday',
+  day_of_week:  'Monday, Wednesday, Friday',
   section_name: '',
   time_start:   '',
   time_end:     '',
@@ -131,11 +140,17 @@ export default function SchedulesPage() {
         .order('last_name', { ascending: true });
       if (!ignore) setTeachers(fac ?? []);
 
-      // 2. Subjects Catalog
-      const { data: subjs } = await supabase
+      // 2. Subjects Catalog (include time_start, time_end, days_of_week if available)
+      let { data: subjs, error: subjErr } = await supabase
         .from('subjects')
-        .select('subject_id, subject_name, subject_code, grade_level, department')
+        .select('subject_id, subject_name, subject_code, grade_level, department, time_start, time_end, days_of_week, semester')
         .order('subject_name', { ascending: true });
+      if (subjErr) {
+        ({ data: subjs } = await supabase
+          .from('subjects')
+          .select('subject_id, subject_name, subject_code, grade_level, department, semester')
+          .order('subject_name', { ascending: true }));
+      }
       if (!ignore) setAllSubjects(subjs ?? []);
 
       // 3. Sections Catalog
@@ -278,7 +293,7 @@ export default function SchedulesPage() {
     setForm({
       subject:      item.subject      ?? '',
       teacher:      item.teacher || item.faculty_id || item.teacher_name || selectedTeacher,
-      day_of_week:  item.day_of_week  ?? 'Monday',
+      day_of_week:  serializeScheduleDays(item.day_of_week) || item.day_of_week || 'Monday',
       section_name: item.section_name ?? '',
       grade_level:  item.grade_level  ?? '',
       time_start:   item.time_start   ?? '',
@@ -297,8 +312,13 @@ export default function SchedulesPage() {
   /* save */
   async function handleSave(e) {
     e.preventDefault();
-    if (!form.subject || !form.day_of_week || !form.time_start || !form.time_end) {
-      setFormError('Subject, day, start time, and end time are required.');
+    const normalizedDays = serializeScheduleDays(form.day_of_week);
+    if (!form.subject || !normalizedDays || !form.time_start || !form.time_end) {
+      setFormError('Subject, at least one weekday, start time, and end time are required.');
+      return;
+    }
+    if (form.time_end <= form.time_start) {
+      setFormError('End time must be later than start time.');
       return;
     }
     setSaving(true);
@@ -320,7 +340,7 @@ export default function SchedulesPage() {
       subject: form.subject,
       section_name: form.section_name || null,
       grade_level: form.grade_level ? Number(form.grade_level) : null,
-      day_of_week: form.day_of_week,
+      day_of_week: normalizedDays,
       time_start: form.time_start,
       time_end: form.time_end,
       room: form.room || null,
@@ -382,9 +402,11 @@ export default function SchedulesPage() {
     setSchedules(data ?? []);
   }
 
-  /* group schedules by day_of_week for timetable view */
+  /* group schedules by day_of_week for timetable view (supports multi-day M-W-F) */
   const byDay = DAYS.reduce((acc, d) => {
-    acc[d] = schedules.filter(s => s.day_of_week === d);
+    acc[d] = schedules
+      .filter(s => scheduleIncludesDay(s.day_of_week, d))
+      .sort((a, b) => (a.time_start || '').localeCompare(b.time_start || ''));
     return acc;
   }, {});
 
@@ -496,28 +518,38 @@ export default function SchedulesPage() {
                   <tbody>
                     {DAYS.map(day =>
                       byDay[day].length === 0 ? null : (
-                        byDay[day].map((s, i) => (
-                          <tr key={s.schedule_id}>
-                            {i === 0 && (
-                              <td rowSpan={byDay[day].length} style={styles.dayCell}>
-                                {day}
+                        byDay[day].map((s, i) => {
+                          const multiDays = parseScheduleDays(s.day_of_week);
+                          return (
+                            <tr key={`${day}-${s.schedule_id}`}>
+                              {i === 0 && (
+                                <td rowSpan={byDay[day].length} style={styles.dayCell}>
+                                  {day}
+                                </td>
+                              )}
+                              <td>
+                                <span>{s.subject}</span>
+                                {multiDays.length > 1 && (
+                                  <span style={{ marginLeft: '6px', background: '#fff3cd', color: '#856404', padding: '1px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: '700' }}>
+                                    {formatDaysShort(s.day_of_week)}
+                                  </span>
+                                )}
                               </td>
-                            )}
-                            <td>{s.subject}</td>
-                            <td>{s.section_name ?? '—'}</td>
-                            <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'}</td>
-                            <td style={{ whiteSpace: 'nowrap' }}>
-                              {formatTime(s.time_start)} – {formatTime(s.time_end)}
-                            </td>
-                            <td>{s.room ?? '—'}</td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '6px' }}>
-                                <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit"><IcoEdit /></button>
-                                <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(s)} title="Delete"><IcoTrash /></button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
+                              <td>{s.section_name ?? '—'}</td>
+                              <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'}</td>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                {formatTime(s.time_start)} – {formatTime(s.time_end)}
+                              </td>
+                              <td>{s.room ?? '—'}</td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)} title="Edit"><IcoEdit /></button>
+                                  <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(s)} title="Delete"><IcoTrash /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )
                     )}
                   </tbody>
@@ -620,11 +652,27 @@ export default function SchedulesPage() {
                       <select
                         value={form.subject}
                         onChange={e => {
-                          if (e.target.value === '__custom__') {
+                          const val = e.target.value;
+                          if (val === '__custom__') {
                             setCustomSubjectMode(true);
                             setForm(f => ({ ...f, subject: '' }));
                           } else {
-                            setForm(f => ({ ...f, subject: e.target.value }));
+                            const matchedSubj = allSubjects.find(
+                              s => s.subject_name === val && (!form.grade_level || !s.grade_level || Number(s.grade_level) === Number(form.grade_level))
+                            ) || allSubjects.find(s => s.subject_name === val);
+                            const fbMatch = matchedSubj && !matchedSubj.time_start && matchedSubj.semester
+                              ? String(matchedSubj.semester).match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/)
+                              : null;
+                            const autoStart = matchedSubj?.time_start ? String(matchedSubj.time_start).slice(0, 5) : (fbMatch ? fbMatch[1] : '');
+                            const autoEnd = matchedSubj?.time_end ? String(matchedSubj.time_end).slice(0, 5) : (fbMatch ? fbMatch[2] : '');
+                            const autoDays = matchedSubj?.days_of_week ? serializeScheduleDays(matchedSubj.days_of_week) : '';
+                            setForm(f => ({
+                              ...f,
+                              subject: val,
+                              time_start: autoStart || f.time_start,
+                              time_end: autoEnd || f.time_end,
+                              day_of_week: autoDays || f.day_of_week,
+                            }));
                           }
                         }}
                       >
@@ -641,18 +689,80 @@ export default function SchedulesPage() {
                     )}
                   </div>
 
-                  {/* Day of Week */}
-                  <div className="form-group">
-                    <label>Day *</label>
-                    <select value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: e.target.value }))}>
-                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-
                   {/* Room */}
                   <div className="form-group">
                     <label>Room</label>
                     <input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="e.g. Room 101" />
+                  </div>
+
+                  {/* Multi-Day Selector */}
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                      <label style={{ margin: 0 }}>Days of Week (Multi-Day Allowed) *</label>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '11px', padding: '2px 8px' }}
+                          onClick={() => setForm(f => ({ ...f, day_of_week: 'Monday, Wednesday, Friday' }))}
+                        >
+                          M-W-F
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '11px', padding: '2px 8px' }}
+                          onClick={() => setForm(f => ({ ...f, day_of_week: 'Tuesday, Thursday' }))}
+                        >
+                          T-Th
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '11px', padding: '2px 8px' }}
+                          onClick={() => setForm(f => ({ ...f, day_of_week: DAYS.join(', ') }))}
+                        >
+                          Daily (M-F)
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {DAYS.map(d => {
+                        const selected = parseScheduleDays(form.day_of_week);
+                        const checked = selected.includes(d);
+                        return (
+                          <label
+                            key={d}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              border: checked ? '1px solid #8B0000' : '1px solid #ddd',
+                              background: checked ? '#fff5f5' : '#f8f9fa',
+                              color: checked ? '#8B0000' : '#444',
+                              fontSize: '12px',
+                              fontWeight: checked ? '600' : '500',
+                              cursor: 'pointer',
+                              margin: 0,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={e => {
+                                const next = e.target.checked
+                                  ? [...selected, d]
+                                  : selected.filter(x => x !== d);
+                                setForm(f => ({ ...f, day_of_week: serializeScheduleDays(next) }));
+                              }}
+                            />
+                            {d}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* Start & End Time */}

@@ -4,6 +4,12 @@ import { getNextStudentId, findStudentByStudentId, isStudentIdViolation, isLrnVi
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cleanSectionName, formatGradeSection } from '../utils/formatters';
+import { getBaseFees, fetchFeeMatrix } from '../utils/feeMatrix';
+import {
+  NO_REFUND_DISCLAIMER,
+  calculateProratedTuition,
+  calculateStackedDiscount,
+} from '../utils/financeRules';
 
 /* ── SVG Icons ─────────────────────────────────────────── */
 function IcoEnrollment() {
@@ -87,6 +93,7 @@ const INITIAL_WIZARD_FORM = {
   mode: 'new',
   student_record_id: '',
   existing_student_search: '',
+  prior_grade_level:  '',
   student_id:         '',
   lrn_id:             '',
   first_name:         '',
@@ -105,8 +112,16 @@ const INITIAL_WIZARD_FORM = {
   strand_id:          '',
   section_id:         '',
   section_name:       '',
-  scholarship_id:     '',
-  enrollment_type:    'New Enrollee',
+  scholarship_id:           '',
+  secondary_scholarship_id: '',
+  enrollment_type:          'New Enrollee',
+  previous_school:          '',
+  previous_school_address:  '',
+  last_grade_completed:     '',
+  last_school_year:         '',
+  months_elapsed:           0,
+  is_repeater:              false,
+  completion_confirmed:     false,
   requirements: {
     psa_birth_cert:   false,
     form_138:         false,
@@ -127,6 +142,8 @@ export default function EnrollmentPage() {
   const [sections, setSections]         = useState([]);
   const [strands, setStrands]           = useState([]);
   const [scholarships, setScholarships] = useState([]);
+  const [feeMatrix, setFeeMatrix]       = useState(null);
+  const [priorGradesInfo, setPriorGradesInfo] = useState(null);
   const [loading, setLoading]           = useState(true);
   const [dbNotice, setDbNotice]         = useState('');
 
@@ -203,6 +220,10 @@ export default function EnrollmentPage() {
         .not('is_archived', 'eq', true);
       setScholarships(schData ?? []);
 
+      // 6. Fetch Fee Matrix for tuition proration previews
+      const feesData = await fetchFeeMatrix(supabase);
+      setFeeMatrix(feesData);
+
     } catch (err) {
       setDbNotice(err.message);
     } finally {
@@ -221,12 +242,22 @@ export default function EnrollmentPage() {
   const continuing     = enrollments.filter(e => e.enrollment_type === 'Continuing').length;
   const shsEnrollees   = enrollments.filter(e => Number(e.grade_level) >= 11).length;
 
+  /* Helper to identify effective enrollment category label (supports Repeater fallback tag) */
+  function getEffectiveEnrollmentType(enr) {
+    if (!enr) return 'Continuing';
+    if (enr.enrollment_type === 'Repeater' || enr.is_repeater || (enr.remarks || '').includes('[REPEATER]')) {
+      return 'Repeater';
+    }
+    return enr.enrollment_type || 'Continuing';
+  }
+
   /* Filtered Enrollments */
   const filteredEnrollments = enrollments.filter(e => {
     const student = students.find(s => s.student_record_id === e.student_record_id);
+    const effType = getEffectiveEnrollmentType(e);
 
     if (gradeFilter && Number(e.grade_level) !== Number(gradeFilter)) return false;
-    if (typeFilter && e.enrollment_type !== typeFilter) return false;
+    if (typeFilter && effType !== typeFilter) return false;
     if (statusFilter !== 'All' && e.enrollment_status !== statusFilter) return false;
 
     if (search) {
@@ -242,10 +273,12 @@ export default function EnrollmentPage() {
 
   /* Open Wizard Modal */
   function openIntakeWizard(mode = 'new') {
+    const isRepeater = mode === 'repeater';
     setWizardForm({
       ...INITIAL_WIZARD_FORM,
-      mode,
-      enrollment_type: mode === 'new' ? 'New Enrollee' : 'Continuing',
+      mode: isRepeater ? 'continuing' : mode,
+      enrollment_type: mode === 'new' ? 'New Enrollee' : isRepeater ? 'Repeater' : 'Continuing',
+      is_repeater: isRepeater,
       student_id: '',
       student_id_auto: true,
     });
@@ -254,7 +287,8 @@ export default function EnrollmentPage() {
         .then(id => setWizardForm(f => (f.student_id ? f : { ...f, student_id: id, student_id_auto: true })))
         .catch(() => { /* ID will be generated on save instead */ });
     }
-    setWizardStep(mode === 'continuing' ? 1 : 2);
+    setPriorGradesInfo(null);
+    setWizardStep(mode === 'continuing' || mode === 'repeater' ? 1 : 2);
     setWizardError('');
     setWizardOpen(true);
   }
@@ -275,34 +309,68 @@ export default function EnrollmentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when the query string changes
   }, [searchParams]);
 
-  /* Handle Continuing Student Selection */
-  function handleSelectExistingStudent(student) {
+  /* Handle Continuing / Repeater Student Selection */
+  async function handleSelectExistingStudent(student, asRepeater = null) {
     const currentGrade = Number(student.grade_level || 1);
-    const nextGrade = currentGrade < 12 ? currentGrade + 1 : 12;
+    const repeaterMode = asRepeater !== null ? asRepeater : wizardForm.is_repeater || wizardForm.enrollment_type === 'Repeater';
+    const nextGrade = repeaterMode ? currentGrade : (currentGrade < 12 ? currentGrade + 1 : 12);
 
     setWizardForm(f => ({
       ...f,
-      student_record_id: student.student_record_id,
-      student_id:        student.student_id        || '',
-      lrn_id:            student.lrn_id            || '',
-      first_name:        student.first_name        || '',
-      middle_name:       student.middle_name       || '',
-      last_name:         student.last_name         || '',
-      gender:            student.gender            || '',
-      birthdate:         student.birthdate         || '',
-      age:               student.age               || '',
-      email:             student.email             || '',
-      contact_number:    student.contact_number    || '',
-      address:           student.address           || '',
-      guardian_name:     student.guardian_name     || '',
-      guardian_contact:  student.guardian_contact  || '',
-      guardian_relation: student.guardian_relation || 'Parent',
-      grade_level:       nextGrade,
-      strand_id:         student.current_strand_id || '',
-      scholarship_id:    student.scholarship_id    || '',
-      enrollment_type:   'Continuing',
+      mode:                     'continuing',
+      student_record_id:        student.student_record_id,
+      prior_grade_level:        currentGrade,
+      student_id:               student.student_id        || '',
+      lrn_id:                   student.lrn_id            || '',
+      first_name:               student.first_name        || '',
+      middle_name:              student.middle_name       || '',
+      last_name:                student.last_name         || '',
+      gender:                   student.gender            || '',
+      birthdate:                student.birthdate         || '',
+      age:                      student.age               || '',
+      email:                    student.email             || '',
+      contact_number:           student.contact_number    || '',
+      address:                  student.address           || '',
+      guardian_name:            student.guardian_name     || '',
+      guardian_contact:         student.guardian_contact  || '',
+      guardian_relation:        student.guardian_relation || 'Parent',
+      grade_level:              nextGrade,
+      strand_id:                student.current_strand_id || '',
+      scholarship_id:           student.scholarship_id    || '',
+      secondary_scholarship_id: student.secondary_scholarship_id || '',
+      enrollment_type:          repeaterMode ? 'Repeater' : 'Continuing',
+      is_repeater:              repeaterMode,
+      completion_confirmed:     repeaterMode ? false : Boolean(student.completion_confirmed),
+      previous_school:          student.previous_school || '',
+      previous_school_address:  student.previous_school_address || '',
+      last_grade_completed:     student.last_grade_completed || '',
+      last_school_year:         student.last_school_year || '',
+      months_elapsed:           Number(student.months_elapsed || 0),
     }));
+    setWizardError('');
     setWizardStep(2);
+
+    setPriorGradesInfo({ loading: true, count: 0, avg: null, passedCount: 0, failedCount: 0 });
+    try {
+      const { data: gData } = await supabase
+        .from('grades')
+        .select('grade_id, quarter_grade')
+        .eq('student_record_id', student.student_record_id);
+      const valid = (gData ?? []).filter(g => g.quarter_grade != null && !Number.isNaN(Number(g.quarter_grade)));
+      const avg = valid.length > 0
+        ? (valid.reduce((sum, g) => sum + Number(g.quarter_grade), 0) / valid.length).toFixed(2)
+        : null;
+      const failedCount = valid.filter(g => Number(g.quarter_grade) < 75).length;
+      setPriorGradesInfo({
+        loading: false,
+        count: valid.length,
+        avg,
+        passedCount: valid.length - failedCount,
+        failedCount,
+      });
+    } catch {
+      setPriorGradesInfo({ loading: false, count: 0, avg: null, passedCount: 0, failedCount: 0 });
+    }
   }
 
   /* Submit Intake Wizard */
@@ -311,14 +379,92 @@ export default function EnrollmentPage() {
     setWizardError('');
 
     try {
+      const gradeNum = Number(wizardForm.grade_level);
+      const isRepeater = wizardForm.enrollment_type === 'Repeater' || wizardForm.is_repeater;
+      const isTransferee = wizardForm.enrollment_type === 'Transferee';
+
+      // Enforce Grade 1 and Grade 7 only for New Enrollees; other levels strictly for Transferees or Continuing/Repeater
+      if (wizardForm.enrollment_type === 'New Enrollee' && ![1, 7].includes(gradeNum)) {
+        throw new Error('New regular enrollment is restricted to Grade 1 and Grade 7 only. Other grade levels are strictly for Transferees or Continuing/Repeater students.');
+      }
+
+      if (isTransferee && !wizardForm.previous_school?.trim()) {
+        throw new Error('Transferees must provide their Previous School Name.');
+      }
+
+      const isPromotion =
+        Boolean(wizardForm.student_record_id) &&
+        !isRepeater &&
+        wizardForm.prior_grade_level !== '' &&
+        gradeNum > Number(wizardForm.prior_grade_level);
+      if (isPromotion && !wizardForm.completion_confirmed) {
+        throw new Error(`Admin verification required: Confirm Grade ${wizardForm.prior_grade_level} completion before promoting this student to Grade ${gradeNum}.`);
+      }
+
       let targetRecordId = wizardForm.student_record_id;
 
-      // 1. If New Student, insert into students table
-      if (wizardForm.mode === 'new' || !targetRecordId) {
+      // Enforce One Section Limit per active school year
+      if (targetRecordId && activeSchoolYear?.id) {
+        const { data: existingEnrs } = await supabase
+          .from('enrollments')
+          .select('id, grade_level, section_id, enrollment_status')
+          .eq('student_record_id', targetRecordId)
+          .eq('school_year_id', activeSchoolYear.id);
+
+        const activeConflict = (existingEnrs ?? []).find(
+          enr => !['Dropped', 'Transferred Out'].includes(enr.enrollment_status)
+        );
+        if (activeConflict) {
+          const secObj = sections.find(s => String(s.id) === String(activeConflict.section_id));
+          const secLabel = secObj ? secObj.section_name : 'an assigned section';
+          throw new Error(
+            `One Section Limit: This student is already enrolled in Grade ${activeConflict.grade_level} (${secLabel}) for S.Y. ${activeSchoolYear.year_label}. A student can only belong to one section at a time.`
+          );
+        }
+      }
+
+      const elapsedMonths = isTransferee ? Math.min(9, Math.max(0, Number(wizardForm.months_elapsed) || 0)) : 0;
+      const cleanSec = cleanSectionName(wizardForm.section_name, wizardForm.grade_level) || null;
+
+      // 1. If New Student (never for Repeater!), insert into students table
+      if ((wizardForm.mode === 'new' && !isRepeater) || !targetRecordId) {
         const isAutoId = wizardForm.student_id_auto !== false;
         let cleanId = (wizardForm.student_id || '').trim();
         if (!cleanId) cleanId = await getNextStudentId(supabase);
         const studentPayload = {
+          student_id:               cleanId,
+          lrn_id:                   wizardForm.lrn_id             || null,
+          first_name:               wizardForm.first_name.trim(),
+          middle_name:              wizardForm.middle_name        ? wizardForm.middle_name.trim() : null,
+          last_name:                wizardForm.last_name.trim(),
+          gender:                   wizardForm.gender,
+          birthdate:                wizardForm.birthdate          || null,
+          age:                      wizardForm.age                ? Number(wizardForm.age) : null,
+          email:                    normalizeEmailOrNull(wizardForm.email),
+          contact_number:           wizardForm.contact_number     || null,
+          address:                  wizardForm.address            || null,
+          guardian_name:            wizardForm.guardian_name      || null,
+          guardian_contact:         wizardForm.guardian_contact   || null,
+          guardian_relation:        wizardForm.guardian_relation  || 'Parent',
+          grade_level:              gradeNum,
+          current_strand_id:        gradeNum >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
+          current_section_id:       wizardForm.section_id         || null,
+          section_name:             cleanSec,
+          scholarship_id:           wizardForm.scholarship_id     || null,
+          secondary_scholarship_id: wizardForm.secondary_scholarship_id || null,
+          previous_school:          isTransferee ? (wizardForm.previous_school?.trim() || null) : null,
+          previous_school_address:  isTransferee ? (wizardForm.previous_school_address?.trim() || null) : null,
+          last_grade_completed:     isTransferee ? (wizardForm.last_grade_completed?.trim() || null) : null,
+          last_school_year:         isTransferee ? (wizardForm.last_school_year?.trim() || null) : null,
+          months_elapsed:           elapsedMonths,
+          is_repeater:              false,
+          completion_confirmed:     Boolean(wizardForm.completion_confirmed),
+          student_type:             wizardForm.enrollment_type,
+          status:                   'Active',
+          is_archived:              false,
+        };
+
+        const coreStudentPayload = {
           student_id:         cleanId,
           lrn_id:             wizardForm.lrn_id             || null,
           first_name:         wizardForm.first_name.trim(),
@@ -333,10 +479,10 @@ export default function EnrollmentPage() {
           guardian_name:      wizardForm.guardian_name      || null,
           guardian_contact:   wizardForm.guardian_contact   || null,
           guardian_relation:  wizardForm.guardian_relation  || 'Parent',
-          grade_level:        Number(wizardForm.grade_level),
-          current_strand_id:  Number(wizardForm.grade_level) >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
+          grade_level:        gradeNum,
+          current_strand_id:  gradeNum >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
           current_section_id: wizardForm.section_id         || null,
-          section_name:       cleanSectionName(wizardForm.section_name, wizardForm.grade_level) || null,
+          section_name:       cleanSec,
           scholarship_id:     wizardForm.scholarship_id     || null,
           student_type:       wizardForm.enrollment_type,
           status:             'Active',
@@ -352,9 +498,17 @@ export default function EnrollmentPage() {
         // Insert; if an auto-generated ID collides, retry with the next free number
         let createdStudent = null;
         let stuErr = null;
+        let useCoreOnly = false;
         for (let attempt = 0; attempt < 5; attempt++) {
-          studentPayload.student_id = cleanId;
-          const res = await supabase.from('students').insert([studentPayload]).select().single();
+          const payloadAttempt = useCoreOnly
+            ? { ...coreStudentPayload, student_id: cleanId }
+            : { ...studentPayload, student_id: cleanId };
+          const res = await supabase.from('students').insert([payloadAttempt]).select().single();
+          if (res.error && !useCoreOnly && /column|schema cache|42703/i.test(res.error.message || '')) {
+            useCoreOnly = true;
+            attempt--;
+            continue;
+          }
           createdStudent = res.data;
           stuErr = res.error;
           if (!stuErr) break;
@@ -367,50 +521,154 @@ export default function EnrollmentPage() {
             continue;
           }
           if (isLrnViolation(stuErr)) {
-            throw new Error(`A student with LRN "${studentPayload.lrn_id}" already exists. Use "Continuing Student" lookup instead of enrolling a duplicate.`);
+            throw new Error(`A student with LRN "${studentPayload.lrn_id}" already exists. Use "Re-Enroll Continuing / Repeater" lookup instead of enrolling a duplicate.`);
           }
           break;
         }
         if (stuErr) throw stuErr;
         targetRecordId = createdStudent.student_record_id;
       } else {
-        // Update existing student record with updated Grade Level & Section
-        await supabase
+        // Update existing student record with updated Grade Level, Single Section & Status
+        const coreUpdate = {
+          grade_level:        gradeNum,
+          current_strand_id:  gradeNum >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
+          current_section_id: wizardForm.section_id || null,
+          section_name:       cleanSec,
+          scholarship_id:     wizardForm.scholarship_id || null,
+          student_type:       isRepeater ? 'Repeater' : wizardForm.enrollment_type,
+          status:             'Active',
+        };
+        const extUpdate = {
+          ...coreUpdate,
+          secondary_scholarship_id: wizardForm.secondary_scholarship_id || null,
+          months_elapsed:           elapsedMonths,
+          is_repeater:              isRepeater,
+          completion_confirmed:     Boolean(wizardForm.completion_confirmed),
+          ...(isTransferee ? {
+            previous_school:         wizardForm.previous_school?.trim() || null,
+            previous_school_address: wizardForm.previous_school_address?.trim() || null,
+            last_grade_completed:    wizardForm.last_grade_completed?.trim() || null,
+            last_school_year:        wizardForm.last_school_year?.trim() || null,
+          } : {}),
+        };
+        const updRes = await supabase
           .from('students')
-          .update({
-            grade_level:        Number(wizardForm.grade_level),
-            current_strand_id:  Number(wizardForm.grade_level) >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
-            current_section_id: wizardForm.section_id || null,
-            section_name:       cleanSectionName(wizardForm.section_name, wizardForm.grade_level) || null,
-            scholarship_id:     wizardForm.scholarship_id || null,
-            student_type:       wizardForm.enrollment_type,
-            status:             'Active',
-          })
+          .update(extUpdate)
           .eq('student_record_id', targetRecordId);
+        if (updRes.error && /column|schema cache|42703/i.test(updRes.error.message || '')) {
+          await supabase
+            .from('students')
+            .update({ ...coreUpdate, student_type: isRepeater ? 'Continuing' : wizardForm.enrollment_type })
+            .eq('student_record_id', targetRecordId);
+        }
       }
 
+      const remarkTags = [];
+      if (isRepeater) remarkTags.push('[REPEATER]');
+      if (isTransferee && wizardForm.previous_school?.trim()) {
+        remarkTags.push(`[TRANSFEREE: ${wizardForm.previous_school.trim()}${elapsedMonths > 0 ? `, ${elapsedMonths} mos elapsed` : ''}]`);
+      }
+      if (wizardForm.remarks?.trim()) remarkTags.push(wizardForm.remarks.trim());
+      const combinedRemarks = remarkTags.join(' ') || null;
+
       // 2. Log entry in enrollments table for active School Year
-      const enrollmentPayload = {
+      const coreEnrollmentPayload = {
         student_record_id:      targetRecordId,
         school_year_id:         activeSchoolYear?.id || null,
-        grade_level:            Number(wizardForm.grade_level),
-        strand_id:              Number(wizardForm.grade_level) >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
+        grade_level:            gradeNum,
+        strand_id:              gradeNum >= 11 && wizardForm.strand_id ? wizardForm.strand_id : null,
         section_id:             wizardForm.section_id || null,
         enrollment_type:        wizardForm.enrollment_type,
         enrollment_status:      'Enrolled',
         scholarship_id:         wizardForm.scholarship_id || null,
         requirements_submitted: wizardForm.requirements,
         date_enrolled:          new Date().toISOString().split('T')[0],
-        remarks:                wizardForm.remarks || null,
+        remarks:                combinedRemarks,
+      };
+      const extEnrollmentPayload = {
+        ...coreEnrollmentPayload,
+        secondary_scholarship_id: wizardForm.secondary_scholarship_id || null,
+        previous_school:          isTransferee ? (wizardForm.previous_school?.trim() || null) : null,
+        previous_school_address:  isTransferee ? (wizardForm.previous_school_address?.trim() || null) : null,
+        last_grade_completed:     isTransferee ? (wizardForm.last_grade_completed?.trim() || null) : null,
+        last_school_year:         isTransferee ? (wizardForm.last_school_year?.trim() || null) : null,
+        months_elapsed:           elapsedMonths,
+        is_repeater:              isRepeater,
+        completion_confirmed:     Boolean(wizardForm.completion_confirmed),
       };
 
-      const { data: newEnrollment, error: enrErr } = await supabase
+      let { data: newEnrollment, error: enrErr } = await supabase
         .from('enrollments')
-        .insert([enrollmentPayload])
+        .insert([extEnrollmentPayload])
         .select()
         .single();
 
+      if (enrErr && /column|schema cache|42703|enrollments_enrollment_type_check|23514/i.test(enrErr.message || '')) {
+        ({ data: newEnrollment, error: enrErr } = await supabase
+          .from('enrollments')
+          .insert([{
+            ...coreEnrollmentPayload,
+            enrollment_type: isRepeater ? 'Continuing' : wizardForm.enrollment_type,
+          }])
+          .select()
+          .single());
+      }
+
       if (enrErr) throw enrErr;
+
+      // 3. Initialize/Sync student_finances assessment if proration or scholarships apply
+      if (isTransferee || wizardForm.scholarship_id || wizardForm.secondary_scholarship_id) {
+        const base = getBaseFees(gradeNum, feeMatrix);
+        const { proratedTuition } = isTransferee && elapsedMonths > 0
+          ? calculateProratedTuition(base.tuition, elapsedMonths)
+          : { proratedTuition: base.tuition };
+        const grossTotal = proratedTuition + base.misc;
+        const priSch = scholarships.find(s => String(s.id) === String(wizardForm.scholarship_id)) || null;
+        const secSch = scholarships.find(s => String(s.id) === String(wizardForm.secondary_scholarship_id)) || null;
+        const stacked = calculateStackedDiscount({
+          tuition: proratedTuition,
+          grossTotal,
+          primaryScholarship: priSch,
+          secondaryScholarship: secSch,
+        });
+        const syLabel = activeSchoolYear?.year_label || '2026-2027';
+        const finCheck = await supabase
+          .from('student_finances')
+          .select('finance_id')
+          .eq('student_record_id', targetRecordId)
+          .eq('school_year', syLabel);
+        if (!finCheck.data || finCheck.data.length === 0) {
+          const finFull = {
+            student_record_id:        targetRecordId,
+            tuition_fee:              proratedTuition,
+            miscellaneous_fee:        base.misc,
+            scholarship_id:           priSch?.id || null,
+            secondary_scholarship_id: secSch?.id || null,
+            discount_amount:          stacked.discount,
+            discount_breakdown:       stacked.breakdown,
+            is_transferee_prorated:   Boolean(isTransferee && elapsedMonths > 0),
+            months_elapsed:           elapsedMonths,
+            prorated_months:          Math.max(1, 10 - elapsedMonths),
+            amount_paid:              0,
+            status:                   'unpaid',
+            school_year:              syLabel,
+            school_year_id:           activeSchoolYear?.id || null,
+          };
+          const insFin = await supabase.from('student_finances').insert([finFull]);
+          if (insFin.error && /column|schema cache|42703/i.test(insFin.error.message || '')) {
+            await supabase.from('student_finances').insert([{
+              student_record_id: targetRecordId,
+              tuition_fee:       proratedTuition,
+              miscellaneous_fee: base.misc,
+              scholarship_id:    priSch?.id || null,
+              discount_amount:   stacked.discount,
+              amount_paid:       0,
+              status:            'unpaid',
+              school_year:       syLabel,
+            }]);
+          }
+        }
+      }
 
       setWizardOpen(false);
       fetchData();
@@ -524,12 +782,19 @@ export default function EnrollmentPage() {
         {/* Enrollment Intake Trigger & Filters */}
         <div className="card">
           <div className="card-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => openIntakeWizard('new')}>
-                <IcoNewStudent /> + Enroll New Student (First Timer)
+                <IcoNewStudent /> + Enroll New / Transferee
               </button>
               <button className="btn btn-secondary" onClick={() => openIntakeWizard('continuing')}>
                 <IcoContinuing /> Re-Enroll Continuing Student
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ borderColor: '#6d28d9', color: '#6d28d9' }}
+                onClick={() => openIntakeWizard('repeater')}
+              >
+                <IcoContinuing /> Process Repeater (Retained)
               </button>
             </div>
 
@@ -574,8 +839,9 @@ export default function EnrollmentPage() {
               <label>Enrollment Type</label>
               <select className="filter-select" style={{ width: '100%' }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
                 <option value="">All Types</option>
-                <option value="New Enrollee">New Enrollee (First Timer)</option>
+                <option value="New Enrollee">New Enrollee (Grade 1 &amp; 7)</option>
                 <option value="Continuing">Continuing Student</option>
+                <option value="Repeater">Repeater (Retained)</option>
                 <option value="Transferee">Transferee</option>
                 <option value="Returnee">Returnee</option>
               </select>
@@ -679,9 +945,24 @@ export default function EnrollmentPage() {
                           )}
                         </td>
                         <td>
-                          <span style={e.enrollment_type === 'New Enrollee' ? styles.badgeNew : styles.badgeContinuing}>
-                            {e.enrollment_type}
-                          </span>
+                          {(() => {
+                            const effType = getEffectiveEnrollmentType(e);
+                            const badgeStyle =
+                              effType === 'New Enrollee' ? styles.badgeNew :
+                              effType === 'Transferee' ? styles.badgeTransferee :
+                              effType === 'Repeater' ? styles.badgeRepeater : styles.badgeContinuing;
+                            const prevSchool = e.previous_school || student?.previous_school;
+                            return (
+                              <div>
+                                <span style={badgeStyle}>{effType}</span>
+                                {effType === 'Transferee' && prevSchool && (
+                                  <div style={{ fontSize: '11px', color: '#92400e', marginTop: '2px' }}>
+                                    From: {prevSchool}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td>
                           {sch ? (
@@ -793,26 +1074,40 @@ export default function EnrollmentPage() {
                       {studentLookupResults.map(s => (
                         <div
                           key={s.student_record_id}
-                          onClick={() => handleSelectExistingStudent(s)}
                           style={{
                             padding: '12px',
                             border: '1px solid #e0e0e0',
                             borderRadius: '8px',
-                            cursor: 'pointer',
                             background: '#fff',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
+                            gap: '10px',
+                            flexWrap: 'wrap',
                             transition: 'all 0.15s ease',
                           }}
-                          onMouseOver={e => e.currentTarget.style.borderColor = '#8B0000'}
-                          onMouseOut={e => e.currentTarget.style.borderColor = '#e0e0e0'}
                         >
                           <div>
                             <div style={{ fontWeight: '700', color: '#8B0000' }}>{s.first_name} {s.last_name}</div>
                             <div style={{ fontSize: '12px', color: '#666' }}>ID: {s.student_id} | LRN: {s.lrn_id || 'N/A'} | Current: Grade {s.grade_level}</div>
                           </div>
-                          <button className="btn btn-primary btn-sm">Select Student &rarr;</button>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handleSelectExistingStudent(s, false)}
+                            >
+                              Promote (Continuing) &rarr;
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ borderColor: '#6d28d9', color: '#6d28d9' }}
+                              onClick={() => handleSelectExistingStudent(s, true)}
+                            >
+                              Retain (Repeater) &rarr;
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -846,11 +1141,42 @@ export default function EnrollmentPage() {
                   <div className="form-grid">
                     <div className="form-group">
                       <label>Enrollment Category *</label>
-                      <select value={wizardForm.enrollment_type} onChange={e => setWizardForm(f => ({ ...f, enrollment_type: e.target.value }))}>
-                        <option value="New Enrollee">New Enrollee (First Timer)</option>
-                        <option value="Continuing">Continuing Student</option>
-                        <option value="Transferee">Transferee from Other School</option>
-                        <option value="Returnee">Returnee</option>
+                      <select
+                        value={wizardForm.enrollment_type}
+                        onChange={e => {
+                          const cat = e.target.value;
+                          setWizardForm(f => {
+                            const next = {
+                              ...f,
+                              enrollment_type: cat,
+                              is_repeater: cat === 'Repeater',
+                            };
+                            if (cat === 'New Enrollee' && f.grade_level && ![1, 7].includes(Number(f.grade_level))) {
+                              next.grade_level = '';
+                              next.section_id = '';
+                              next.section_name = '';
+                            }
+                            if (cat === 'Repeater' && f.prior_grade_level) {
+                              next.grade_level = Number(f.prior_grade_level);
+                              next.completion_confirmed = false;
+                            }
+                            return next;
+                          });
+                        }}
+                      >
+                        {wizardForm.mode === 'new' ? (
+                          <>
+                            <option value="New Enrollee">New Enrollee (Grade 1 &amp; Grade 7 Only)</option>
+                            <option value="Transferee">Transferee from Other School (Grades 1–12)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="Continuing">Continuing Student (Promoted)</option>
+                            <option value="Repeater">Repeater (Retained in Current Grade)</option>
+                            <option value="Returnee">Returnee</option>
+                            <option value="Transferee">Transferee</option>
+                          </>
+                        )}
                       </select>
                     </div>
                     {wizardForm.mode === 'new' && (
@@ -920,6 +1246,68 @@ export default function EnrollmentPage() {
                       <input value={wizardForm.guardian_contact} onChange={e => setWizardForm(f => ({ ...f, guardian_contact: e.target.value }))} placeholder="09XX-XXX-XXXX" />
                     </div>
                   </div>
+
+                  {wizardForm.enrollment_type === 'Transferee' && (
+                    <div style={{ marginTop: '14px', padding: '14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px' }}>
+                      <h5 style={{ margin: '0 0 10px 0', color: '#92400e', fontSize: '13px', fontWeight: '700' }}>
+                        Transferee Previous School Records &amp; 10-Month Proration
+                      </h5>
+                      <div className="form-grid">
+                        <div className="form-group">
+                          <label>Previous School Name *</label>
+                          <input
+                            value={wizardForm.previous_school}
+                            onChange={e => setWizardForm(f => ({ ...f, previous_school: e.target.value }))}
+                            placeholder="Name of previous school attended"
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Previous School Address</label>
+                          <input
+                            value={wizardForm.previous_school_address}
+                            onChange={e => setWizardForm(f => ({ ...f, previous_school_address: e.target.value }))}
+                            placeholder="City / Municipality / Province"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>Last Grade Level Completed</label>
+                          <input
+                            value={wizardForm.last_grade_completed}
+                            onChange={e => setWizardForm(f => ({ ...f, last_grade_completed: e.target.value }))}
+                            placeholder="e.g. Grade 4"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>Last School Year Attended</label>
+                          <input
+                            value={wizardForm.last_school_year}
+                            onChange={e => setWizardForm(f => ({ ...f, last_school_year: e.target.value }))}
+                            placeholder="e.g. 2025-2026"
+                          />
+                        </div>
+                        <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                          <label>Months Elapsed Before Transfer (0–9, out of 10-month school year)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="9"
+                            value={wizardForm.months_elapsed}
+                            onChange={e => setWizardForm(f => ({ ...f, months_elapsed: Math.min(9, Math.max(0, Number(e.target.value) || 0)) }))}
+                          />
+                          <div style={{ fontSize: '11px', color: '#78350f', marginTop: '4px' }}>
+                            Tuition will be prorated for {10 - Math.min(9, Math.max(0, Number(wizardForm.months_elapsed) || 0))} / 10 remaining months.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {wizardForm.enrollment_type === 'Repeater' && (
+                    <div style={{ marginTop: '14px', padding: '12px 14px', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '8px', fontSize: '12px', color: '#5b21b6' }}>
+                      <strong>Repeater Status:</strong> Retaining existing Student ID ({wizardForm.student_id || 'On File'}) for Grade {wizardForm.grade_level || wizardForm.prior_grade_level}. No duplicate enrollee profile will be created.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -929,16 +1317,58 @@ export default function EnrollmentPage() {
                   <h4 style={{ margin: '0 0 14px 0', color: '#8B0000', borderBottom: '2px solid #e9ecef', paddingBottom: '6px' }}>
                     Academic Placement &amp; Grants (S.Y. {activeSchoolYear?.year_label || '2026-2027'})
                   </h4>
+
+                  {wizardForm.enrollment_type === 'New Enrollee' && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', marginBottom: '14px' }}>
+                      <strong>Admissions Rule:</strong> New regular enrollees are restricted to <strong>Grade 1</strong> and <strong>Grade 7</strong> only. Other grade levels (Grades 2–6, 8–12) are strictly open to <strong>Transferees</strong> (switch category in Step 2) or Continuing/Repeater students.
+                    </div>
+                  )}
+
+                  {wizardForm.student_record_id &&
+                    wizardForm.enrollment_type !== 'Repeater' &&
+                    wizardForm.prior_grade_level !== '' &&
+                    Number(wizardForm.grade_level) > Number(wizardForm.prior_grade_level) && (
+                    <div style={{ background: wizardForm.completion_confirmed ? '#f0fdf4' : '#fef2f2', border: `1px solid ${wizardForm.completion_confirmed ? '#86efac' : '#fecaca'}`, borderRadius: '8px', padding: '12px 14px', marginBottom: '14px' }}>
+                      <div style={{ fontWeight: '700', fontSize: '13px', color: wizardForm.completion_confirmed ? '#166534' : '#991b1b', marginBottom: '6px' }}>
+                        Grade Completion Verification Required (Grade {wizardForm.prior_grade_level} &rarr; Grade {wizardForm.grade_level})
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#444', marginBottom: '10px' }}>
+                        {priorGradesInfo?.loading
+                          ? 'Checking recorded grades for prior grade level...'
+                          : priorGradesInfo && priorGradesInfo.count > 0
+                            ? `Recorded Grades on File: ${priorGradesInfo.count} entry(s) | Avg: ${priorGradesInfo.avg} | Passed: ${priorGradesInfo.passedCount}, Below 75: ${priorGradesInfo.failedCount}`
+                            : 'No prior digital grade entries found on file. Verify physical Form 138 / Report Card before authorizing promotion.'}
+                      </div>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${wizardForm.completion_confirmed ? 'btn-secondary' : 'btn-primary'}`}
+                        style={wizardForm.completion_confirmed ? { background: '#16a34a', color: '#fff', borderColor: '#16a34a' } : {}}
+                        onClick={() => setWizardForm(f => ({ ...f, completion_confirmed: !f.completion_confirmed }))}
+                      >
+                        {wizardForm.completion_confirmed
+                          ? `Verified: Grade ${wizardForm.prior_grade_level} Completion Confirmed`
+                          : `Verify Grade ${wizardForm.prior_grade_level} Completion & Authorize Promotion`}
+                      </button>
+                    </div>
+                  )}
+
                   <div className="form-grid">
                     <div className="form-group">
-                      <label>Enrolling Grade Level (1–12) *</label>
+                      <label>
+                        {wizardForm.enrollment_type === 'New Enrollee'
+                          ? 'Enrolling Grade Level (Grade 1 or 7 Only) *'
+                          : 'Enrolling Grade Level (1–12) *'}
+                      </label>
                       <select
                         value={wizardForm.grade_level}
                         onChange={e => setWizardForm(f => ({ ...f, grade_level: e.target.value, section_id: '', strand_id: '' }))}
                         required
                       >
                         <option value="">Select Grade Level...</option>
-                        {GRADE_OPTIONS.map(g => (
+                        {(wizardForm.enrollment_type === 'New Enrollee'
+                          ? GRADE_OPTIONS.filter(g => g.value === 1 || g.value === 7)
+                          : GRADE_OPTIONS
+                        ).map(g => (
                           <option key={g.value} value={g.value}>{g.label}</option>
                         ))}
                       </select>
@@ -993,9 +1423,9 @@ export default function EnrollmentPage() {
                       </div>
                     )}
 
-                    {/* Scholarship / Grant */}
-                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                      <label>Scholarship Grant / Discount Program</label>
+                    {/* Stacked Scholarships / Grants */}
+                    <div className="form-group">
+                      <label>Primary Scholarship Grant (e.g. ESC Voucher)</label>
                       <select
                         value={wizardForm.scholarship_id}
                         onChange={e => setWizardForm(f => ({ ...f, scholarship_id: e.target.value }))}
@@ -1008,6 +1438,38 @@ export default function EnrollmentPage() {
                         ))}
                       </select>
                     </div>
+
+                    <div className="form-group">
+                      <label>Secondary Stackable Discount (e.g. Sibling Discount)</label>
+                      <select
+                        value={wizardForm.secondary_scholarship_id}
+                        onChange={e => setWizardForm(f => ({ ...f, secondary_scholarship_id: e.target.value }))}
+                      >
+                        <option value="">None</option>
+                        {scholarships
+                          .filter(sc => String(sc.id) !== String(wizardForm.scholarship_id))
+                          .map(sc => (
+                            <option key={sc.id} value={sc.id}>
+                              {sc.name} ({sc.discount_type === 'percentage' ? `${sc.discount_value}% OFF` : `₱${sc.discount_value} Grant`})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    {wizardForm.enrollment_type === 'Transferee' && wizardForm.grade_level && (
+                      <div className="form-group" style={{ gridColumn: '1 / -1', background: '#fffbeb', border: '1px solid #fde68a', padding: '10px 12px', borderRadius: '6px', fontSize: '12px', color: '#78350f' }}>
+                        {(() => {
+                          const base = getBaseFees(wizardForm.grade_level, feeMatrix);
+                          const { remainingMonths, proratedTuition } = calculateProratedTuition(base.tuition, wizardForm.months_elapsed);
+                          return (
+                            <div>
+                              <strong>Prorated Tuition Assessment:</strong> Base ₱{Number(base.tuition).toLocaleString()} &times; ({remainingMonths}/10 mos) ={' '}
+                              <strong>₱{Number(proratedTuition).toLocaleString()}</strong> + Misc ₱{Number(base.misc).toLocaleString()}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
 
                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                       <label>Enrollment Remarks / Special Notes</label>
@@ -1088,9 +1550,29 @@ export default function EnrollmentPage() {
                       <div><strong>Enrolling Grade Level:</strong> Grade {wizardForm.grade_level}</div>
                       <div><strong>Assigned Section:</strong> {cleanSectionName(wizardForm.section_name, wizardForm.grade_level) || 'Unassigned'}</div>
                       <div><strong>SHS Strand:</strong> {strands.find(st => st.id === wizardForm.strand_id)?.strand_name || 'N/A'}</div>
-                      <div><strong>Scholarship:</strong> {scholarships.find(sc => sc.id === wizardForm.scholarship_id)?.name || 'Regular'}</div>
+                      <div>
+                        <strong>Scholarship / Grants:</strong>{' '}
+                        {[
+                          scholarships.find(sc => String(sc.id) === String(wizardForm.scholarship_id))?.name,
+                          scholarships.find(sc => String(sc.id) === String(wizardForm.secondary_scholarship_id))?.name,
+                        ].filter(Boolean).join(' + ') || 'Regular'}
+                      </div>
                       <div><strong>Emergency Contact:</strong> {wizardForm.guardian_name} ({wizardForm.guardian_contact || 'N/A'})</div>
+                      {wizardForm.enrollment_type === 'Transferee' && (
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <strong>Previous School:</strong> {wizardForm.previous_school || '—'}{' '}
+                          {wizardForm.last_grade_completed ? `(Completed: ${wizardForm.last_grade_completed})` : ''} • Months Elapsed: {wizardForm.months_elapsed || 0}
+                        </div>
+                      )}
+                      {wizardForm.completion_confirmed && (
+                        <div style={{ gridColumn: '1 / -1', color: '#166534', fontWeight: '600' }}>
+                          Grade {wizardForm.prior_grade_level} Completion Verified &amp; Promotion Authorized
+                        </div>
+                      )}
                     </div>
+                  </div>
+                  <div style={{ marginTop: '14px', padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '11px', color: '#7f1d1d', lineHeight: '1.45' }}>
+                    {NO_REFUND_DISCLAIMER}
                   </div>
                 </div>
               )}
@@ -1123,7 +1605,11 @@ export default function EnrollmentPage() {
                           setWizardError('First name, last name, and gender are required.');
                           return;
                         }
-                        if (wizardForm.mode === 'new' && wizardForm.student_id?.trim()) {
+                        if (wizardForm.enrollment_type === 'Transferee' && !wizardForm.previous_school?.trim()) {
+                          setWizardError('Please enter the Previous School Name for this Transferee.');
+                          return;
+                        }
+                        if (wizardForm.mode === 'new' && wizardForm.enrollment_type !== 'Repeater' && wizardForm.student_id?.trim()) {
                           try {
                             const clash = await findStudentByStudentId(supabase, wizardForm.student_id);
                             if (clash) {
@@ -1136,6 +1622,19 @@ export default function EnrollmentPage() {
                       if (wizardStep === 3) {
                         if (!wizardForm.grade_level) {
                           setWizardError('Please select a grade level.');
+                          return;
+                        }
+                        if (wizardForm.enrollment_type === 'New Enrollee' && ![1, 7].includes(Number(wizardForm.grade_level))) {
+                          setWizardError('New regular intake is limited strictly to Grade 1 and Grade 7. Switch Category to Transferee for other grade levels.');
+                          return;
+                        }
+                        const isProm =
+                          Boolean(wizardForm.student_record_id) &&
+                          wizardForm.enrollment_type !== 'Repeater' &&
+                          wizardForm.prior_grade_level !== '' &&
+                          Number(wizardForm.grade_level) > Number(wizardForm.prior_grade_level);
+                        if (isProm && !wizardForm.completion_confirmed) {
+                          setWizardError(`Please click "Verify Grade ${wizardForm.prior_grade_level} Completion & Authorize Promotion" before proceeding.`);
                           return;
                         }
                         if (Number(wizardForm.grade_level) >= 11 && !wizardForm.strand_id) {
@@ -1196,12 +1695,28 @@ export default function EnrollmentPage() {
                 <div><span style={{ fontWeight: 'bold' }}>Grade Level:</span> Grade {viewSlip.enrollment?.grade_level}</div>
                 <div><span style={{ fontWeight: 'bold' }}>Section:</span> {cleanSectionName(sections.find(s => s.id === viewSlip.enrollment?.section_id)?.section_name || viewSlip.student?.section_name, viewSlip.enrollment?.grade_level) || 'Unassigned'}</div>
                 <div><span style={{ fontWeight: 'bold' }}>SHS Strand:</span> {strands.find(st => st.id === viewSlip.enrollment?.strand_id)?.strand_name || 'N/A'}</div>
-                <div><span style={{ fontWeight: 'bold' }}>Scholarship:</span> {scholarships.find(sc => sc.id === viewSlip.enrollment?.scholarship_id)?.name || 'Regular'}</div>
-                <div><span style={{ fontWeight: 'bold' }}>Enrollment Type:</span> {viewSlip.enrollment?.enrollment_type}</div>
+                <div>
+                  <span style={{ fontWeight: 'bold' }}>Scholarship / Grants:</span>{' '}
+                  {[
+                    scholarships.find(sc => String(sc.id) === String(viewSlip.enrollment?.scholarship_id))?.name,
+                    scholarships.find(sc => String(sc.id) === String(viewSlip.enrollment?.secondary_scholarship_id))?.name,
+                  ].filter(Boolean).join(' + ') || 'Regular'}
+                </div>
+                <div><span style={{ fontWeight: 'bold' }}>Enrollment Type:</span> {getEffectiveEnrollmentType(viewSlip.enrollment)}</div>
                 <div><span style={{ fontWeight: 'bold' }}>Date Enrolled:</span> {viewSlip.enrollment?.date_enrolled}</div>
+                {(viewSlip.enrollment?.previous_school || viewSlip.student?.previous_school) && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <span style={{ fontWeight: 'bold' }}>Previous School:</span>{' '}
+                    {viewSlip.enrollment?.previous_school || viewSlip.student?.previous_school}
+                  </div>
+                )}
               </div>
 
-              <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px dashed #ccc', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#555' }}>
+              <div style={{ marginTop: '14px', padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '10px', color: '#7f1d1d', lineHeight: '1.4' }}>
+                {NO_REFUND_DISCLAIMER}
+              </div>
+
+              <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px dashed #ccc', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#555' }}>
                 <div>Verified by: Registrar / Admissions Officer</div>
                 <div>Status: <strong style={{ color: '#137333' }}>OFFICIALLY ENROLLED</strong></div>
               </div>
@@ -1264,6 +1779,24 @@ const styles = {
     padding: '3px 8px',
     borderRadius: '6px',
     fontSize: '11px',
+    fontWeight: '700',
+  },
+  badgeTransferee: {
+    display: 'inline-block',
+    background: '#fef3c7',
+    color: '#92400e',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: '700',
+  },
+  badgeRepeater: {
+    display: 'inline-block',
+    background: '#ede9fe',
+    color: '#5b21b6',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '12px',
     fontWeight: '700',
   },
 };

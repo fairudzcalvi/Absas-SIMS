@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatGradeSection } from '../utils/formatters';
+import { getBaseFees, fetchFeeMatrix } from '../utils/feeMatrix';
+import { evaluateFinancialHold } from '../utils/financeRules';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoTranscript() {
@@ -135,6 +137,8 @@ export default function TranscriptsPage() {
 
   const [students, setStudents]     = useState([]);
   const [transcriptMap, setTranscriptMap] = useState({}); // keyed by student_record_id
+  const [holdMap, setHoldMap]       = useState({}); // keyed by student_record_id
+  const [schoolSettings, setSchoolSettings] = useState(null);
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState('');
   const [gradeFilter, setGrade]     = useState('');
@@ -142,35 +146,66 @@ export default function TranscriptsPage() {
 
   const [stats, setStats]           = useState({ total: 0, today: 0, complete: 0, incomplete: 0 });
   const [previewStudent, setPreview] = useState(null);
+  const [certStudent, setCertStudent] = useState(null);
   const [grades, setGrades]         = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  /* fetch students + transcripts separately, then merge */
+  /* fetch students + transcripts + overdue financial hold status */
   const fetchStudents = useCallback(async () => {
     setLoading(true);
 
     // 1. Fetch students
     let q = supabase
       .from('students')
-      .select('student_record_id, student_id, first_name, last_name, lrn_id, grade_level, section_name')
+      .select('student_record_id, student_id, first_name, middle_name, last_name, lrn_id, grade_level, section_name, scholarship_id')
       .order('last_name');
 
-    if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
+    if (gradeFilter === 'completers') {
+      q = q.in('grade_level', [6, 10]);
+    } else if (gradeFilter) {
+      q = q.eq('grade_level', Number(gradeFilter));
+    }
     if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn_id.ilike.%${search}%,student_id.ilike.%${search}%`);
 
-    const { data: studentData } = await q;
-    const studentRows = studentData ?? [];
+    const [{ data: studentData }, { data: transcriptData }, { data: finData }, { data: schData }, feesData, { data: sysSettings }] = await Promise.all([
+      q,
+      supabase.from('transcripts').select('student_record_id, general_average, generated_date, school_year'),
+      supabase.from('student_finances').select('*'),
+      supabase.from('scholarships').select('*'),
+      fetchFeeMatrix(supabase),
+      supabase.from('school_settings').select('*').limit(1).maybeSingle(),
+    ]);
 
-    // 2. Fetch transcripts
-    const { data: transcriptData } = await supabase
-      .from('transcripts')
-      .select('student_record_id, general_average, generated_date, school_year');
+    const studentRows = studentData ?? [];
+    setSchoolSettings(sysSettings || null);
 
     const tMap = {};
     (transcriptData ?? []).forEach(t => {
       tMap[t.student_record_id] = t;
     });
     setTranscriptMap(tMap);
+
+    // Evaluate overdue financial holds per student
+    const hMap = {};
+    const qNum = activeQuarter?.quarter_number || 1;
+    studentRows.forEach(s => {
+      const finRow =
+        (finData ?? []).find(
+          f =>
+            f.student_record_id === s.student_record_id &&
+            ((currentSy?.id && f.school_year_id === currentSy.id) || (currentSy?.year_label && f.school_year === currentSy.year_label))
+        ) || (finData ?? []).find(f => f.student_record_id === s.student_record_id) || null;
+      const priSch = (schData ?? []).find(sc => String(sc.id) === String(finRow?.scholarship_id || s.scholarship_id)) || null;
+      const secSch = (schData ?? []).find(sc => String(sc.id) === String(finRow?.secondary_scholarship_id)) || null;
+      hMap[s.student_record_id] = evaluateFinancialHold({
+        financeRow: finRow,
+        baseFees: getBaseFees(s.grade_level, feesData),
+        primaryScholarship: priSch,
+        secondaryScholarship: secSch,
+        activeQuarterNumber: qNum,
+      });
+    });
+    setHoldMap(hMap);
 
     // 3. Apply status filter client-side
     let rows = studentRows;
@@ -192,60 +227,12 @@ export default function TranscriptsPage() {
     });
 
     setLoading(false);
-  }, [supabase, gradeFilter, search, statusFilter]);
+  }, [supabase, gradeFilter, search, statusFilter, currentSy, activeQuarter]);
 
   useEffect(() => {
-    let ignore = false;
-    async function load() {
-      setLoading(true);
-
-      // 1. Fetch students
-      let q = supabase
-        .from('students')
-        .select('student_record_id, student_id, first_name, last_name, lrn_id, grade_level, section_name')
-        .order('last_name');
-
-      if (gradeFilter) q = q.eq('grade_level', Number(gradeFilter));
-      if (search) q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,lrn_id.ilike.%${search}%,student_id.ilike.%${search}%`);
-
-      const { data: studentData } = await q;
-      const studentRows = studentData ?? [];
-
-      // 2. Fetch transcripts
-      const { data: transcriptData } = await supabase
-        .from('transcripts')
-        .select('student_record_id, general_average, generated_date, school_year');
-
-      const tMap = {};
-      (transcriptData ?? []).forEach(t => {
-        tMap[t.student_record_id] = t;
-      });
-
-      // 3. Apply status filter client-side
-      let rows = studentRows;
-      if (statusFilter === 'complete')   rows = rows.filter(s => !tMap[s.student_record_id]);
-      if (statusFilter === 'incomplete') rows = rows.filter(s => !tMap[s.student_record_id]);
-
-      // 4. Stats
-      const today = new Date().toISOString().split('T')[0];
-      const todayCount = (transcriptData ?? []).filter(t => (t.generated_date ?? '').startsWith(today)).length;
-      const completeIds = new Set((transcriptData ?? []).map(t => t.student_record_id));
-
-      if (!ignore) {
-        setTranscriptMap(tMap);
-        setStudents(rows);
-        setStats({
-          total:      (transcriptData ?? []).length,
-          today:      todayCount,
-          complete:   completeIds.size,
-          incomplete: studentRows.length - completeIds.size,
-        });
-        setLoading(false);
-      }
-    }
-    load();
-    return () => { ignore = true; };
-  }, [supabase, gradeFilter, search, statusFilter]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs cleanly when filter deps change
+    fetchStudents();
+  }, [fetchStudents]);
 
   /* preview grades */
   async function openPreview(student) {
@@ -260,15 +247,30 @@ export default function TranscriptsPage() {
     setPreviewLoading(false);
   }
 
-  /* mark as generated — INSERT into transcripts table */
+  /* mark as generated — INSERT into transcripts table with real computed average */
   async function markGenerated(studentId) {
+    const hold = holdMap[studentId];
+    if (hold?.isOverdue) {
+      alert(`Financial Hold: Cannot release or print official academic records while an overdue balance of ₱${Number(hold.overdueAmount).toLocaleString()} remains unpaid.`);
+      return;
+    }
+
+    const { data: gData } = await supabase
+      .from('grades')
+      .select('*')
+      .eq('student_record_id', studentId);
+    const grouped = groupBySubject(gData ?? []).filter(r => r.final != null);
+    const avg = grouped.length > 0
+      ? Number((grouped.reduce((sum, r) => sum + Number(r.final), 0) / grouped.length).toFixed(2))
+      : null;
+
     const today = new Date().toISOString().split('T')[0];
     await supabase.from('transcripts').upsert(
       {
         student_record_id: studentId,
-        general_average:   null,
+        general_average:   avg,
         generated_date:    today,
-        school_year:       '2025-2026',
+        school_year:       currentSy?.year_label || activeSchoolYear?.year_label || '2026-2027',
       },
       { onConflict: 'student_record_id' }
     );
@@ -346,11 +348,17 @@ export default function TranscriptsPage() {
 
         {/* Search / Filter Card */}
         <div className="card">
-          <div className="card-header">
-            <h2 className="card-title"><IcoSearch /> Search Student</h2>
-            <button className="btn btn-primary" onClick={() => alert('Batch generation: select students first.')}>
-              <IcoBatch /> Batch Generate
-            </button>
+          <div className="card-header" style={{ flexWrap: 'wrap', gap: '10px' }}>
+            <h2 className="card-title"><IcoSearch /> Search Student &amp; Certificates</h2>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${gradeFilter === 'completers' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setGrade(g => (g === 'completers' ? '' : 'completers'))}
+              >
+                <IcoBatch /> {gradeFilter === 'completers' ? 'Showing Grade 6 & 10 Completers' : 'Grade 6 & 10 Completers'}
+              </button>
+            </div>
           </div>
           <div className="form-grid">
             <div className="form-group" style={{ marginBottom: 0 }}>
@@ -365,6 +373,7 @@ export default function TranscriptsPage() {
               <label>Grade Level</label>
               <select value={gradeFilter} onChange={e => setGrade(e.target.value)}>
                 <option value="">All Grades</option>
+                <option value="completers">Grade 6 &amp; 10 Completers (Certificates)</option>
                 {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
@@ -405,12 +414,23 @@ export default function TranscriptsPage() {
                 ) : (
                   students.map(s => {
                     const t = transcriptMap[s.student_record_id];
+                    const hold = holdMap[s.student_record_id];
+                    const isCompleter = Number(s.grade_level) === 6 || Number(s.grade_level) === 10;
                     return (
                       <tr key={s.student_record_id}>
                         <td style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: '700', color: '#8B0000' }}>{s.lrn_id || s.student_id || '—'}</td>
                         <td style={{ fontWeight: '600' }}>{s.first_name} {s.last_name}</td>
                         <td>{formatGradeSection(s.grade_level, s.section_name)}</td>
-                        <td><TranscriptBadge hasTranscript={!!t} /></td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <TranscriptBadge hasTranscript={!!t} />
+                            {hold?.isOverdue && (
+                              <span style={{ background: '#fee2e2', color: '#991b1b', fontSize: '11px', fontWeight: '700', padding: '2px 7px', borderRadius: '6px' }}>
+                                Overdue Hold
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td>{t?.general_average ? Number(t.general_average).toFixed(2) : '—'}</td>
                         <td>
                           {t?.generated_date
@@ -418,13 +438,28 @@ export default function TranscriptsPage() {
                             : '—'}
                         </td>
                         <td>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn btn-secondary btn-sm" onClick={() => openPreview(s)} title="View / Generate">
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openPreview(s)} title="View / Print Transcript">
                               <IcoView /> View
                             </button>
-                            <button className="btn btn-primary btn-sm" onClick={() => markGenerated(s.student_record_id)} title="Generate">
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => markGenerated(s.student_record_id)}
+                              disabled={Boolean(hold?.isOverdue)}
+                              title={hold?.isOverdue ? 'Withheld due to overdue balance' : 'Mark Transcript Generated'}
+                            >
                               <IcoGenerate /> Generate
                             </button>
+                            {isCompleter && (
+                              <button
+                                className="btn btn-sm"
+                                style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}
+                                onClick={() => setCertStudent(s)}
+                                title={`Print Certificate of Completion (Grade ${s.grade_level})`}
+                              >
+                                Certificate
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -482,6 +517,14 @@ export default function TranscriptsPage() {
                 <div><strong>General Average:</strong> {transcriptMap[previewStudent.student_record_id]?.general_average ? Number(transcriptMap[previewStudent.student_record_id].general_average).toFixed(2) : '—'}</div>
               </div>
 
+              {holdMap[previewStudent.student_record_id]?.isOverdue && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', padding: '10px 14px', borderRadius: '8px', marginTop: '10px', fontSize: '13px' }}>
+                  <strong>Financial Hold Active:</strong> This student has an overdue balance of{' '}
+                  <strong>₱{Number(holdMap[previewStudent.student_record_id].overdueAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>{' '}
+                  (Total Balance: ₱{Number(holdMap[previewStudent.student_record_id].balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}). Official release and report printing are restricted until settled.
+                </div>
+              )}
+
               {/* Grades Table */}
               {previewLoading ? (
                 <p style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading grades...</p>
@@ -516,8 +559,126 @@ export default function TranscriptsPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setPreview(null)}>Close</button>
-              <button className="btn btn-primary" onClick={() => markGenerated(previewStudent.student_record_id)}>
+              <button
+                className="btn btn-secondary"
+                disabled={Boolean(holdMap[previewStudent.student_record_id]?.isOverdue)}
+                onClick={() => window.print()}
+              >
+                Print Transcript
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={Boolean(holdMap[previewStudent.student_record_id]?.isOverdue)}
+                onClick={() => markGenerated(previewStudent.student_record_id)}
+              >
                 <IcoGenerate /> Mark as Generated
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Certificate of Completion Modal (Grade 6 & Grade 10 Completers) ── */}
+      {certStudent && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setCertStudent(null); }}>
+          <div className="modal-content" style={{ maxWidth: '780px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoTranscript /> Certificate of Completion (Grade {certStudent.grade_level})</h3>
+              <button className="modal-close" onClick={() => setCertStudent(null)}><IcoClose /></button>
+            </div>
+            <div className="modal-body">
+              {holdMap[certStudent.student_record_id]?.isOverdue && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '13px' }}>
+                  <strong>Financial Hold Active:</strong> Certificate printing is withheld until the overdue balance of{' '}
+                  <strong>₱{Number(holdMap[certStudent.student_record_id].overdueAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong> is settled.
+                </div>
+              )}
+
+              <div
+                id="printable-completion-certificate"
+                style={{
+                  border: '6px double #8B0000',
+                  borderRadius: '8px',
+                  padding: '32px 36px',
+                  background: '#fffdf7',
+                  textAlign: 'center',
+                  color: '#1f2937',
+                }}
+              >
+                <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: '#6b7280', fontWeight: '600' }}>
+                  Republic of the Philippines • Department of Education
+                </div>
+                <h2 style={{ margin: '6px 0 4px 0', color: '#8B0000', fontSize: '22px', letterSpacing: '0.5px' }}>
+                  {schoolSettings?.school_name || 'A.B. SIMPSON ALLIANCE SCHOOL, INC.'}
+                </h2>
+                <div style={{ fontSize: '12px', color: '#555', marginBottom: '20px' }}>
+                  {schoolSettings?.address || 'Official Student Information & Records Management'}
+                </div>
+
+                <div style={{
+                  display: 'inline-block',
+                  padding: '6px 22px',
+                  borderTop: '2px solid #8B0000',
+                  borderBottom: '2px solid #8B0000',
+                  color: '#8B0000',
+                  fontSize: '20px',
+                  fontWeight: '800',
+                  letterSpacing: '1.5px',
+                  marginBottom: '18px',
+                }}>
+                  CERTIFICATE OF COMPLETION
+                </div>
+
+                <p style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#4b5563' }}>
+                  This is to certify that
+                </p>
+
+                <div style={{ fontSize: '26px', fontWeight: '800', color: '#111827', margin: '6px 0 8px 0', textDecoration: 'underline' }}>
+                  {certStudent.first_name} {certStudent.middle_name ? `${certStudent.middle_name} ` : ''}{certStudent.last_name}
+                </div>
+
+                <div style={{ fontSize: '13px', fontFamily: 'monospace', color: '#8B0000', fontWeight: '700', marginBottom: '16px' }}>
+                  Learner Reference Number (LRN): {certStudent.lrn_id || certStudent.student_id || '—'}
+                </div>
+
+                <p style={{ fontSize: '14px', lineHeight: '1.7', maxWidth: '580px', margin: '0 auto 20px auto', color: '#374151' }}>
+                  has satisfactorily completed all academic and character requirements prescribed by the Department of Education for{' '}
+                  <strong>
+                    {Number(certStudent.grade_level) === 6
+                      ? 'Elementary Education (Grade 6)'
+                      : 'Junior High School (Grade 10)'}
+                  </strong>{' '}
+                  during School Year <strong>{currentSy?.year_label || activeSchoolYear?.year_label || '2026-2027'}</strong>.
+                </p>
+
+                <div style={{ fontSize: '13px', color: '#4b5563', marginBottom: '34px' }}>
+                  Issued on {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '540px', margin: '0 auto' }}>
+                  <div>
+                    <div style={{ borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: '700', fontSize: '13px' }}>
+                      {schoolSettings?.registrar || 'School Registrar'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6b7280' }}>Registrar / Records Officer</div>
+                  </div>
+                  <div>
+                    <div style={{ borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: '700', fontSize: '13px' }}>
+                      {schoolSettings?.principal || 'School Principal'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6b7280' }}>Principal / School Head</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setCertStudent(null)}>Close</button>
+              <button
+                className="btn btn-primary"
+                disabled={Boolean(holdMap[certStudent.student_record_id]?.isOverdue)}
+                onClick={() => window.print()}
+              >
+                Print Certificate of Completion
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatGradeSection } from '../../utils/formatters';
+import { parseScheduleDays, scheduleIncludesDay, formatDaysShort } from '../../utils/scheduleDays';
 
 /* ── SVG Icons (Strictly Zero Emojis) ────────────────────────── */
 function IcoCalendar() {
@@ -165,11 +166,11 @@ export default function TeacherSchedulesPage() {
     return Array.from(new Set(schedules.map(s => s.section_name).filter(Boolean)));
   }, [schedules]);
 
-  // Group by day of week & sort chronologically
+  // Group by day of week & sort chronologically (supports multi-day M-W-F)
   const byDay = useMemo(() => {
     return DAYS.reduce((acc, d) => {
       acc[d] = (schedules || [])
-        .filter(s => s.day_of_week === d)
+        .filter(s => scheduleIncludesDay(s.day_of_week, d))
         .sort((a, b) => (a.time_start || '').localeCompare(b.time_start || ''));
       return acc;
     }, {});
@@ -525,7 +526,7 @@ export default function TeacherSchedulesPage() {
                     }
 
                     return dayClasses.map((s, idx) => (
-                      <tr key={s.schedule_id}>
+                      <tr key={`${day}-${s.schedule_id}`}>
                         {idx === 0 && (
                           <td
                             rowSpan={dayClasses.length}
@@ -548,7 +549,12 @@ export default function TeacherSchedulesPage() {
                           </span>
                         </td>
                         <td style={{ fontWeight: '700', color: '#8B0000' }}>
-                          {s.subject}
+                          <span>{s.subject}</span>
+                          {parseScheduleDays(s.day_of_week).length > 1 && (
+                            <span style={{ marginLeft: '6px', background: '#fff3cd', color: '#856404', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>
+                              {formatDaysShort(s.day_of_week)}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <span style={{

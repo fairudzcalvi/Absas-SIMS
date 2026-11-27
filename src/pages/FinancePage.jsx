@@ -2,6 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatGradeSection } from '../utils/formatters';
 import { getBaseFees, fetchFeeMatrix } from '../utils/feeMatrix';
+import {
+  NO_REFUND_DISCLAIMER,
+  calculateStackedDiscount,
+  calculateProratedTuition,
+  getRemainingSchoolMonths,
+  calculateMonthlyInstallment,
+} from '../utils/financeRules';
 
 /* ── SVG Icons ─────────────────────────────────────────── */
 function IcoFinance() {
@@ -157,7 +164,7 @@ const OTHER_FEES_CATALOG = [
   { id: 'retreat', name: 'Spiritual Retreat / Recollection Fee', defaultAmount: 1800, category: 'Activities' },
   { id: 'id',      name: 'Student ID & Lanyard Replacement',     defaultAmount: 250,  category: 'Administrative' },
   { id: 'cert',    name: 'Certificates / Transcript of Records', defaultAmount: 200,  category: 'Documents' },
-  { id: 'custom',  name: 'Other Custom School Fee',              defaultAmount: 500,  category: 'Miscellaneous' },
+  { id: 'custom',  name: 'Custom / Miscellaneous Fee',          defaultAmount: '',   category: 'Miscellaneous' },
 ];
 
 /* ── Quarterly Breakdown Calculator (Q1 - Q4) ───────────── */
@@ -201,20 +208,27 @@ function computeQuarterlyBreakdown(netAssessment, amountPaid = 0) {
 
 /* ── Main Finance Page ─────────────────────────────────── */
 export default function FinancePage() {
-  const { supabase, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const { supabase, schoolYears, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
 
   const [students, setStudents]         = useState([]);
   const [finances, setFinances]         = useState([]);
   const [scholarships, setScholarships] = useState([]);
   const [strands, setStrands]           = useState([]);
+  const [sections, setSections]         = useState([]);
+  const [enrollments, setEnrollments]   = useState([]);
   const [loading, setLoading]           = useState(true);
   const [dbNotice, setDbNotice]         = useState('');
 
   // Filters
-  const [gradeFilter, setGradeFilter]   = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [search, setSearch]             = useState('');
+  const [schoolYearFilter, setSchoolYearFilter] = useState('');
+  const [gradeFilter, setGradeFilter]           = useState('');
+  const [sectionFilter, setSectionFilter]       = useState('');
+  const [studentFilter, setStudentFilter]       = useState('');
+  const [statusFilter, setStatusFilter]         = useState('');
+  const [search, setSearch]                     = useState('');
+
+  const effectiveSy = (schoolYears || []).find(sy => String(sy.id) === String(schoolYearFilter)) || currentSy;
 
   // Record Payment Modal
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -254,6 +268,20 @@ export default function FinancePage() {
   const [quarterlyAccount, setQuarterlyAccount]     = useState(null);
   const [feeMatrix, setFeeMatrix]                   = useState(null);
 
+  // ── Assess / Edit Fees, Discounts & Proration Modal State ──
+  const [assessModalOpen, setAssessModalOpen] = useState(false);
+  const [assessAccount, setAssessAccount]     = useState(null);
+  const [assessForm, setAssessForm]           = useState({
+    tuition_fee: '',
+    miscellaneous_fee: '',
+    scholarship_id: '',
+    secondary_scholarship_id: '',
+    is_transferee_prorated: false,
+    months_elapsed: 0,
+  });
+  const [savingAssess, setSavingAssess]       = useState(false);
+  const [assessError, setAssessError]         = useState('');
+
   // Modals for Printing
   const [viewReceipt, setViewReceipt] = useState(null); // { payment, student, finance }
   const [viewSOA, setViewSOA]         = useState(null);     // { student, finance, payments }
@@ -265,6 +293,8 @@ export default function FinancePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setDbNotice('');
+
+    const targetSy = (schoolYears || []).find(sy => String(sy.id) === String(schoolYearFilter)) || currentSy;
 
     try {
       // 1. Fetch Students
@@ -286,10 +316,33 @@ export default function FinancePage() {
         .select('*');
       setStrands(strData ?? []);
 
-      // 4. Fetch Student Finances (filtered by current school year if available)
+      // 3b. Fetch Sections for selected School Year
+      let secQuery = supabase
+        .from('sections')
+        .select('id, section_name, grade_level, school_year_id')
+        .order('grade_level', { ascending: true })
+        .order('section_name', { ascending: true });
+      if (targetSy?.id) {
+        secQuery = secQuery.eq('school_year_id', targetSy.id);
+      }
+      const { data: secData } = await secQuery;
+      setSections(secData ?? []);
+
+      // 3c. Fetch Enrollments for selected School Year (accurate section & transferee/proration links)
+      let enrData = [];
+      if (targetSy?.id) {
+        const { data } = await supabase
+          .from('enrollments')
+          .select('*')
+          .eq('school_year_id', targetSy.id);
+        enrData = data ?? [];
+      }
+      setEnrollments(enrData);
+
+      // 4. Fetch Student Finances (filtered by selected/current school year if available)
       let finQuery = supabase.from('student_finances').select('*');
-      if (currentSy?.id) {
-        finQuery = finQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
+      if (targetSy?.id) {
+        finQuery = finQuery.or(`school_year_id.eq.${targetSy.id},school_year.eq.${targetSy.year_label}`);
       }
       const { data: finData, error: finErr } = await finQuery;
 
@@ -310,7 +363,7 @@ export default function FinancePage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, currentSy]);
+  }, [supabase, currentSy, schoolYears, schoolYearFilter]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded; runs only when deps change
@@ -318,29 +371,63 @@ export default function FinancePage() {
   }, [fetchData]);
 
   /* Build unified student account ledger rows */
+  const remainingSchoolMonths = getRemainingSchoolMonths(effectiveSy);
+
   const studentAccounts = students.map(student => {
     const fin = finances.find(f => f.student_record_id === student.student_record_id);
-    const sch = scholarships.find(s => s.id === (fin?.scholarship_id || student.scholarship_id));
+    const enrRow = enrollments.find(e => e.student_record_id === student.student_record_id);
+
+    const sectionId = enrRow?.section_id || student.current_section_id || '';
+    const secObj = sections.find(sec => String(sec.id) === String(sectionId));
+    const sectionName = secObj?.section_name || student.section_name || '';
+    const gradeLevel = enrRow?.grade_level || student.grade_level;
+
+    const enrollmentType = enrRow?.enrollment_type || student.enrollment_type || 'New Enrollee';
+    const isTransferee = Boolean(fin?.is_transferee_prorated || enrollmentType === 'Transferee');
+    const monthsElapsed = Number(fin?.months_elapsed ?? enrRow?.months_elapsed ?? student.months_elapsed ?? 0);
+
+    const schId = fin?.scholarship_id || enrRow?.scholarship_id || student.scholarship_id || '';
+    const secSchId = fin?.secondary_scholarship_id || enrRow?.secondary_scholarship_id || student.secondary_scholarship_id || '';
+    const sch = scholarships.find(s => String(s.id) === String(schId)) || null;
+    const secSch = scholarships.find(s => String(s.id) === String(secSchId)) || null;
     const str = strands.find(st => st.id === student.current_strand_id);
 
-    const base = getBaseFees(student.grade_level, feeMatrix);
-    const tuition = fin?.tuition_fee ? Number(fin.tuition_fee) : base.tuition;
-    const misc = fin?.miscellaneous_fee ? Number(fin.miscellaneous_fee) : base.misc;
+    const base = getBaseFees(gradeLevel, feeMatrix);
+    const proration = calculateProratedTuition(base.tuition, monthsElapsed);
+    const tuition =
+      fin?.tuition_fee != null && fin?.tuition_fee !== ''
+        ? Number(fin.tuition_fee)
+        : (isTransferee && monthsElapsed > 0 ? proration.proratedTuition : base.tuition);
+    const misc =
+      fin?.miscellaneous_fee != null && fin?.miscellaneous_fee !== ''
+        ? Number(fin.miscellaneous_fee)
+        : base.misc;
     const grossTotal = tuition + misc;
 
-    // Calculate discount
-    let discount = Number(fin?.discount_amount ?? 0);
-    if (!discount && sch) {
-      if (sch.discount_type === 'percentage') {
-        discount = (tuition * Number(sch.discount_value)) / 100;
-      } else {
-        discount = Number(sch.discount_value);
-      }
-    }
+    // Stacked scholarship / discount calculation (e.g. ESC Grant + Sibling Discount)
+    const stacked = calculateStackedDiscount({
+      tuition,
+      grossTotal,
+      primaryScholarship: sch,
+      secondaryScholarship: secSch,
+    });
+    const hasFinDiscount = fin?.discount_amount != null && Number(fin.discount_amount) > 0;
+    const useStoredDiscount = hasFinDiscount && !(secSch && !fin?.discount_breakdown && Number(fin.discount_amount) < stacked.discount);
+    const discount = useStoredDiscount ? Number(fin.discount_amount) : stacked.discount;
+    const discountBreakdown = Array.isArray(fin?.discount_breakdown) && fin.discount_breakdown.length > 0
+      ? fin.discount_breakdown
+      : stacked.breakdown;
 
     const netAssessment = Math.max(0, grossTotal - discount);
     const amountPaid = Number(fin?.amount_paid ?? 0);
     const balance = Math.max(0, netAssessment - amountPaid);
+
+    const remainingMonths = fin?.prorated_months
+      ? Math.min(remainingSchoolMonths, Math.max(1, Number(fin.prorated_months)))
+      : (isTransferee && monthsElapsed > 0
+        ? Math.min(remainingSchoolMonths, Math.max(1, 10 - monthsElapsed))
+        : remainingSchoolMonths);
+    const monthlyPlan = calculateMonthlyInstallment(balance, remainingMonths);
 
     let status = 'Unpaid';
     if (amountPaid >= netAssessment && netAssessment > 0) {
@@ -349,27 +436,63 @@ export default function FinancePage() {
       status = 'Partial';
     }
 
+    const inSelectedSy =
+      !schoolYearFilter ||
+      String(schoolYearFilter) === String(currentSy?.id) ||
+      Boolean(enrRow) ||
+      Boolean(fin);
+
     return {
       student,
       finance_id: fin?.finance_id || null,
+      gradeLevel,
+      sectionId,
+      sectionName,
+      enrollmentType,
+      isTransferee,
+      monthsElapsed,
+      baseTuition: base.tuition,
+      baseMisc: base.misc,
       tuition,
       misc,
       grossTotal,
       discount,
+      discountBreakdown,
       netAssessment,
       amountPaid,
       balance,
+      remainingMonths,
+      monthlyPlan,
       status,
       scholarship: sch,
+      secondaryScholarship: secSch,
       strand: str,
+      inSelectedSy,
     };
   });
 
-  /* Filtered list */
+  /* Filtered list (Receivables by School Year, Grade, Section, Individual Student, Status, Search) */
   const filteredAccounts = studentAccounts.filter(acc => {
     const s = acc.student;
-    if (gradeFilter && Number(s.grade_level) !== Number(gradeFilter)) return false;
-    if (statusFilter && acc.status.toLowerCase() !== statusFilter.toLowerCase()) return false;
+    if (!acc.inSelectedSy) return false;
+    if (gradeFilter && Number(acc.gradeLevel) !== Number(gradeFilter)) return false;
+
+    if (sectionFilter) {
+      const selSec = sections.find(sec => String(sec.id) === String(sectionFilter));
+      const matchId = String(acc.sectionId) === String(sectionFilter);
+      const matchName = selSec && acc.sectionName && acc.sectionName.toLowerCase() === selSec.section_name.toLowerCase();
+      if (!matchId && !matchName) return false;
+    }
+
+    if (studentFilter && String(s.student_record_id) !== String(studentFilter)) return false;
+
+    if (statusFilter) {
+      if (statusFilter.toLowerCase() === 'pending') {
+        if (acc.balance <= 0) return false;
+      } else if (acc.status.toLowerCase() !== statusFilter.toLowerCase()) {
+        return false;
+      }
+    }
 
     if (search) {
       const q = search.toLowerCase();
@@ -439,16 +562,137 @@ export default function FinancePage() {
     const item = OTHER_FEES_CATALOG.find(c => c.id === catalogId);
     if (!item) return;
     setOtherFeesForm(f => {
-      const unit = item.id === 'custom' ? f.unit_price : item.defaultAmount;
+      const isCustom = item.id === 'custom';
+      const unit = isCustom ? '' : item.defaultAmount;
       const qty = Number(f.quantity || 1);
       return {
         ...f,
         fee_catalog_id: item.id,
-        fee_name:       item.id === 'custom' ? f.fee_name : item.name,
+        fee_name:       isCustom ? '' : item.name,
         unit_price:     unit,
-        total_amount:   Number(unit) * qty,
+        total_amount:   unit === '' ? '' : Number(unit) * qty,
       };
     });
+  }
+
+  /* ── Open Assess / Edit Custom Fees, Discounts & Proration Modal ── */
+  function openAssessModal(acc) {
+    if (!acc) return;
+    setAssessAccount(acc);
+    setAssessForm({
+      tuition_fee: String(acc.tuition),
+      miscellaneous_fee: String(acc.misc),
+      scholarship_id: acc.scholarship?.id ? String(acc.scholarship.id) : '',
+      secondary_scholarship_id: acc.secondaryScholarship?.id ? String(acc.secondaryScholarship.id) : '',
+      is_transferee_prorated: Boolean(acc.isTransferee || acc.monthsElapsed > 0),
+      months_elapsed: acc.monthsElapsed || 0,
+    });
+    setAssessError('');
+    setAssessModalOpen(true);
+  }
+
+  async function handleSaveAssess(e) {
+    e.preventDefault();
+    if (!assessAccount) return;
+    setSavingAssess(true);
+    setAssessError('');
+
+    try {
+      const student = assessAccount.student;
+      const studentId = student.student_record_id;
+      const syObj = effectiveSy || currentSy || activeSchoolYear;
+
+      const tuitionVal = Math.max(0, Number(assessForm.tuition_fee) || 0);
+      const miscVal = Math.max(0, Number(assessForm.miscellaneous_fee) || 0);
+      const grossTotal = tuitionVal + miscVal;
+
+      const priSch = scholarships.find(s => String(s.id) === String(assessForm.scholarship_id)) || null;
+      const secSch = scholarships.find(s => String(s.id) === String(assessForm.secondary_scholarship_id)) || null;
+      const stacked = calculateStackedDiscount({
+        tuition: tuitionVal,
+        grossTotal,
+        primaryScholarship: priSch,
+        secondaryScholarship: secSch,
+      });
+
+      const netAssessment = Math.max(0, grossTotal - stacked.discount);
+      const existingFin = finances.find(f => f.student_record_id === studentId);
+      const amountPaid = Number(existingFin?.amount_paid ?? assessAccount.amountPaid ?? 0);
+      const newStatus = amountPaid >= netAssessment && netAssessment > 0 ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid';
+
+      const elapsed = assessForm.is_transferee_prorated ? Math.min(9, Math.max(0, Number(assessForm.months_elapsed) || 0)) : 0;
+      const proratedMonths = Math.max(1, 10 - elapsed);
+
+      const corePayload = {
+        tuition_fee: tuitionVal,
+        miscellaneous_fee: miscVal,
+        scholarship_id: priSch?.id || null,
+        discount_amount: stacked.discount,
+        status: newStatus,
+      };
+      const extendedPayload = {
+        ...corePayload,
+        secondary_scholarship_id: secSch?.id || null,
+        is_transferee_prorated: Boolean(assessForm.is_transferee_prorated && elapsed > 0),
+        months_elapsed: elapsed,
+        prorated_months: proratedMonths,
+        discount_breakdown: stacked.breakdown,
+      };
+
+      const saveFinanceWithFallback = async (fullObj, fallbackObj) => {
+        if (existingFin) {
+          const idCol = existingFin.finance_id ? 'finance_id' : 'id';
+          const idVal = existingFin.finance_id || existingFin.id;
+          let res = idVal
+            ? await supabase.from('student_finances').update(fullObj).eq(idCol, idVal)
+            : await supabase.from('student_finances').update(fullObj).eq('student_record_id', studentId);
+          if (res.error && /column|schema cache|42703/i.test(res.error.message || '')) {
+            res = idVal
+              ? await supabase.from('student_finances').update(fallbackObj).eq(idCol, idVal)
+              : await supabase.from('student_finances').update(fallbackObj).eq('student_record_id', studentId);
+          }
+          if (res.error) throw res.error;
+        } else {
+          const insertFull = {
+            ...fullObj,
+            student_record_id: studentId,
+            amount_paid: 0,
+            school_year: syObj?.year_label || '2026-2027',
+            school_year_id: syObj?.id || null,
+          };
+          const insertFallback = {
+            ...fallbackObj,
+            student_record_id: studentId,
+            amount_paid: 0,
+            school_year: syObj?.year_label || '2026-2027',
+          };
+          let res = await supabase.from('student_finances').insert([insertFull]);
+          if (res.error && /column|schema cache|42703/i.test(res.error.message || '')) {
+            res = await supabase.from('student_finances').insert([insertFallback]);
+          }
+          if (res.error) throw res.error;
+        }
+      };
+
+      await saveFinanceWithFallback(extendedPayload, corePayload);
+
+      // Keep student record scholarship references aligned
+      const stuPatchFull = { scholarship_id: priSch?.id || null, secondary_scholarship_id: secSch?.id || null, months_elapsed: elapsed };
+      const stuRes = await supabase.from('students').update(stuPatchFull).eq('student_record_id', studentId);
+      if (stuRes.error && /column|schema cache|42703/i.test(stuRes.error.message || '')) {
+        await supabase.from('students').update({ scholarship_id: priSch?.id || null }).eq('student_record_id', studentId);
+      }
+
+      setAssessModalOpen(false);
+      await fetchData();
+      setSuccessNotice({
+        text: `Updated fee assessment & discounts for ${student.first_name} ${student.last_name} (Net: ${peso(netAssessment)}).`,
+      });
+    } catch (err) {
+      setAssessError(err.message || 'Error saving student assessment.');
+    } finally {
+      setSavingAssess(false);
+    }
   }
 
   /* Submit Other School Fee Payment */
@@ -469,6 +713,9 @@ export default function FinancePage() {
 
       const itemDesc = `${otherFeesForm.fee_name} (${otherFeesForm.quantity}x @ ₱${Number(otherFeesForm.unit_price).toLocaleString()})`;
 
+      const syId = effectiveSy?.id || activeSchoolYear?.id || null;
+      const syLabel = effectiveSy?.year_label || activeSchoolYear?.year_label || '2026-2027';
+
       // Insert into payments transaction log
       const { data: createdPayment, error: payErr } = await supabase
         .from('payments')
@@ -481,7 +728,8 @@ export default function FinancePage() {
           or_number:         otherFeesForm.or_number,
           reference_number:  otherFeesForm.reference_number || null,
           remarks:           otherFeesForm.remarks || null,
-          school_year_id:    activeSchoolYear?.id || null,
+          school_year_id:    syId,
+          school_year:       syLabel,
         }])
         .select()
         .single();
@@ -540,6 +788,9 @@ export default function FinancePage() {
       const netAssessment = acc ? acc.netAssessment : paymentAmount;
       const newStatus = newAmountPaid >= netAssessment ? 'paid' : newAmountPaid > 0 ? 'partial' : 'unpaid';
 
+      const syId = effectiveSy?.id || activeSchoolYear?.id || null;
+      const syLabel = effectiveSy?.year_label || activeSchoolYear?.year_label || '2026-2027';
+
       // 1. Insert into payments transaction log FIRST so a DB validation error
       //    never leaves student_finances credited without a matching receipt.
       const { data: createdPayment, error: payErr } = await supabase
@@ -553,7 +804,8 @@ export default function FinancePage() {
           or_number:         payForm.or_number,
           reference_number:  payForm.reference_number || null,
           remarks:           payForm.remarks || null,
-          school_year_id:    activeSchoolYear?.id || null,
+          school_year_id:    syId,
+          school_year:       syLabel,
         }])
         .select()
         .single();
@@ -572,17 +824,38 @@ export default function FinancePage() {
           .eq('finance_id', existingFin.finance_id);
         if (finErr) throw finErr;
       } else {
-        const base = getBaseFees(selectedStudent.grade_level, feeMatrix);
-        const { error: finErr } = await supabase
-          .from('student_finances')
-          .insert([{
-            student_record_id: studentId,
-            tuition_fee:       base.tuition,
-            miscellaneous_fee: base.misc,
-            amount_paid:       paymentAmount,
-            status:            newStatus,
-            school_year:       activeSchoolYear?.year_label || '2026-2027',
-          }]);
+        const base = getBaseFees(acc?.gradeLevel || selectedStudent.grade_level, feeMatrix);
+        const finFull = {
+          student_record_id:        studentId,
+          tuition_fee:              acc ? acc.tuition : base.tuition,
+          miscellaneous_fee:        acc ? acc.misc : base.misc,
+          scholarship_id:           acc?.scholarship?.id || selectedStudent.scholarship_id || null,
+          secondary_scholarship_id: acc?.secondaryScholarship?.id || null,
+          discount_amount:          acc?.discount || 0,
+          discount_breakdown:       acc?.discountBreakdown || [],
+          is_transferee_prorated:   Boolean(acc?.isTransferee && acc?.monthsElapsed > 0),
+          months_elapsed:           acc?.monthsElapsed || 0,
+          prorated_months:          acc?.remainingMonths || 10,
+          amount_paid:              paymentAmount,
+          status:                   newStatus,
+          school_year:              syLabel,
+          school_year_id:           syId,
+        };
+        let { error: finErr } = await supabase.from('student_finances').insert([finFull]);
+        if (finErr && /column|schema cache|42703/i.test(finErr.message || '')) {
+          ({ error: finErr } = await supabase
+            .from('student_finances')
+            .insert([{
+              student_record_id: studentId,
+              tuition_fee:       acc ? acc.tuition : base.tuition,
+              miscellaneous_fee: acc ? acc.misc : base.misc,
+              scholarship_id:    acc?.scholarship?.id || selectedStudent.scholarship_id || null,
+              discount_amount:   acc?.discount || 0,
+              amount_paid:       paymentAmount,
+              status:            newStatus,
+              school_year:       syLabel,
+            }]));
+        }
         if (finErr) throw finErr;
       }
 
@@ -746,23 +1019,28 @@ export default function FinancePage() {
 
   /* Export CSV */
   function exportCSV() {
-    const headers = ['DepEd LRN', 'Student Name', 'Grade & Strand', 'Scholarship', 'Gross Fees', 'Discount', 'Net Assessment', 'Amount Paid', 'Balance', 'Status'];
-    const rows = filteredAccounts.map(a => [
-      a.student.lrn_id || a.student.student_id || '—',
-      `${a.student.first_name} ${a.student.last_name}`,
-      `Grade ${a.student.grade_level} ${a.strand ? `(${a.strand.strand_code})` : ''}`,
-      a.scholarship ? a.scholarship.name : 'Regular',
-      a.grossTotal,
-      a.discount,
-      a.netAssessment,
-      a.amountPaid,
-      a.balance,
-      a.status,
-    ]);
+    const headers = ['DepEd LRN', 'Student Name', 'Grade & Section', 'Scholarships / Grants', 'Gross Fees', 'Total Discount', 'Net Assessment', 'Amount Paid', 'Balance', 'Monthly Installment', 'Remaining Months', 'Status'];
+    const rows = filteredAccounts.map(a => {
+      const schLabels = [a.scholarship?.name, a.secondaryScholarship?.name].filter(Boolean).join(' + ') || 'Regular';
+      return [
+        a.student.lrn_id || a.student.student_id || '—',
+        `${a.student.first_name} ${a.student.last_name}`,
+        `${formatGradeSection(a.gradeLevel, a.sectionName)} ${a.strand ? `(${a.strand.strand_code})` : ''}`.trim(),
+        schLabels,
+        a.grossTotal,
+        a.discount,
+        a.netAssessment,
+        a.amountPaid,
+        a.balance,
+        a.monthlyPlan?.perMonth ?? 0,
+        a.remainingMonths,
+        a.status,
+      ];
+    });
     const csv = [headers, ...rows].map(r => r.map(v => `"${v ?? ''}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `student_finance_summary_${activeSchoolYear?.year_label || 'active'}.csv`; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = `student_finance_summary_${effectiveSy?.year_label || 'active'}.csv`; a.click();
     URL.revokeObjectURL(url);
   }
 
@@ -910,16 +1188,98 @@ export default function FinancePage() {
 
           <div className="form-grid" style={{ alignItems: 'flex-end', marginTop: '14px' }}>
             <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>School Year</label>
+              <select
+                className="filter-select"
+                style={{ width: '100%' }}
+                value={schoolYearFilter || currentSy?.id || ''}
+                onChange={e => {
+                  setSchoolYearFilter(e.target.value);
+                  setSectionFilter('');
+                  setStudentFilter('');
+                }}
+              >
+                {(schoolYears || []).length === 0 ? (
+                  <option value="">{currentSy?.year_label || 'Active School Year'}</option>
+                ) : (
+                  (schoolYears || []).map(sy => (
+                    <option key={sy.id} value={sy.id}>
+                      S.Y. {sy.year_label} {sy.is_active ? '(Active)' : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Grade Level</label>
-              <select className="filter-select" style={{ width: '100%' }} value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}>
+              <select
+                className="filter-select"
+                style={{ width: '100%' }}
+                value={gradeFilter}
+                onChange={e => {
+                  setGradeFilter(e.target.value);
+                  setSectionFilter('');
+                  setStudentFilter('');
+                }}
+              >
                 <option value="">All Grade Levels (1–12)</option>
                 {GRADE_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Payment Status</label>
+              <label>Section</label>
+              <select
+                className="filter-select"
+                style={{ width: '100%' }}
+                value={sectionFilter}
+                onChange={e => {
+                  setSectionFilter(e.target.value);
+                  setStudentFilter('');
+                }}
+              >
+                <option value="">All Sections</option>
+                {sections
+                  .filter(sec => !gradeFilter || Number(sec.grade_level) === Number(gradeFilter))
+                  .map(sec => (
+                    <option key={sec.id} value={sec.id}>
+                      Grade {sec.grade_level} - {sec.section_name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Individual Student</label>
+              <select
+                className="filter-select"
+                style={{ width: '100%' }}
+                value={studentFilter}
+                onChange={e => setStudentFilter(e.target.value)}
+              >
+                <option value="">All Students</option>
+                {studentAccounts
+                  .filter(acc => {
+                    if (!acc.inSelectedSy) return false;
+                    if (gradeFilter && Number(acc.gradeLevel) !== Number(gradeFilter)) return false;
+                    if (sectionFilter) {
+                      const selSec = sections.find(sec => String(sec.id) === String(sectionFilter));
+                      const matchId = String(acc.sectionId) === String(sectionFilter);
+                      const matchName = selSec && acc.sectionName && acc.sectionName.toLowerCase() === selSec.section_name.toLowerCase();
+                      if (!matchId && !matchName) return false;
+                    }
+                    return true;
+                  })
+                  .map(acc => (
+                    <option key={acc.student.student_record_id} value={acc.student.student_record_id}>
+                      {acc.student.last_name}, {acc.student.first_name} ({acc.balance > 0 ? `Bal: ${peso(acc.balance)}` : 'Paid'})
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Receivables / Payment Status</label>
               <select className="filter-select" style={{ width: '100%' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="">All Statuses</option>
+                <option value="Pending">Pending Receivables (Unpaid &amp; Partial)</option>
                 <option value="Paid">Fully Paid</option>
                 <option value="Partial">Partial Payment</option>
                 <option value="Unpaid">Unpaid / Zero Payment</option>
@@ -967,6 +1327,31 @@ export default function FinancePage() {
               </div>
             </div>
           </div>
+          {(gradeFilter || sectionFilter || studentFilter || statusFilter || search || schoolYearFilter) && (
+            <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '12px', color: '#555' }}>
+              <div>
+                Showing <strong>{filteredAccounts.length}</strong> account(s) | Filtered Pending Receivables:{' '}
+                <strong style={{ color: '#b45309' }}>
+                  {peso(filteredAccounts.reduce((sum, a) => sum + a.balance, 0))}
+                </strong>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '11px', padding: '3px 10px' }}
+                onClick={() => {
+                  setSchoolYearFilter('');
+                  setGradeFilter('');
+                  setSectionFilter('');
+                  setStudentFilter('');
+                  setStatusFilter('');
+                  setSearch('');
+                }}
+              >
+                Reset Filters
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Student Accounts Table */}
@@ -997,23 +1382,49 @@ export default function FinancePage() {
                       <td style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: '700', color: '#8B0000' }}>
                         {acc.student.lrn_id || acc.student.student_id || '—'}
                       </td>
-                      <td style={{ fontWeight: '600' }}>{acc.student.first_name} {acc.student.last_name}</td>
-                      <td>
-                        {formatGradeSection(acc.student.grade_level, acc.student.section_name)} {acc.strand ? `(${acc.strand.strand_code})` : ''}
+                      <td style={{ fontWeight: '600' }}>
+                        <div>{acc.student.first_name} {acc.student.last_name}</div>
+                        {acc.isTransferee && (
+                          <span style={{ display: 'inline-block', marginTop: '2px', background: '#fef3c7', color: '#92400e', fontSize: '10px', fontWeight: '700', padding: '1px 6px', borderRadius: '4px' }}>
+                            Transferee{acc.monthsElapsed > 0 ? ` (${10 - acc.monthsElapsed}/10 mos)` : ''}
+                          </span>
+                        )}
                       </td>
                       <td>
-                        {acc.scholarship ? (
-                          <span style={styles.badgeScholarship}>
-                            {acc.scholarship.code} ({acc.scholarship.discount_type === 'percentage' ? `${acc.scholarship.discount_value}%` : `₱${acc.scholarship.discount_value}`})
-                          </span>
+                        {formatGradeSection(acc.gradeLevel, acc.sectionName)} {acc.strand ? `(${acc.strand.strand_code})` : ''}
+                      </td>
+                      <td>
+                        {acc.scholarship || acc.secondaryScholarship ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                            {acc.scholarship && (
+                              <span style={styles.badgeScholarship}>
+                                {acc.scholarship.code} ({acc.scholarship.discount_type === 'percentage' ? `${acc.scholarship.discount_value}%` : `₱${acc.scholarship.discount_value}`})
+                              </span>
+                            )}
+                            {acc.secondaryScholarship && (
+                              <span style={{ ...styles.badgeScholarship, background: '#e0f2fe', color: '#0369a1' }}>
+                                + {acc.secondaryScholarship.code} ({acc.secondaryScholarship.discount_type === 'percentage' ? `${acc.secondaryScholarship.discount_value}%` : `₱${acc.secondaryScholarship.discount_value}`})
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span style={{ color: '#888', fontSize: '12px' }}>Regular</span>
                         )}
                       </td>
-                      <td style={{ fontWeight: '600' }}>{peso(acc.netAssessment)}</td>
+                      <td style={{ fontWeight: '600' }}>
+                        <div>{peso(acc.netAssessment)}</div>
+                        {acc.discount > 0 && (
+                          <div style={{ fontSize: '11px', color: '#137333' }}>- {peso(acc.discount)} off</div>
+                        )}
+                      </td>
                       <td style={{ color: '#137333', fontWeight: '600' }}>{peso(acc.amountPaid)}</td>
                       <td style={{ color: acc.balance > 0 ? '#b06000' : '#137333', fontWeight: '700' }}>
-                        {peso(acc.balance)}
+                        <div>{peso(acc.balance)}</div>
+                        {acc.balance > 0 && (
+                          <div style={{ fontSize: '11px', fontWeight: '500', color: '#555', marginTop: '2px' }}>
+                            {peso(acc.monthlyPlan.perMonth)}/mo ({acc.remainingMonths} mos left)
+                          </div>
+                        )}
                       </td>
                       <td>
                         <span style={
@@ -1032,6 +1443,14 @@ export default function FinancePage() {
                             style={{ padding: '4px 8px', fontSize: '11px' }}
                           >
                             Pay Tuition
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openAssessModal(acc)}
+                            title="Edit Custom/Misc Fees, Stack Discounts & Prorate Transferee Tuition"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            Fees / Discounts
                           </button>
                           <button
                             className="btn btn-sm"
@@ -1169,7 +1588,7 @@ export default function FinancePage() {
                       borderRadius: '8px',
                       marginBottom: '16px',
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px', flexWrap: 'wrap', gap: '8px' }}>
                         <div>
                           <span style={{ color: '#666' }}>Net Assessment:</span> <strong>{peso(acc?.netAssessment ?? 0)}</strong> •
                           <span style={{ color: '#137333', marginLeft: '6px' }}>Paid:</span> <strong>{peso(acc?.amountPaid ?? 0)}</strong>
@@ -1178,10 +1597,23 @@ export default function FinancePage() {
                           <span style={{ color: '#b91c1c', fontWeight: 'bold' }}>Balance Due:</span> <strong>{peso(acc?.balance ?? 0)}</strong>
                         </div>
                       </div>
+                      {acc && acc.balance > 0 && (
+                        <div style={{ fontSize: '12px', color: '#1e40af', background: '#eff6ff', padding: '6px 10px', borderRadius: '6px', marginBottom: '8px' }}>
+                          <strong>Monthly Installment Plan:</strong> {peso(acc.monthlyPlan.perMonth)} / month ({acc.remainingMonths} remaining school months)
+                        </div>
+                      )}
 
                       {acc && acc.balance > 0 && (
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                           <span style={{ fontSize: '11px', color: '#666', fontWeight: 'bold' }}>Quick Presets:</span>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '3px 8px', borderColor: '#0f766e', color: '#0f766e' }}
+                            onClick={() => setPayForm(f => ({ ...f, amount: String(acc.monthlyPlan.perMonth), payment_for: 'Monthly Tuition Installment' }))}
+                          >
+                            Monthly Due ({peso(acc.monthlyPlan.perMonth)})
+                          </button>
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
@@ -1285,6 +1717,9 @@ export default function FinancePage() {
                     />
                   </div>
                 </div>
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px', fontSize: '11px', color: '#7f1d1d', lineHeight: '1.45', marginTop: '6px' }}>
+                  {NO_REFUND_DISCLAIMER}
+                </div>
               </div>
               <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#555', margin: 0 }}>
@@ -1353,23 +1788,21 @@ export default function FinancePage() {
                   >
                     {OTHER_FEES_CATALOG.map(item => (
                       <option key={item.id} value={item.id}>
-                        {item.name} {item.defaultAmount > 0 ? `(₱${Number(item.defaultAmount).toLocaleString()})` : ''}
+                        {item.name} {Number(item.defaultAmount) > 0 ? `(₱${Number(item.defaultAmount).toLocaleString()})` : '(Editable Amount)'}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {otherFeesForm.fee_catalog_id === 'custom' && (
-                  <div className="form-group">
-                    <label>Custom Fee Description *</label>
-                    <input
-                      value={otherFeesForm.fee_name}
-                      onChange={e => setOtherFeesForm(f => ({ ...f, fee_name: e.target.value }))}
-                      placeholder="e.g. Science Fair Kit, Robing Fee, Replacement ID"
-                      required
-                    />
-                  </div>
-                )}
+                <div className="form-group">
+                  <label>Fee Description (Editable) *</label>
+                  <input
+                    value={otherFeesForm.fee_name}
+                    onChange={e => setOtherFeesForm(f => ({ ...f, fee_name: e.target.value }))}
+                    placeholder="e.g. Science Fair Kit, Misc Adjustment, Replacement ID"
+                    required
+                  />
+                </div>
 
                 <div className="form-grid">
                   <div className="form-group">
@@ -1377,14 +1810,16 @@ export default function FinancePage() {
                     <input
                       type="number"
                       step="0.01"
-                      min="1"
+                      min="0"
                       value={otherFeesForm.unit_price}
+                      placeholder="Enter amount (₱)"
                       onChange={e => {
-                        const unit = Number(e.target.value);
+                        const raw = e.target.value;
+                        const unit = Number(raw || 0);
                         setOtherFeesForm(f => ({
                           ...f,
-                          unit_price: e.target.value,
-                          total_amount: unit * Number(f.quantity || 1),
+                          unit_price: raw,
+                          total_amount: raw === '' ? '' : unit * Number(f.quantity || 1),
                         }));
                       }}
                       required
@@ -1478,6 +1913,9 @@ export default function FinancePage() {
                   </div>
                 </div>
 
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px', fontSize: '11px', color: '#7f1d1d', lineHeight: '1.45', marginTop: '6px' }}>
+                  {NO_REFUND_DISCLAIMER}
+                </div>
               </div>
               <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#555', margin: 0 }}>
@@ -1539,6 +1977,43 @@ export default function FinancePage() {
                       <div style={{ fontSize: '12px', color: '#137333', fontWeight: '600' }}>Paid: {peso(quarterlyAccount.amountPaid)} • Bal: {peso(quarterlyAccount.balance)}</div>
                     </div>
                   </div>
+
+                  {/* Auto-Calculated Monthly Breakdown Banner */}
+                  {quarterlyAccount.balance > 0 && (
+                    <div style={{
+                      background: '#eff6ff',
+                      border: '1px solid #bfdbfe',
+                      borderRadius: '8px',
+                      padding: '12px 16px',
+                      marginBottom: '18px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '10px',
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: '700', color: '#1e3a8a' }}>
+                          Monthly Breakdown ({quarterlyAccount.remainingMonths} Remaining School Months)
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#1e40af', marginTop: '2px' }}>
+                          Remaining Balance ({peso(quarterlyAccount.balance)}) / {quarterlyAccount.remainingMonths} months ={' '}
+                          <strong>{peso(quarterlyAccount.monthlyPlan?.perMonth ?? 0)} / month</strong>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ background: '#1d4ed8', borderColor: '#1d4ed8', fontSize: '12px' }}
+                        onClick={() => {
+                          setQuarterlyModalOpen(false);
+                          openPaymentModal(quarterlyAccount, quarterlyAccount.monthlyPlan?.perMonth ?? 0, 'Monthly Tuition Installment');
+                        }}
+                      >
+                        Pay Monthly ({peso(quarterlyAccount.monthlyPlan?.perMonth ?? 0)})
+                      </button>
+                    </div>
+                  )}
 
                   {/* 4 Quarter Cards Grid */}
                   <h4 style={{ margin: '0 0 12px 0', color: '#8B0000' }}>Academic Quarters Schedule (Q1 - Q4)</h4>
@@ -1784,7 +2259,11 @@ export default function FinancePage() {
                 </div>
               </div>
 
-              <div style={{ marginTop: '20px', paddingTop: '12px', borderTop: '1px dashed #ccc', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#555' }}>
+              <div style={{ marginTop: '16px', padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '10px', color: '#7f1d1d', lineHeight: '1.4' }}>
+                {NO_REFUND_DISCLAIMER}
+              </div>
+
+              <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed #ccc', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#555' }}>
                 <div>Issued by: Cashier / Finance Officer</div>
                 <div>Status: <strong style={{ color: '#137333' }}>CONFIRMED &amp; POSTED</strong></div>
               </div>
@@ -1843,13 +2322,30 @@ export default function FinancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td>Base Tuition Assessment</td><td style={{ textAlign: 'right' }}>{peso(viewSOA.finance?.tuition)}</td></tr>
+                  <tr>
+                    <td>
+                      Tuition Assessment
+                      {viewSOA.finance?.isTransferee && viewSOA.finance?.monthsElapsed > 0
+                        ? ` (Transferee Prorated: ${10 - viewSOA.finance.monthsElapsed}/10 mos)`
+                        : ''}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{peso(viewSOA.finance?.tuition)}</td>
+                  </tr>
                   <tr><td>Miscellaneous &amp; Laboratory Fees</td><td style={{ textAlign: 'right' }}>{peso(viewSOA.finance?.misc)}</td></tr>
                   {viewSOA.finance?.discount > 0 && (
-                    <tr style={{ color: '#137333', fontWeight: 'bold' }}>
-                      <td>Scholarship / Voucher Grant ({viewSOA.finance?.scholarship?.name})</td>
-                      <td style={{ textAlign: 'right' }}>- {peso(viewSOA.finance?.discount)}</td>
-                    </tr>
+                    viewSOA.finance?.discountBreakdown?.length > 0 ? (
+                      viewSOA.finance.discountBreakdown.map((d, idx) => (
+                        <tr key={`${d.code || d.name}-${idx}`} style={{ color: '#137333', fontWeight: 'bold' }}>
+                          <td>Discount / Grant: {d.name} {d.code ? `(${d.code})` : ''}</td>
+                          <td style={{ textAlign: 'right' }}>- {peso(d.amount)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr style={{ color: '#137333', fontWeight: 'bold' }}>
+                        <td>Scholarship / Voucher Grant ({viewSOA.finance?.scholarship?.name || 'Applied'})</td>
+                        <td style={{ textAlign: 'right' }}>- {peso(viewSOA.finance?.discount)}</td>
+                      </tr>
+                    )
                   )}
                   <tr style={{ fontWeight: 'bold', background: '#f8f9fa' }}>
                     <td>NET TOTAL ASSESSMENT</td>
@@ -1887,9 +2383,14 @@ export default function FinancePage() {
                 </table>
               )}
 
-              <div style={{ background: '#f8f9fa', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ background: '#f8f9fa', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div>
                   <div style={{ fontSize: '12px', color: '#555' }}>Total Amount Paid: <strong>{peso(viewSOA.finance?.amountPaid)}</strong></div>
+                  {viewSOA.finance?.balance > 0 && (
+                    <div style={{ fontSize: '12px', color: '#1e40af', marginTop: '4px' }}>
+                      Monthly Installment ({viewSOA.finance?.remainingMonths} mos left): <strong>{peso(viewSOA.finance?.monthlyPlan?.perMonth ?? 0)} / mo</strong>
+                    </div>
+                  )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '12px', color: '#555' }}>Outstanding Balance:</div>
@@ -1897,6 +2398,9 @@ export default function FinancePage() {
                     {peso(viewSOA.finance?.balance)}
                   </div>
                 </div>
+              </div>
+              <div style={{ marginTop: '14px', padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '10px', color: '#7f1d1d', lineHeight: '1.4' }}>
+                {NO_REFUND_DISCLAIMER}
               </div>
             </div>
             <div className="modal-footer">
@@ -2071,6 +2575,184 @@ export default function FinancePage() {
                 <IcoVoid /> {voidingPaymentId ? 'Voiding Transaction...' : 'Confirm Void & Reverse'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Assess / Edit Custom Fees, Stacked Discounts & Transferee Proration Modal ── */}
+      {assessModalOpen && assessAccount && (
+        <div className="modal active" onClick={e => { if (e.target === e.currentTarget) setAssessModalOpen(false); }}>
+          <div className="modal-content" style={{ maxWidth: '640px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title"><IcoFinance /> Edit Assessment, Stacked Discounts &amp; Proration</h3>
+              <button className="modal-close" onClick={() => setAssessModalOpen(false)}><IcoClose /></button>
+            </div>
+            <form onSubmit={handleSaveAssess}>
+              <div className="modal-body">
+                {assessError && (
+                  <div style={{ color: '#dc3545', background: '#f8d7da', padding: '10px 14px', borderRadius: '6px', marginBottom: '14px', fontSize: '13px' }}>
+                    {assessError}
+                  </div>
+                )}
+
+                <div style={{ background: '#f8f9fa', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e9ecef', marginBottom: '16px', fontSize: '13px' }}>
+                  <strong>{assessAccount.student.first_name} {assessAccount.student.last_name}</strong> ({formatGradeSection(assessAccount.gradeLevel, assessAccount.sectionName)})
+                  <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>
+                    Standard Base Fees — Tuition: <strong>{peso(assessAccount.baseTuition)}</strong> • Misc: <strong>{peso(assessAccount.baseMisc)}</strong>
+                  </div>
+                </div>
+
+                {/* Transferee 10-Month Proration Section */}
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600', fontSize: '13px', color: '#92400e', cursor: 'pointer', marginBottom: assessForm.is_transferee_prorated ? '10px' : 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(assessForm.is_transferee_prorated)}
+                      onChange={e => {
+                        const checked = e.target.checked;
+                        setAssessForm(f => {
+                          const elapsed = checked ? Math.min(9, Math.max(0, Number(f.months_elapsed) || 0)) : 0;
+                          const { proratedTuition } = calculateProratedTuition(assessAccount.baseTuition, elapsed);
+                          return {
+                            ...f,
+                            is_transferee_prorated: checked,
+                            months_elapsed: elapsed,
+                            tuition_fee: String(checked ? proratedTuition : assessAccount.baseTuition),
+                          };
+                        });
+                      }}
+                    />
+                    Apply 10-Month Transferee Tuition Proration
+                  </label>
+                  {assessForm.is_transferee_prorated && (
+                    <div className="form-grid" style={{ alignItems: 'flex-end' }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label>Months Elapsed Before Transfer (0–9)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="9"
+                          value={assessForm.months_elapsed}
+                          onChange={e => {
+                            const elapsed = Math.min(9, Math.max(0, Number(e.target.value) || 0));
+                            const { proratedTuition } = calculateProratedTuition(assessAccount.baseTuition, elapsed);
+                            setAssessForm(f => ({
+                              ...f,
+                              months_elapsed: elapsed,
+                              tuition_fee: String(proratedTuition),
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#78350f', paddingBottom: '6px' }}>
+                        Attending <strong>{10 - Math.min(9, Math.max(0, Number(assessForm.months_elapsed) || 0))} / 10</strong> months • Prorated Tuition:{' '}
+                        <strong>{peso(calculateProratedTuition(assessAccount.baseTuition, assessForm.months_elapsed).proratedTuition)}</strong>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Custom / Editable Tuition & Misc Fees */}
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Tuition Fee (₱) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={assessForm.tuition_fee}
+                      onChange={e => setAssessForm(f => ({ ...f, tuition_fee: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Miscellaneous &amp; Custom Fees (₱) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={assessForm.miscellaneous_fee}
+                      onChange={e => setAssessForm(f => ({ ...f, miscellaneous_fee: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Stacked Scholarship / Discounts (e.g. ESC Grant + Sibling Discount) */}
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Primary Scholarship / Grant (e.g. ESC)</label>
+                    <select
+                      value={assessForm.scholarship_id}
+                      onChange={e => setAssessForm(f => ({ ...f, scholarship_id: e.target.value }))}
+                    >
+                      <option value="">None (Regular)</option>
+                      {scholarships.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.discount_type === 'percentage' ? `${s.discount_value}%` : `₱${s.discount_value}`})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Stackable Secondary Discount (e.g. Sibling Discount)</label>
+                    <select
+                      value={assessForm.secondary_scholarship_id}
+                      onChange={e => setAssessForm(f => ({ ...f, secondary_scholarship_id: e.target.value }))}
+                    >
+                      <option value="">None</option>
+                      {scholarships
+                        .filter(s => String(s.id) !== String(assessForm.scholarship_id))
+                        .map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.discount_type === 'percentage' ? `${s.discount_value}%` : `₱${s.discount_value}`})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Live Assessment & Stacked Discount Preview */}
+                {(() => {
+                  const tVal = Math.max(0, Number(assessForm.tuition_fee) || 0);
+                  const mVal = Math.max(0, Number(assessForm.miscellaneous_fee) || 0);
+                  const gross = tVal + mVal;
+                  const pSch = scholarships.find(s => String(s.id) === String(assessForm.scholarship_id)) || null;
+                  const sSch = scholarships.find(s => String(s.id) === String(assessForm.secondary_scholarship_id)) || null;
+                  const previewStacked = calculateStackedDiscount({
+                    tuition: tVal,
+                    grossTotal: gross,
+                    primaryScholarship: pSch,
+                    secondaryScholarship: sSch,
+                  });
+                  const previewNet = Math.max(0, gross - previewStacked.discount);
+                  return (
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '12px 14px', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span>Gross Total Assessment:</span>
+                        <strong>{peso(gross)}</strong>
+                      </div>
+                      {previewStacked.breakdown.map((b, idx) => (
+                        <div key={`${b.code || b.name}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', color: '#15803d', fontSize: '12px' }}>
+                          <span>- {b.name} ({b.type === 'percentage' ? `${b.value}%` : `₱${b.value}`}):</span>
+                          <span>- {peso(b.amount)}</span>
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #86efac', marginTop: '6px', paddingTop: '6px', fontWeight: '700', color: '#166534' }}>
+                        <span>Net Annual Assessment:</span>
+                        <span>{peso(previewNet)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setAssessModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={savingAssess}>
+                  {savingAssess ? 'Saving...' : 'Save Assessment & Discounts'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

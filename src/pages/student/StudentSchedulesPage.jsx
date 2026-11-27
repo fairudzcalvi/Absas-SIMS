@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { parseScheduleDays, scheduleIncludesDay, formatDaysShort } from '../../utils/scheduleDays';
 
 /* ── SVG Icons (Strictly Zero Emojis) ────────────────────────── */
 function IcoCalendar() {
@@ -127,7 +128,7 @@ export default function StudentSchedulesPage() {
   const byDay = useMemo(() => {
     return DAYS.reduce((acc, d) => {
       acc[d] = (schedules || [])
-        .filter(s => s.day_of_week === d)
+        .filter(s => scheduleIncludesDay(s.day_of_week, d))
         .sort((a, b) => (a.time_start || '').localeCompare(b.time_start || ''));
       return acc;
     }, {});
@@ -393,7 +394,7 @@ export default function StudentSchedulesPage() {
                     const dayClasses = byDay[day] || [];
                     if (dayClasses.length === 0) return null;
                     return dayClasses.map((s, i) => (
-                      <tr key={s.schedule_id}>
+                      <tr key={`${day}-${s.schedule_id}`}>
                         {i === 0 && (
                           <td
                             rowSpan={dayClasses.length}
@@ -410,7 +411,14 @@ export default function StudentSchedulesPage() {
                           </td>
                         )}
                         <td style={{ whiteSpace: 'nowrap', fontWeight: '500' }}>{fmt(s.time_start)} – {fmt(s.time_end)}</td>
-                        <td style={{ fontWeight: '600' }}>{s.subject}</td>
+                        <td style={{ fontWeight: '600' }}>
+                          <span>{s.subject}</span>
+                          {parseScheduleDays(s.day_of_week).length > 1 && (
+                            <span style={{ marginLeft: '6px', background: '#fff3cd', color: '#856404', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>
+                              {formatDaysShort(s.day_of_week)}
+                            </span>
+                          )}
+                        </td>
                         <td>{s.teacher_name || s.teacher || s.faculty_id || '—'}</td>
                         <td>{s.room ?? '—'}</td>
                       </tr>

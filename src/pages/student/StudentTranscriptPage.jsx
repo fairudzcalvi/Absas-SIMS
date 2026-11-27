@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { buildStudentSubjectList } from '../../utils/curriculum';
+import { getBaseFees, fetchFeeMatrix } from '../../utils/feeMatrix';
+import { evaluateFinancialHold } from '../../utils/financeRules';
 
 function IcoTranscript() {
   return (
@@ -18,12 +20,14 @@ const QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const Q_LABELS = { '1Q': '1st Qtr', '2Q': '2nd Qtr', '3Q': '3rd Qtr', '4Q': '4th Qtr' };
 
 export default function StudentTranscriptPage() {
-  const { supabase, profile, activePolicy } = useAuth();
+  const { supabase, profile, activePolicy, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
+  const currentSy = selectedSchoolYear || activeSchoolYear;
   const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
   const [grades, setGrades]         = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
   const [strandCode, setStrandCode] = useState(null);
   const [transcript, setTranscript] = useState(null);
+  const [financialHold, setFinancialHold] = useState({ isOverdue: false, overdueAmount: 0, balance: 0 });
   const [loading, setLoading]       = useState(true);
 
   const s = profile ?? {};
@@ -33,7 +37,7 @@ export default function StudentTranscriptPage() {
     async function fetch() {
       setLoading(true);
       try {
-        const [{ data: g }, { data: t }, { data: subjs }, { data: strData }] = await Promise.all([
+        const [{ data: g }, { data: t }, { data: subjs }, { data: strData }, { data: finRows }, { data: schList }, feesData] = await Promise.all([
           supabase
             .from('grades')
             .select('*')
@@ -56,7 +60,27 @@ export default function StudentTranscriptPage() {
                 .eq('id', profile.current_strand_id)
                 .maybeSingle()
             : Promise.resolve({ data: null }),
+          supabase
+            .from('student_finances')
+            .select('*')
+            .eq('student_record_id', profile.student_record_id),
+          supabase.from('scholarships').select('*'),
+          fetchFeeMatrix(supabase),
         ]);
+
+        const finRow =
+          (finRows ?? []).find(
+            f => (currentSy?.id && f.school_year_id === currentSy.id) || (currentSy?.year_label && f.school_year === currentSy.year_label)
+          ) || (finRows ?? [])[0] || null;
+        const priSch = (schList ?? []).find(sc => String(sc.id) === String(finRow?.scholarship_id || profile.scholarship_id)) || null;
+        const secSch = (schList ?? []).find(sc => String(sc.id) === String(finRow?.secondary_scholarship_id || profile.secondary_scholarship_id)) || null;
+        setFinancialHold(evaluateFinancialHold({
+          financeRow: finRow,
+          baseFees: getBaseFees(profile.grade_level, feesData),
+          primaryScholarship: priSch,
+          secondaryScholarship: secSch,
+          activeQuarterNumber: activeQuarter?.quarter_number || 1,
+        }));
 
         setGrades(g ?? []);
         setTranscript(t);
@@ -71,7 +95,7 @@ export default function StudentTranscriptPage() {
       }
     }
     fetch();
-  }, [supabase, profile]);
+  }, [supabase, profile, currentSy, activeQuarter]);
 
   // Derive complete subject list strictly ordered by DepEd curriculum
   const studentGrade = profile?.grade_level ? Number(profile.grade_level) : null;
@@ -114,11 +138,18 @@ export default function StudentTranscriptPage() {
         <div className="card">
           <div className="card-header">
             <h2 className="card-title"><IcoTranscript /> Academic Transcript</h2>
-            {transcript && (
-              <span className="badge badge-success">
-                Generated: {new Date(transcript.generated_date).toLocaleDateString()}
-              </span>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {transcript && !financialHold.isOverdue && (
+                <span className="badge badge-success">
+                  Generated: {new Date(transcript.generated_date).toLocaleDateString()}
+                </span>
+              )}
+              {!financialHold.isOverdue && !loading && rows.length > 0 && (
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+                  Print Transcript
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 32px', fontSize: '14px', marginBottom: '20px', backgroundColor: '#f9f9f9', padding: '16px', borderRadius: '8px' }}>
@@ -127,7 +158,7 @@ export default function StudentTranscriptPage() {
               ['DepEd LRN',    s.lrn_id || s.student_id || '—'],
               ['Grade Level',  s.grade_level ? `Grade ${s.grade_level}` : '—'],
               ['Section',      s.section_name],
-              ['School Year',  transcript?.school_year ?? '2026-2027'],
+              ['School Year',  transcript?.school_year ?? currentSy?.year_label ?? '2026-2027'],
             ].map(([label, val]) => (
               <div key={label}>
                 <span style={{ color: '#8B0000', fontWeight: '600' }}>{label}: </span>
@@ -138,6 +169,19 @@ export default function StudentTranscriptPage() {
 
           {loading ? (
             <p className="empty-message">Loading grades...</p>
+          ) : financialHold.isOverdue ? (
+            <div style={{ background: '#fef2f2', border: '2px solid #dc2626', borderRadius: '8px', padding: '18px', color: '#7f1d1d', lineHeight: '1.6' }}>
+              <h4 style={{ margin: '0 0 8px 0', color: '#991b1b' }}>Transcript Access &amp; Printing Held — Overdue Balance</h4>
+              <p style={{ margin: '0 0 10px 0', fontSize: '14px' }}>
+                Your official and unofficial transcript grade breakdown is temporarily withheld due to an overdue account balance.
+              </p>
+              <div style={{ fontSize: '14px', fontWeight: '600' }}>
+                Overdue Amount Due: ₱{Number(financialHold.overdueAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })} • Total Balance: ₱{Number(financialHold.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </div>
+              <p style={{ margin: '10px 0 0 0', fontSize: '13px' }}>
+                Please settle your overdue balance at the Accounting / Cashier&apos;s Office to view and print your transcript.
+              </p>
+            </div>
           ) : rows.length === 0 ? (
             <p className="empty-message">No grade records found.</p>
           ) : (

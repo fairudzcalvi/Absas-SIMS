@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cleanSectionName } from '../../utils/formatters';
+import { formatDaysShort } from '../../utils/scheduleDays';
 
 function IcoAttendance() {
   return (
@@ -224,6 +225,7 @@ export default function TeacherAttendancePage() {
                     >
                       {sch.grade_level ? `Grade ${sch.grade_level}` : ''}
                       {sch.section_name ? ` (${cleanSectionName(sch.section_name, sch.grade_level)})` : ''} — {sch.subject}
+                      {sch.day_of_week ? ` [${formatDaysShort(sch.day_of_week)}]` : ''}
                     </button>
                   );
                 })}

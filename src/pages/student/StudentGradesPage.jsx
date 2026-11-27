@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { buildStudentSubjectList } from '../../utils/curriculum';
+import { getBaseFees, fetchFeeMatrix } from '../../utils/feeMatrix';
+import { evaluateFinancialHold } from '../../utils/financeRules';
 
 function IcoGrades() {
   return (
@@ -16,12 +18,13 @@ const DEFAULT_QUARTERS = ['1Q', '2Q', '3Q', '4Q'];
 const DEFAULT_Q_LABELS = { '1Q': '1st Quarter', '2Q': '2nd Quarter', '3Q': '3rd Quarter', '4Q': '4th Quarter' };
 
 export default function StudentGradesPage() {
-  const { supabase, profile, activePolicy, selectedSchoolYear, activeSchoolYear } = useAuth();
+  const { supabase, profile, activePolicy, selectedSchoolYear, activeSchoolYear, activeQuarter } = useAuth();
   const currentSy = selectedSchoolYear || activeSchoolYear;
   const passingMark = activePolicy?.passing_grade != null ? Number(activePolicy.passing_grade) : 75;
   const [grades, setGrades]         = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
   const [strandCode, setStrandCode] = useState(null);
+  const [financialHold, setFinancialHold] = useState({ isOverdue: false, overdueAmount: 0, balance: 0 });
   const [loading, setLoading]       = useState(true);
   const [quarter, setQuarter]       = useState('1Q');
   const [quarterList, setQuarterList] = useState(DEFAULT_QUARTERS);
@@ -41,7 +44,7 @@ export default function StudentGradesPage() {
           gQuery = gQuery.or(`school_year_id.eq.${currentSy.id},school_year.eq.${currentSy.year_label}`);
         }
 
-        const [{ data: gData }, { data: sData }, { data: strData }] = await Promise.all([
+        const [{ data: gData }, { data: sData }, { data: strData }, { data: finRows }, { data: schList }, feesData] = await Promise.all([
           gQuery,
           supabase
             .from('subjects')
@@ -54,7 +57,29 @@ export default function StudentGradesPage() {
                 .eq('id', profile.current_strand_id)
                 .maybeSingle()
             : Promise.resolve({ data: null }),
+          supabase
+            .from('student_finances')
+            .select('*')
+            .eq('student_record_id', profile.student_record_id),
+          supabase.from('scholarships').select('*'),
+          fetchFeeMatrix(supabase),
         ]);
+
+        // Evaluate financial hold for overdue balance
+        const finRow =
+          (finRows ?? []).find(
+            f => (currentSy?.id && f.school_year_id === currentSy.id) || (currentSy?.year_label && f.school_year === currentSy.year_label)
+          ) || (finRows ?? [])[0] || null;
+        const priSch = (schList ?? []).find(s => String(s.id) === String(finRow?.scholarship_id || profile.scholarship_id)) || null;
+        const secSch = (schList ?? []).find(s => String(s.id) === String(finRow?.secondary_scholarship_id || profile.secondary_scholarship_id)) || null;
+        const hold = evaluateFinancialHold({
+          financeRow: finRow,
+          baseFees: getBaseFees(profile.grade_level, feesData),
+          primaryScholarship: priSch,
+          secondaryScholarship: secSch,
+          activeQuarterNumber: activeQuarter?.quarter_number || 1,
+        });
+        setFinancialHold(hold);
 
         if (currentSy?.id) {
           const { data: qData } = await supabase
@@ -87,7 +112,7 @@ export default function StudentGradesPage() {
       }
     }
     fetch();
-  }, [supabase, profile, currentSy]);
+  }, [supabase, profile, currentSy, activeQuarter]);
 
   // Derive complete subject list strictly ordered by DepEd curriculum
   const studentGrade = profile?.grade_level ? Number(profile.grade_level) : null;
@@ -123,10 +148,39 @@ export default function StudentGradesPage() {
       </div>
 
       <div className="content-area">
+        {financialHold.isOverdue ? (
+          <div className="card" style={{ border: '2px solid #dc2626', background: '#fef2f2' }}>
+            <div className="card-header" style={{ borderBottomColor: '#fecaca' }}>
+              <h2 className="card-title" style={{ color: '#991b1b' }}>Grade Viewing &amp; Report Card Restricted — Financial Hold</h2>
+            </div>
+            <div style={{ fontSize: '14px', color: '#7f1d1d', lineHeight: '1.6' }}>
+              <p style={{ marginTop: 0 }}>
+                Your grade report card and academic standings are temporarily <strong>on hold</strong> due to an overdue tuition/fee balance for the active grading period ({activeQuarter?.quarter_name || 'Current Quarter'}).
+              </p>
+              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', margin: '14px 0', padding: '12px 16px', background: '#fff', border: '1px solid #fecaca', borderRadius: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#666' }}>Overdue Installment Due</div>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: '#dc2626' }}>₱{Number(financialHold.overdueAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#666' }}>Total Remaining Balance</div>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: '#991b1b' }}>₱{Number(financialHold.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                </div>
+              </div>
+              <p style={{ marginBottom: 0, fontSize: '13px' }}>
+                Please settle your overdue account at the ABSAS Finance / Cashier&apos;s Office to immediately unlock grade viewing and report card printing.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Quarter selector */}
         <div className="card">
           <div className="card-header">
             <h2 className="card-title"><IcoGrades /> Grade Report</h2>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+              Print Report Card
+            </button>
           </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {quarterList.map(q => (
@@ -242,6 +296,8 @@ export default function StudentGradesPage() {
               </table>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </>

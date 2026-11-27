@@ -1,6 +1,13 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { DEPED_CURRICULUM, SHS_STRAND_SUBJECTS } from '../utils/curriculum';
+import {
+  WEEKDAYS,
+  parseScheduleDays,
+  serializeScheduleDays,
+  formatDaysShort,
+  formatTime12h,
+} from '../utils/scheduleDays';
 
 /* ── Icons ─────────────────────────────────────────────── */
 function IcoBook() {
@@ -116,12 +123,14 @@ function getStandardSubjectCode(name, grade) {
   return grade ? `${prefix}-${grade}` : prefix;
 }
 
-const createEmptyBatchRow = (grade = '', semester = '') => ({
+const createEmptyBatchRow = (grade = '', startTime = '08:00', endTime = '09:00', days = 'Monday, Wednesday, Friday') => ({
   id: makeRowId(),
   subject_name: '',
   subject_code: '',
   grade_level: grade ? String(grade) : '',
-  semester: semester || '',
+  days_of_week: days || 'Monday, Wednesday, Friday',
+  time_start: startTime || '08:00',
+  time_end: endTime || '09:00',
   description: '',
   status: 'Active',
 });
@@ -131,10 +140,29 @@ const EMPTY_SUBJECT_FORM = {
   subject_code: '',
   curriculum_id: '',
   grade_level: '',
-  semester: '',
+  time_start: '08:00',
+  time_end: '09:00',
+  days_of_week: 'Monday, Wednesday, Friday',
   description: '',
   status: 'Active',
 };
+
+function formatSubjectScheduleLabel(s) {
+  if (!s) return '—';
+  if (s.time_start && s.time_end) {
+    const daysTag = s.days_of_week ? `${formatDaysShort(s.days_of_week)} ` : '';
+    return `${daysTag}${formatTime12h(s.time_start)} – ${formatTime12h(s.time_end)}`;
+  }
+  return s.semester || '—';
+}
+
+function parseFallbackSchedule(semStr) {
+  const m = String(semStr || '').match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+  if (!m) return { days: 'Monday, Wednesday, Friday', start: '', end: '' };
+  const prefix = semStr.replace(m[0], '').trim();
+  const days = serializeScheduleDays(prefix) || 'Monday, Wednesday, Friday';
+  return { days, start: m[1], end: m[2] };
+}
 
 const EMPTY_CURRICULUM_FORM = {
   name: '',
@@ -269,12 +297,15 @@ export default function SubjectsPage() {
   }
   function openEditSubject(item) {
     setEditSubj(item);
+    const fb = !item.time_start ? parseFallbackSchedule(item.semester) : null;
     setSubjForm({
       subject_name:  item.subject_name  ?? '',
       subject_code:  item.subject_code  ?? '',
       curriculum_id: item.curriculum_id ?? '',
       grade_level:   item.grade_level   ?? '',
-      semester:      item.semester      ?? '',
+      time_start:    (item.time_start || fb?.start || '08:00').slice(0, 5),
+      time_end:      (item.time_end   || fb?.end   || '09:00').slice(0, 5),
+      days_of_week:  item.days_of_week  || fb?.days || 'Monday, Wednesday, Friday',
       description:   item.description   ?? '',
       status:        item.status        ?? 'Active',
     });
@@ -294,26 +325,51 @@ export default function SubjectsPage() {
     if (!subjForm.subject_name.trim()) { setSubjError('Subject name is required.'); return; }
     if (!subjForm.curriculum_id) { setSubjError('Please select a curriculum.'); return; }
     if (!subjForm.grade_level) { setSubjError('Please select a grade level.'); return; }
+    if (!subjForm.time_start || !subjForm.time_end) {
+      setSubjError('Start time and end time are required when creating a subject.');
+      return;
+    }
+    if (subjForm.time_end <= subjForm.time_start) {
+      setSubjError('End time must be later than start time.');
+      return;
+    }
+    const dayStr = serializeScheduleDays(subjForm.days_of_week);
+    if (!dayStr) {
+      setSubjError('Please select at least one scheduled weekday.');
+      return;
+    }
 
     setSubjSaving(true);
     setSubjError('');
-    const payload = {
+    const corePayload = {
       subject_name:  subjForm.subject_name.trim(),
       subject_code:  subjForm.subject_code.trim() || null,
       curriculum_id: subjForm.curriculum_id,
       grade_level:   Number(subjForm.grade_level),
-      semester:      subjForm.semester || null,
+      semester:      null,
       description:   subjForm.description.trim() || null,
       status:        subjForm.status,
     };
+    const extendedPayload = {
+      ...corePayload,
+      time_start:   subjForm.time_start,
+      time_end:     subjForm.time_end,
+      days_of_week: dayStr,
+    };
 
-    if (editSubj) {
-      const { error } = await supabase.from('subjects').update(payload).eq('subject_id', editSubj.subject_id);
-      if (error) { setSubjError(error.message); setSubjSaving(false); return; }
-    } else {
-      const { error } = await supabase.from('subjects').insert([payload]);
-      if (error) { setSubjError(error.message); setSubjSaving(false); return; }
+    const runSave = async (obj) => {
+      if (editSubj) {
+        return await supabase.from('subjects').update(obj).eq('subject_id', editSubj.subject_id);
+      }
+      return await supabase.from('subjects').insert([obj]);
+    };
+
+    let { error } = await runSave(extendedPayload);
+    if (error && /column|schema cache|42703/i.test(error.message || '')) {
+      const compactTime = `${formatDaysShort(dayStr)} ${subjForm.time_start}-${subjForm.time_end}`.trim();
+      ({ error } = await runSave({ ...corePayload, semester: compactTime }));
     }
+    if (error) { setSubjError(error.message); setSubjSaving(false); return; }
 
     setSubjSaving(false);
     setSubjModal(false);
@@ -378,23 +434,30 @@ export default function SubjectsPage() {
       return;
     }
 
-    const newRows = combined.map(name => ({
-      id: makeRowId(),
-      subject_name: name,
-      subject_code: getStandardSubjectCode(name, g),
-      grade_level: String(g),
-      semester: g >= 11 ? '1st Semester' : '',
-      description: '',
-      status: 'Active',
-    }));
+    const newRows = combined.map((name, idx) => {
+      const startHour = 7 + (idx % 9);
+      const startStr = `${String(startHour).padStart(2, '0')}:30`;
+      const endStr = `${String(startHour + 1).padStart(2, '0')}:30`;
+      return {
+        id: makeRowId(),
+        subject_name: name,
+        subject_code: getStandardSubjectCode(name, g),
+        grade_level: String(g),
+        days_of_week: 'Monday, Wednesday, Friday',
+        time_start: startStr,
+        time_end: endStr,
+        description: '',
+        status: 'Active',
+      };
+    });
 
     setBatchRows(newRows);
     setBatchError('');
-    setBatchNotice(`Loaded ${newRows.length} DepEd standard subjects for Grade ${g}${batchStrand ? ` (${batchStrand})` : ''}.`);
+    setBatchNotice(`Loaded ${newRows.length} DepEd standard subjects (Time-Based) for Grade ${g}${batchStrand ? ` (${batchStrand})` : ''}.`);
   }
 
   function handleAddBatchRow() {
-    setBatchRows(prev => [...prev, createEmptyBatchRow(batchGrade, Number(batchGrade) >= 11 ? '1st Semester' : '')]);
+    setBatchRows(prev => [...prev, createEmptyBatchRow(batchGrade)]);
   }
 
   function handleRemoveBatchRow(id) {
@@ -469,12 +532,21 @@ export default function SubjectsPage() {
         continue;
       }
 
+      const missingTime = validRows.find(r => !r.time_start || !r.time_end);
+      if (missingTime) {
+        setBatchError(`Subject "${missingTime.subject_name}" requires start and end time.`);
+        return;
+      }
+
       toInsert.push({
         subject_name:  row.subject_name.trim(),
         subject_code:  row.subject_code.trim() || null,
         curriculum_id: batchCurrId,
         grade_level:   Number(row.grade_level),
-        semester:      row.semester || null,
+        semester:      null,
+        time_start:    row.time_start,
+        time_end:      row.time_end,
+        days_of_week:  serializeScheduleDays(row.days_of_week) || 'Monday, Wednesday, Friday',
         description:   row.description ? row.description.trim() || null : null,
         status:        row.status || 'Active',
       });
@@ -491,7 +563,14 @@ export default function SubjectsPage() {
     }
 
     setBatchSaving(true);
-    const { error } = await supabase.from('subjects').insert(toInsert);
+    let { error } = await supabase.from('subjects').insert(toInsert);
+    if (error && /column|schema cache|42703/i.test(error.message || '')) {
+      const fallbackRows = toInsert.map(({ time_start, time_end, days_of_week, ...rest }) => ({
+        ...rest,
+        semester: `${formatDaysShort(days_of_week)} ${time_start}-${time_end}`.trim(),
+      }));
+      ({ error } = await supabase.from('subjects').insert(fallbackRows));
+    }
 
     if (error) {
       setBatchError(error.message);
@@ -951,7 +1030,7 @@ export default function SubjectsPage() {
                   <th>Subject Name</th>
                   <th>Curriculum</th>
                   <th>Grade Level</th>
-                  <th>Semester</th>
+                  <th>Time &amp; Days</th>
                   <th>Description</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -980,7 +1059,9 @@ export default function SubjectsPage() {
                           : <span style={{ color: '#aaa', fontSize: '12px' }}>—</span>}
                       </td>
                       <td>{s.grade_level ? `Grade ${s.grade_level}` : '—'}</td>
-                      <td>{s.semester ?? '—'}</td>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: '12px', fontWeight: '600', color: '#8B0000' }}>
+                        {formatSubjectScheduleLabel(s)}
+                      </td>
                       <td style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.description ?? '—'}</td>
                       <td><StatusBadge status={s.status} /></td>
                       <td>
@@ -1048,17 +1129,104 @@ export default function SubjectsPage() {
                         ))}
                       </select>
                     </div>
-                    {/* Semester — only shown for SHS (grade 11-12) */}
-                    {Number(subjForm.grade_level) >= 11 && (
-                      <div className="form-group">
-                        <label>Semester</label>
-                        <select value={subjForm.semester} onChange={e => setSubjForm(f => ({ ...f, semester: e.target.value }))}>
-                          <option value="">— Any semester —</option>
-                          <option value="1st Semester">1st Semester</option>
-                          <option value="2nd Semester">2nd Semester</option>
-                        </select>
+                  </div>
+                </div>
+
+                {/* Time-Based Schedule & Multi-Day Setup (HS & All Levels) */}
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ margin: '0 0 10px', fontSize: '14px', fontWeight: '600', color: '#333', borderBottom: '2px solid #e9ecef', paddingBottom: '8px' }}>
+                    Time-Based Class Schedule (Required)
+                  </h4>
+                  <p style={{ fontSize: '12px', color: '#555', marginBottom: '12px' }}>
+                    All Grade Levels (including Junior &amp; Senior High School) use time-based subject schedules with selectable multi-day meetings.
+                  </p>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Start Time *</label>
+                      <input
+                        type="time"
+                        value={subjForm.time_start}
+                        onChange={e => setSubjForm(f => ({ ...f, time_start: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>End Time *</label>
+                      <input
+                        type="time"
+                        value={subjForm.time_end}
+                        onChange={e => setSubjForm(f => ({ ...f, time_end: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                        <label style={{ margin: 0 }}>Meeting Days (Multi-Day) *</label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '2px 8px' }}
+                            onClick={() => setSubjForm(f => ({ ...f, days_of_week: 'Monday, Wednesday, Friday' }))}
+                          >
+                            M-W-F
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '2px 8px' }}
+                            onClick={() => setSubjForm(f => ({ ...f, days_of_week: 'Tuesday, Thursday' }))}
+                          >
+                            T-Th
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '2px 8px' }}
+                            onClick={() => setSubjForm(f => ({ ...f, days_of_week: WEEKDAYS.join(', ') }))}
+                          >
+                            Daily (M-F)
+                          </button>
+                        </div>
                       </div>
-                    )}
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        {WEEKDAYS.map(day => {
+                          const selectedDays = parseScheduleDays(subjForm.days_of_week);
+                          const checked = selectedDays.includes(day);
+                          return (
+                            <label
+                              key={day}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: checked ? '1px solid #8B0000' : '1px solid #ddd',
+                                background: checked ? '#fff5f5' : '#f8f9fa',
+                                color: checked ? '#8B0000' : '#444',
+                                fontSize: '12px',
+                                fontWeight: checked ? '600' : '500',
+                                cursor: 'pointer',
+                                margin: 0,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={e => {
+                                  const next = e.target.checked
+                                    ? [...selectedDays, day]
+                                    : selectedDays.filter(d => d !== day);
+                                  setSubjForm(f => ({ ...f, days_of_week: serializeScheduleDays(next) }));
+                                }}
+                              />
+                              {day}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1258,16 +1426,18 @@ export default function SubjectsPage() {
                         <th style={{ width: '40px', textAlign: 'center' }}>#</th>
                         <th style={{ minWidth: '220px' }}>Subject Name *</th>
                         <th style={{ minWidth: '120px' }}>Subject Code</th>
-                        <th style={{ minWidth: '110px' }}>Grade Level</th>
-                        {Number(batchGrade) >= 11 && <th style={{ minWidth: '130px' }}>Semester</th>}
-                        <th style={{ minWidth: '150px' }}>Description</th>
+                        <th style={{ minWidth: '100px' }}>Grade Level</th>
+                        <th style={{ minWidth: '120px' }}>Days</th>
+                        <th style={{ minWidth: '105px' }}>Start Time *</th>
+                        <th style={{ minWidth: '105px' }}>End Time *</th>
+                        <th style={{ minWidth: '140px' }}>Description</th>
                         <th style={{ width: '45px', textAlign: 'center' }}></th>
                       </tr>
                     </thead>
                     <tbody>
                       {batchRows.length === 0 ? (
                         <tr>
-                          <td colSpan={Number(batchGrade) >= 11 ? 7 : 6} className="empty-message" style={{ padding: '24px' }}>
+                          <td colSpan={8} className="empty-message" style={{ padding: '24px' }}>
                             No rows in batch. Click "Add Row" or "Load DepEd Standards".
                           </td>
                         </tr>
@@ -1329,19 +1499,40 @@ export default function SubjectsPage() {
                                   ))}
                                 </select>
                               </td>
-                              {Number(batchGrade) >= 11 && (
-                                <td>
-                                  <select
-                                    value={row.semester}
-                                    onChange={e => handleUpdateBatchRow(row.id, 'semester', e.target.value)}
-                                    style={{ width: '100%', padding: '6px 8px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ced4da' }}
-                                  >
-                                    <option value="">Any</option>
-                                    <option value="1st Semester">1st Semester</option>
-                                    <option value="2nd Semester">2nd Semester</option>
-                                  </select>
-                                </td>
-                              )}
+                              <td>
+                                <select
+                                  value={row.days_of_week || 'Monday, Wednesday, Friday'}
+                                  onChange={e => handleUpdateBatchRow(row.id, 'days_of_week', e.target.value)}
+                                  style={{ width: '100%', padding: '6px 8px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                                >
+                                  <option value="Monday, Wednesday, Friday">M-W-F</option>
+                                  <option value="Tuesday, Thursday">T-Th</option>
+                                  <option value="Monday, Tuesday, Wednesday, Thursday, Friday">M-F Daily</option>
+                                  <option value="Monday">Mon</option>
+                                  <option value="Tuesday">Tue</option>
+                                  <option value="Wednesday">Wed</option>
+                                  <option value="Thursday">Thu</option>
+                                  <option value="Friday">Fri</option>
+                                </select>
+                              </td>
+                              <td>
+                                <input
+                                  type="time"
+                                  value={row.time_start || '08:00'}
+                                  onChange={e => handleUpdateBatchRow(row.id, 'time_start', e.target.value)}
+                                  style={{ width: '100%', padding: '5px 6px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                                  required
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="time"
+                                  value={row.time_end || '09:00'}
+                                  onChange={e => handleUpdateBatchRow(row.id, 'time_end', e.target.value)}
+                                  style={{ width: '100%', padding: '5px 6px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ced4da' }}
+                                  required
+                                />
+                              </td>
                               <td>
                                 <input
                                   type="text"
